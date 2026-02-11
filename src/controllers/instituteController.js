@@ -1,4 +1,5 @@
 const instituteDao = require('../dao/instituteDao');
+const activityLogDao = require('../dao/activityLogDao');
 
 const createInstitute = async (req, res) => {
   try {
@@ -33,6 +34,16 @@ const createInstitute = async (req, res) => {
       address,
       location,
     });
+
+    // Log activity
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'CREATE_INSTITUTE',
+        `Created institute: ${institute_name}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
 
     res.status(201).json({
       message: 'Institute created successfully',
@@ -159,6 +170,16 @@ const updateInstitute = async (req, res) => {
         .json({ message: 'Institute not found or no changes made' });
     }
 
+    // Log activity
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'UPDATE_INSTITUTE',
+        `Updated institute: ${institute_name} (ID: ${id})`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
     res.json({ message: 'Institute updated successfully' });
   } catch (error) {
     console.error('Update Institute Error:', error);
@@ -171,10 +192,25 @@ const updateInstitute = async (req, res) => {
 const deleteInstitute = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Get institute name before deleting for the log
+    const institute = await instituteDao.getInstituteById(id);
+    const instituteName = institute ? institute.institute_name : `ID: ${id}`;
+
     const success = await instituteDao.deleteInstitute(id);
 
     if (!success) {
       return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    // Log activity
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'DELETE_INSTITUTE',
+        `Deleted institute: ${instituteName}`,
+        req.ip || req.connection.remoteAddress,
+      );
     }
 
     res.json({ message: 'Institute deleted successfully' });

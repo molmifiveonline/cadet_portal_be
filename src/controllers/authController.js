@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const UserDao = require('../dao/userDao');
 const db = require('../config/database');
 const { sendEmail } = require('../utils/emailService');
+const activityLogDao = require('../dao/activityLogDao');
 
 const login = async (req, res) => {
   try {
@@ -32,12 +33,26 @@ const login = async (req, res) => {
       return res.status(403).json({ message: 'Account is inactive' });
     }
 
-    const roleName = user.role || 'admin';
+    const roleName = user.role || 'Candidate';
 
     const token = jwt.sign(
-      { id: user.id, role: roleName, email: user.email },
+      {
+        id: user.id,
+        role: roleName,
+        email: user.email,
+        first_name: user.first_name || '',
+        last_name: user.last_name || '',
+      },
       process.env.JWT_SECRET || 'fallback_secret',
       { expiresIn: '1d' },
+    );
+
+    // Log activity
+    await activityLogDao.createLog(
+      user.id,
+      'LOGIN',
+      `User logged in successfully`,
+      req.ip || req.connection.remoteAddress,
     );
 
     res.json({
@@ -47,6 +62,8 @@ const login = async (req, res) => {
         id: user.id,
         email: user.email,
         role: roleName,
+        first_name: user.first_name || '',
+        last_name: user.last_name || '',
       },
     });
   } catch (error) {
@@ -97,6 +114,14 @@ const forgotPassword = async (req, res) => {
       console.log(`[DEV] Forgot Password Link for ${email}: ${resetLink}`);
     }
 
+    // Log activity
+    await activityLogDao.createLog(
+      user.id,
+      'PASSWORD_RESET_REQUEST',
+      `User requested password reset`,
+      req.ip || req.connection.remoteAddress,
+    );
+
     res.json({ message: 'A password reset link has been sent to your email.' });
   } catch (error) {
     console.error('Forgot Password Error:', error);
@@ -120,8 +145,10 @@ const resetPassword = async (req, res) => {
     const updated = await UserDao.updateUserPassword(userId, hashedPassword);
 
     if (updated) {
-      // Optionally send a confirmation email
+      // Get user info for email and logging
       const user = await UserDao.findUserById(userId);
+
+      // Optionally send a confirmation email
       if (user && process.env.SMTP_USER) {
         const subject = 'Password Reset Successful';
         const html = `<p>Hi,</p><p>Your password has been successfully updated.</p>`;
@@ -131,6 +158,16 @@ const resetPassword = async (req, res) => {
           html,
           text: 'Password Reset Successful',
         });
+      }
+
+      // Log activity (reuse the user variable)
+      if (user) {
+        await activityLogDao.createLog(
+          userId,
+          'PASSWORD_RESET',
+          `User reset their password`,
+          req.ip || req.connection.remoteAddress,
+        );
       }
 
       res.json({ message: 'Your password has been successfully updated.' });
