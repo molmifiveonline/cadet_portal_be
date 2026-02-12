@@ -14,6 +14,7 @@ router.use('/institutes', instituteRoutes);
 router.use('/activity-logs', activityLogRoutes);
 router.use('/users', userManagementRoutes);
 router.use('/role-permissions', rolePermissionRoutes);
+router.use('/cadets', require('./cadetRoutes'));
 
 // API info
 router.get('/', (req, res) => {
@@ -26,7 +27,6 @@ router.get('/', (req, res) => {
       activityLogs: '/api/activity-logs',
       users: '/api/users',
       rolePermissions: '/api/role-permissions',
-      batches: '/api/batches',
       cadets: '/api/cadets',
       cv: '/api/cv',
     },

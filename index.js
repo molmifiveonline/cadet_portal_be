@@ -18,11 +18,15 @@ app.get('/', (req, res) => {
 });
 
 // API Routes
-app.use('/api/auth', require('./routes/authRoutes'));
-app.use('/api/institutes', require('./routes/instituteRoutes'));
-app.use('/api/batches', require('./routes/batchRoutes'));
-app.use('/api/cadets', require('./routes/cadetRoutes'));
-app.use('/api/cv', require('./routes/cvRoutes'));
+const authRoutes = require('./routes/authRoutes');
+const instituteRoutes = require('./src/routes/instituteRoutes');
+const cadetRoutes = require('./src/routes/cadetRoutes');
+const cvRoutes = require('./routes/cvRoutes');
+
+app.use('/api/auth', authRoutes);
+app.use('/api/institutes', instituteRoutes);
+app.use('/api/cadets', cadetRoutes);
+app.use('/api/cv', cvRoutes);
 
 // Start Server
 app.listen(PORT, () => {

@@ -12,6 +12,13 @@ router.get(
   userManagementController.getUsers,
 );
 
+router.get(
+  '/:id',
+  authMiddleware,
+  requirePermission('users', 'view'),
+  userManagementController.getUserById,
+);
+
 router.post(
   '/',
   authMiddleware,

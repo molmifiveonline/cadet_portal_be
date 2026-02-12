@@ -1,18 +1,15 @@
 const db = require('../config/database');
+const { v4: uuidv4 } = require('uuid');
 
 const createLog = async (userId, action, details = '', ipAddress = null) => {
   try {
+    const id = uuidv4();
     const query = `
-      INSERT INTO activity_logs (user_id, action, details, ip_address)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO activity_logs (id, user_id, action, details, ip_address)
+      VALUES (?, ?, ?, ?, ?)
     `;
-    const [result] = await db.query(query, [
-      userId,
-      action,
-      details,
-      ipAddress,
-    ]);
-    return result.insertId;
+    await db.query(query, [id, userId, action, details, ipAddress]);
+    return id;
   } catch (error) {
     console.error('Error creating activity log:', error);
     // Don't throw error to prevent blocking main flow

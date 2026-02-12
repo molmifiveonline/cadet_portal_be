@@ -356,6 +356,62 @@ const emailTemplates = {
       </html>
     `,
   }),
+
+  instituteExcelSubmission: (data) => ({
+    subject: data.subject || 'Action Required: Submit Excel Data - MOLMI',
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #0066cc; color: white; padding: 20px; text-align: center; }
+          .content { background-color: #f9f9f9; padding: 30px; border: 1px solid #ddd; }
+          .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+          .warning { color: #ff6600; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>MOLMI Institute Submission</h1>
+          </div>
+          <div class="content">
+            <p>Dear <strong>${data.instituteName}</strong>,</p>
+
+            <p>${data.description}</p>
+
+            <p>Please download the attached Excel format and submit the required data using the link below:</p>
+
+            <div style="text-align: center; margin: 20px 0;">
+              <!-- Using inline styles for better email client compatibility -->
+              <a href="${data.link}" target="_blank" style="
+                display: inline-block; 
+                background-color: #0066cc; 
+                color: #ffffff; 
+                padding: 12px 30px; 
+                text-decoration: none; 
+                border-radius: 5px; 
+                font-weight: bold;
+                font-family: Arial, sans-serif;
+              ">Submit Excel Sheet</a>
+            </div>
+
+            <p class="warning">⏰ This link will expire on ${data.expiryDate} (7 days)</p>
+
+            <p>If you have any questions, please contact the administration.</p>
+
+            <p>Best regards,<br><strong>MOLMI Administration</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated email. Please do not reply to this message.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+  }),
 };
 
 module.exports = {
