@@ -62,6 +62,7 @@ const getAllInstitutes = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';
+    const hasSubmissions = req.query.hasSubmissions === 'true';
     let sortBy = req.query.sortBy || 'created_at';
     let sortOrder = req.query.sortOrder || 'DESC';
 
@@ -94,6 +95,7 @@ const getAllInstitutes = async (req, res) => {
       sortBy,
       sortOrder,
       search,
+      hasSubmissions,
     );
 
     res.json({

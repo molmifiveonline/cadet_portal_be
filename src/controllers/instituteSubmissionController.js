@@ -223,6 +223,7 @@ const getAllSubmissions = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const status = req.query.status || 'all';
+    const search = req.query.search || '';
 
     const offset = (page - 1) * limit;
 
@@ -230,6 +231,7 @@ const getAllSubmissions = async (req, res) => {
       limit,
       offset,
       status,
+      search,
     );
 
     res.json({
@@ -252,102 +254,181 @@ const {
   mapRowToCadetData,
 } = require('../services/excelImportService');
 
+// Helper function for import logic
+const processImport = async (id, userId, clientIp) => {
+  const submission = await instituteDao.getSubmissionById(id);
+  if (!submission) throw new Error('Submission not found');
+  if (submission.status === 'imported')
+    throw new Error('Submission already imported');
+
+  const submissionFile = await instituteDao.getSubmissionFile(id);
+  if (!submissionFile || !submissionFile.file_data)
+    throw new Error('File data not found');
+
+  const rawData = parseExcelFile(submissionFile.file_data);
+  const headerKeywords = [
+    'name',
+    'email',
+    'phone',
+    'contact',
+    'dob',
+    'gender',
+    'batch',
+    's.no',
+    'sr.no',
+    'roll no',
+    'indos',
+  ];
+  const headerInfo = findHeaderRow(rawData, headerKeywords);
+  if (!headerInfo)
+    throw new Error('Could not identify header row in Excel file');
+
+  const { rowIndex: headerRowIndex, headers } = headerInfo;
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (let i = headerRowIndex + 1; i < rawData.length; i++) {
+    const rowData = rawData[i];
+    if (!rowData || rowData.length === 0) continue;
+    try {
+      const cadetData = mapRowToCadetData(rowData, headers, submission);
+      if (cadetData.name) {
+        await cadetDao.createCadet(cadetData);
+        successCount++;
+      } else {
+        failedCount++;
+      }
+    } catch (err) {
+      console.error('Error importing row:', i, err);
+      failedCount++;
+    }
+  }
+
+  await instituteDao.updateSubmissionStatus(id, 'imported');
+
+  if (userId) {
+    await activityLogDao.createLog(
+      userId,
+      'IMPORT_SUBMISSION',
+      `Imported ${successCount} cadets from submission ${id}`,
+      clientIp,
+    );
+  }
+  return { success: successCount, failed: failedCount };
+};
+
 const importSubmission = async (req, res) => {
   try {
     const { id } = req.params;
-    const submission = await instituteDao.getSubmissionById(id);
+    const stats = await processImport(
+      id,
+      req.user?.id,
+      req.ip || req.connection.remoteAddress,
+    );
+    res.json({
+      success: true,
+      message: 'Import completed',
+      stats: {
+        success: stats.success,
+        failed: stats.failed,
+        total: stats.success + stats.failed,
+      },
+    });
+  } catch (error) {
+    if (error.message === 'Submission not found')
+      return res.status(404).json({ message: error.message });
+    if (error.message === 'Submission already imported')
+      return res.status(400).json({ message: error.message });
+    console.error('Import Submission Error:', error);
+    res
+      .status(500)
+      .json({ message: 'Error importing submission', error: error.message });
+  }
+};
 
-    if (!submission) {
+const deleteSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await instituteDao.deleteSubmission(id);
+    if (!deleted) {
       return res.status(404).json({ message: 'Submission not found' });
     }
 
-    if (submission.status === 'imported') {
-      return res.status(400).json({ message: 'Submission already imported' });
-    }
-
-    // Fetch File Data from DB
-    const submissionFile = await instituteDao.getSubmissionFile(id);
-    if (!submissionFile || !submissionFile.file_data) {
-      return res.status(404).json({ message: 'File data not found' });
-    }
-
-    const rawData = parseExcelFile(submissionFile.file_data);
-
-    // Potential header keywords to look for
-    const headerKeywords = [
-      'name',
-      'email',
-      'phone',
-      'contact',
-      'dob',
-      'gender',
-      'batch',
-      's.no',
-      'sr.no',
-      'roll no',
-      'indos',
-    ];
-
-    const headerInfo = findHeaderRow(rawData, headerKeywords);
-    if (!headerInfo) {
-      return res
-        .status(400)
-        .json({ message: 'Could not identify header row in Excel file' });
-    }
-
-    const { rowIndex: headerRowIndex, headers } = headerInfo;
-
-    // Process Data starting from row after header
-    let successCount = 0;
-    let failedCount = 0;
-
-    for (let i = headerRowIndex + 1; i < rawData.length; i++) {
-      const rowData = rawData[i];
-      if (!rowData || rowData.length === 0) continue;
-
-      try {
-        const cadetData = mapRowToCadetData(rowData, headers, submission);
-
-        // Minimal requirement: Name
-        if (cadetData.name) {
-          await cadetDao.createCadet(cadetData);
-          successCount++;
-        } else {
-          failedCount++;
-        }
-      } catch (err) {
-        console.error('Error importing row:', i, err);
-        failedCount++;
-      }
-    }
-
-    // Update Submission Status
-    await instituteDao.updateSubmissionStatus(id, 'imported');
-
-    // Log Activity
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
         req.user.id,
-        'IMPORT_SUBMISSION',
-        `Imported ${successCount} cadets from submission ${id}`,
+        'DELETE_SUBMISSION',
+        `Deleted submission ${id}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.json({ message: 'Submission deleted successfully' });
+  } catch (error) {
+    console.error('Delete Submission Error:', error);
+    res
+      .status(500)
+      .json({ message: 'Error deleting submission', error: error.message });
+  }
+};
+
+const bulkDeleteSubmissions = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'IDs array is required' });
+    }
+
+    const deletedCount = await instituteDao.deleteSubmissions(ids);
+
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'BULK_DELETE_SUBMISSION',
+        `Deleted ${deletedCount} submissions`,
         req.ip || req.connection.remoteAddress,
       );
     }
 
     res.json({
-      success: true,
-      message: 'Import completed',
-      stats: {
-        success: successCount,
-        failed: failedCount,
-        total: successCount + failedCount,
-      },
+      message: `${deletedCount} submissions deleted successfully`,
+      count: deletedCount,
     });
   } catch (error) {
-    console.error('Import Submission Error:', error);
+    console.error('Bulk Delete Error:', error);
     res
       .status(500)
-      .json({ message: 'Error importing submission', error: error.message });
+      .json({ message: 'Error deleting submissions', error: error.message });
+  }
+};
+
+const bulkImportSubmissions = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'IDs array is required' });
+    }
+
+    const results = [];
+    for (const id of ids) {
+      try {
+        const stats = await processImport(
+          id,
+          req.user?.id,
+          req.ip || req.connection.remoteAddress,
+        );
+        results.push({ id, status: 'success', stats });
+      } catch (error) {
+        results.push({ id, status: 'failed', reason: error.message });
+      }
+    }
+
+    res.json({ message: 'Bulk import processed', results });
+  } catch (error) {
+    console.error('Bulk Import Error:', error);
+    res
+      .status(500)
+      .json({ message: 'Error processing bulk import', error: error.message });
   }
 };
 
@@ -384,4 +465,7 @@ module.exports = {
   getAllSubmissions,
   importSubmission,
   downloadSubmission,
+  deleteSubmission,
+  bulkDeleteSubmissions,
+  bulkImportSubmissions,
 };

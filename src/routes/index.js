@@ -7,6 +7,7 @@ const instituteRoutes = require('./instituteRoutes');
 const activityLogRoutes = require('./activityLogRoutes');
 const userManagementRoutes = require('./userManagementRoutes');
 const rolePermissionRoutes = require('./rolePermissionRoutes');
+const cvFormRoutes = require('./cvFormRoutes');
 
 // Use routes
 router.use('/auth', authRoutes);
@@ -15,6 +16,7 @@ router.use('/activity-logs', activityLogRoutes);
 router.use('/users', userManagementRoutes);
 router.use('/role-permissions', rolePermissionRoutes);
 router.use('/cadets', require('./cadetRoutes'));
+router.use('/cv', cvFormRoutes);
 
 // API info
 router.get('/', (req, res) => {

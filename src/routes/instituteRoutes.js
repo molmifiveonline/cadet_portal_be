@@ -15,6 +15,9 @@ const {
   getAllSubmissions,
   importSubmission,
   downloadSubmission,
+  deleteSubmission,
+  bulkDeleteSubmissions,
+  bulkImportSubmissions,
 } = require('../controllers/instituteSubmissionController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
@@ -35,6 +38,20 @@ router.get(
   getAllSubmissions,
 );
 
+router.post(
+  '/submissions/bulk-import',
+  authMiddleware,
+  requirePermission('institutes', 'edit'),
+  bulkImportSubmissions,
+);
+
+router.delete(
+  '/submissions/bulk',
+  authMiddleware,
+  requirePermission('institutes', 'delete'),
+  bulkDeleteSubmissions,
+);
+
 router.get(
   '/submissions/:id/download',
   authMiddleware,
@@ -47,6 +64,13 @@ router.post(
   authMiddleware,
   requirePermission('institutes', 'edit'),
   importSubmission,
+);
+
+router.delete(
+  '/submissions/:id',
+  authMiddleware,
+  requirePermission('institutes', 'delete'),
+  deleteSubmission,
 );
 
 router.post(
