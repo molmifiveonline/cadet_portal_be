@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
 
 /**
@@ -20,18 +21,20 @@ const generateSecureToken = () => {
  * @returns {Object} Token data
  */
 const createCVToken = async (cadetId, instituteId, expirationDays = 7) => {
+  const id = uuidv4();
   const token = generateSecureToken();
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + expirationDays);
 
   const query = `
     INSERT INTO cv_tokens (id, cadet_id, institute_id, token, expires_at, status)
-    VALUES (UUID(), ?, ?, ?, ?, 'active')
+    VALUES (?, ?, ?, ?, ?, 'active')
   `;
 
-  await db.query(query, [cadetId, instituteId, token, expiresAt]);
+  await db.query(query, [id, cadetId, instituteId, token, expiresAt]);
 
   return {
+    id,
     token,
     cadet_id: cadetId,
     institute_id: instituteId,
@@ -52,10 +55,10 @@ const getTokenByString = async (token) => {
       c.name as cadet_name,
       c.email as cadet_email,
       i.institute_name,
-      i.email as institute_email
+      i.institute_email
     FROM cv_tokens t
-    LEFT JOIN cadets c ON t.cadet_id = c.id
-    LEFT JOIN institutes i ON t.institute_id = i.id
+    LEFT JOIN cadets c ON t.cadet_id COLLATE utf8mb4_general_ci = c.id
+    LEFT JOIN institutes i ON t.institute_id COLLATE utf8mb4_general_ci = i.id
     WHERE t.token = ?
   `;
 
@@ -178,7 +181,7 @@ const getTokensByInstitute = async (instituteId) => {
       c.name as cadet_name,
       c.email as cadet_email
     FROM cv_tokens t
-    LEFT JOIN cadets c ON t.cadet_id = c.id
+    LEFT JOIN cadets c ON t.cadet_id COLLATE utf8mb4_general_ci = c.id
     WHERE t.institute_id = ?
     ORDER BY t.created_at DESC
   `;

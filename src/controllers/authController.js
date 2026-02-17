@@ -2,7 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const UserDao = require('../dao/userDao');
 const db = require('../config/database');
-const { sendEmail } = require('../utils/emailService');
+const { sendEmail } = require('../services/emailService');
 const activityLogDao = require('../dao/activityLogDao');
 
 const login = async (req, res) => {

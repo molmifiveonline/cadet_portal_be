@@ -1,6 +1,6 @@
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
-const { sendEmail, emailTemplates } = require('../utils/emailService');
+const { sendEmail, emailTemplates } = require('../services/emailService');
 const jwt = require('jsonwebtoken');
 
 const cadetDao = require('../dao/cadetDao');

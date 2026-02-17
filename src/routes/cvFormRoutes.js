@@ -11,8 +11,8 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 const { requirePermission } = require('../middleware/permissionMiddleware');
 
 // Public routes (no authentication required, token-based access)
-router.get('/public/:token', getCVFormByToken);
-router.post('/public/:token', submitCVForm);
+router.get('/form/:token', getCVFormByToken);
+router.post('/form/:token', submitCVForm);
 
 // Protected admin routes
 router.post(

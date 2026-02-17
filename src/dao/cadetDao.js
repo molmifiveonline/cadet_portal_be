@@ -300,8 +300,7 @@ const updateCVData = async (cadetId, cvData) => {
   const allowedFields = [
     // Existing fields that can be updated
     'passport_number', // Note: DB has passport_number, not passport_no
-    'indos_number',
-    'indos_no2',
+    'indos_number', // Should store actual INDOS numbers
     'hometown', // Using existing hometown field (same as place_of_birth)
     'nationality',
     'eye_color',
@@ -347,7 +346,6 @@ const updateCVData = async (cadetId, cvData) => {
     'imu_sem6',
     'imu_sem7',
     'imu_sem8',
-    'cgpa_till_last_semester',
     // Family details
     'father_occupation',
     'mother_occupation',
