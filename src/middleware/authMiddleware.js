@@ -14,11 +14,20 @@ const authMiddleware = (req, res, next) => {
         .json({ message: 'Access denied. No token provided.' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || 'fallback_secret',
+    );
     req.user = decoded;
     next();
   } catch (error) {
-    res.status(401).json({ message: 'Invalid token' });
+    // For debugging:
+    console.error('JWT Verification Error:', error.name, error.message);
+    res.status(401).json({
+      message: 'Invalid token',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      code: error.name,
+    });
   }
 };
 

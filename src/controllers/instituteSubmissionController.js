@@ -60,7 +60,7 @@ const sendInstituteEmail = async (req, res) => {
           type: 'excel_submission',
           exp: Math.floor(Date.now() / 1000) + expiryDays * 24 * 60 * 60,
         },
-        process.env.JWT_SECRET,
+        process.env.JWT_SECRET || 'fallback_secret',
       );
 
       // Generate Link
