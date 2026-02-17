@@ -300,6 +300,83 @@ const getShortlistStats = async (req, res) => {
   }
 };
 
+const fs = require('fs').promises;
+const path = require('path');
+
+const updateCadet = async (req, res) => {
+  try {
+    const { id } = req.params;
+    let cadetData = req.body;
+
+    // Check if cadet exists
+    const existingCadet = await cadetDao.getCadetById(id);
+    if (!existingCadet) {
+      return res.status(404).json({ message: 'Cadet not found' });
+    }
+
+    // Handle photo upload
+    if (req.file) {
+      const uploadDir = path.join(__dirname, '../../uploads/photos');
+      await fs.mkdir(uploadDir, { recursive: true });
+
+      const filename = `${Date.now()}-${req.file.originalname.replace(/\s+/g, '-')}`;
+      await fs.writeFile(path.join(uploadDir, filename), req.file.buffer);
+
+      const photoPath = `${req.protocol}://${req.get('host')}/uploads/photos/${filename}`;
+      cadetData = { ...cadetData, photo_path: photoPath };
+    }
+
+    await cadetDao.updateCadet(id, cadetData);
+
+    // Log Activity
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'UPDATE_CADET',
+        `Updated cadet ${existingCadet.name}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.json({ message: 'Cadet updated successfully' });
+  } catch (error) {
+    console.error('Update Cadet Error:', error);
+    res
+      .status(500)
+      .json({ message: 'Error updating cadet', error: error.message });
+  }
+};
+
+const deleteCadet = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const existingCadet = await cadetDao.getCadetById(id);
+    if (!existingCadet) {
+      return res.status(404).json({ message: 'Cadet not found' });
+    }
+
+    await cadetDao.deleteCadet(id);
+
+    // Log Activity
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'DELETE_CADET',
+        `Deleted cadet ${existingCadet.name}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.json({ message: 'Cadet deleted successfully' });
+  } catch (error) {
+    console.error('Delete Cadet Error:', error);
+    res
+      .status(500)
+      .json({ message: 'Error deleting cadet', error: error.message });
+  }
+};
+
 module.exports = {
   getAllCadets,
   importCadets,
@@ -307,4 +384,6 @@ module.exports = {
   getShortlistedCadets,
   exportShortlistedCadets,
   getShortlistStats,
+  updateCadet,
+  deleteCadet,
 };

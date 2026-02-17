@@ -392,6 +392,87 @@ const updateCVData = async (cadetId, cvData) => {
   await db.query(query, values);
 };
 
+/**
+ * Update cadet data
+ * @param {string} id - Cadet ID
+ * @param {Object} cadetData - Data to update
+ */
+const updateCadet = async (id, cadetData) => {
+  const allowedFields = [
+    'institute_id',
+    'name',
+    'email',
+    'phone',
+    'course',
+    'batch',
+    'gender',
+    'dob',
+    'indos_number',
+    'cdc_number',
+    'passport_number',
+    'tenth_percentage',
+    'twelfth_percentage',
+    'pcm_percentage',
+    'degree_percentage',
+    'height',
+    'weight',
+    'blood_group',
+    'hometown',
+    'passing_out_date',
+    'age_at_passing_out',
+    'batch_rank',
+    'no_of_arrears',
+    'tenth_board',
+    'tenth_year',
+    'tenth_maths',
+    'tenth_science',
+    'tenth_english',
+    'twelfth_board',
+    'twelfth_year',
+    'twelfth_english',
+    'twelfth_physics',
+    'twelfth_chemistry',
+    'twelfth_maths',
+    'imu_rank',
+    'imu_avg_percentage',
+    'imu_sem1',
+    'imu_sem2',
+    'imu_sem3',
+    'imu_sem4',
+    'imu_sem5',
+    'imu_sem6',
+    'imu_sem7',
+    'imu_sem8',
+    'bmi',
+    'extra_curricular',
+    'status',
+    'photo_path',
+  ];
+
+  const updateFields = [];
+  const values = [];
+
+  for (const field of allowedFields) {
+    if (cadetData[field] !== undefined) {
+      updateFields.push(`${field} = ?`);
+      values.push(cadetData[field]);
+    }
+  }
+
+  if (updateFields.length === 0) {
+    return; // Nothing to update
+  }
+
+  values.push(id);
+
+  const query = `UPDATE cadets SET ${updateFields.join(', ')} WHERE id = ?`;
+  await db.query(query, values);
+};
+
+const deleteCadet = async (id) => {
+  await db.query('DELETE FROM cadets WHERE id = ?', [id]);
+};
+
 module.exports = {
   createCadet,
   getAllCadets,
@@ -399,4 +480,6 @@ module.exports = {
   getShortlistedCadets,
   getShortlistCountByInstitute,
   updateCVData,
+  updateCadet,
+  deleteCadet,
 };

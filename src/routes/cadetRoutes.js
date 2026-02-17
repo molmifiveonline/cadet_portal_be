@@ -7,6 +7,8 @@ const {
   getShortlistedCadets,
   exportShortlistedCadets,
   getShortlistStats,
+  updateCadet,
+  deleteCadet,
 } = require('../controllers/cadetController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requirePermission } = require('../middleware/permissionMiddleware');
@@ -56,6 +58,23 @@ router.get(
   authMiddleware,
   requirePermission('cadets', 'view'),
   getCadetById,
+);
+
+// Update cadet
+router.put(
+  '/:id',
+  authMiddleware,
+  requirePermission('cadets', 'edit'),
+  upload.single('photo'),
+  updateCadet,
+);
+
+// Delete cadet
+router.delete(
+  '/:id',
+  authMiddleware,
+  requirePermission('cadets', 'delete'),
+  deleteCadet,
 );
 
 module.exports = router;
