@@ -300,9 +300,6 @@ const getShortlistStats = async (req, res) => {
   }
 };
 
-const fs = require('fs').promises;
-const path = require('path');
-
 const updateCadet = async (req, res) => {
   try {
     const { id } = req.params;
@@ -314,15 +311,16 @@ const updateCadet = async (req, res) => {
       return res.status(404).json({ message: 'Cadet not found' });
     }
 
-    // Handle photo upload
+    // Handle photo upload — save to database
     if (req.file) {
-      const uploadDir = path.join(__dirname, '../../uploads/photos');
-      await fs.mkdir(uploadDir, { recursive: true });
+      await cadetDao.saveCadetPhoto(
+        id,
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname,
+      );
 
-      const filename = `${Date.now()}-${req.file.originalname.replace(/\s+/g, '-')}`;
-      await fs.writeFile(path.join(uploadDir, filename), req.file.buffer);
-
-      const photoPath = `${req.protocol}://${req.get('host')}/uploads/photos/${filename}`;
+      const photoPath = `${req.protocol}://${req.get('host')}/api/cadets/${id}/photo`;
       cadetData = { ...cadetData, photo_path: photoPath };
     }
 
@@ -344,6 +342,26 @@ const updateCadet = async (req, res) => {
     res
       .status(500)
       .json({ message: 'Error updating cadet', error: error.message });
+  }
+};
+
+const getCadetPhoto = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const photo = await cadetDao.getCadetPhoto(id);
+
+    if (!photo) {
+      return res.status(404).json({ message: 'Photo not found' });
+    }
+
+    res.set('Content-Type', photo.photo_mime_type);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(photo.photo_data);
+  } catch (error) {
+    console.error('Get Cadet Photo Error:', error);
+    res
+      .status(500)
+      .json({ message: 'Error fetching photo', error: error.message });
   }
 };
 
@@ -385,5 +403,6 @@ module.exports = {
   exportShortlistedCadets,
   getShortlistStats,
   updateCadet,
+  getCadetPhoto,
   deleteCadet,
 };

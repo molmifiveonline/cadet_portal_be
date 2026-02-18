@@ -124,7 +124,24 @@ const createCadet = async (cadetData) => {
 
 const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
   let query = `
-    SELECT c.*, i.institute_name 
+    SELECT c.id, c.institute_id, c.submission_id, c.name, c.email, c.phone, c.course, c.batch,
+      c.gender, c.dob, c.indos_number, c.cdc_number, c.passport_number,
+      c.tenth_percentage, c.twelfth_percentage, c.pcm_percentage, c.degree_percentage,
+      c.height, c.weight, c.blood_group, c.hometown, c.passing_out_date,
+      c.age_at_passing_out, c.batch_rank, c.no_of_arrears,
+      c.tenth_board, c.tenth_year, c.tenth_maths, c.tenth_science, c.tenth_english,
+      c.twelfth_board, c.twelfth_year, c.twelfth_english, c.twelfth_physics,
+      c.twelfth_chemistry, c.twelfth_maths,
+      c.imu_rank, c.imu_avg_percentage, c.imu_sem1, c.imu_sem2, c.imu_sem3,
+      c.imu_sem4, c.imu_sem5, c.imu_sem6, c.imu_sem7, c.imu_sem8,
+      c.bmi, c.extra_curricular, c.status, c.photo_path, c.photo_name,
+      c.nationality, c.eye_color, c.eye_vision, c.language_known, c.waist_in_cm,
+      c.covid_vaccination, c.covid_dose, c.medical_history, c.family_medical_history,
+      c.permanent_address, c.post_applied_for,
+      c.father_occupation, c.mother_occupation, c.sibling_occupation,
+      c.marine_relative, c.educational_loan, c.graduation_course, c.graduation_university,
+      c.stcw_courses, c.cv_form_status, c.cv_form_completed_at, c.created_at,
+      i.institute_name
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
   `;
@@ -172,7 +189,24 @@ const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
 
 const getCadetById = async (id) => {
   const query = `
-    SELECT c.*, i.institute_name 
+    SELECT c.id, c.institute_id, c.submission_id, c.name, c.email, c.phone, c.course, c.batch,
+      c.gender, c.dob, c.indos_number, c.cdc_number, c.passport_number,
+      c.tenth_percentage, c.twelfth_percentage, c.pcm_percentage, c.degree_percentage,
+      c.height, c.weight, c.blood_group, c.hometown, c.passing_out_date,
+      c.age_at_passing_out, c.batch_rank, c.no_of_arrears,
+      c.tenth_board, c.tenth_year, c.tenth_maths, c.tenth_science, c.tenth_english,
+      c.twelfth_board, c.twelfth_year, c.twelfth_english, c.twelfth_physics,
+      c.twelfth_chemistry, c.twelfth_maths,
+      c.imu_rank, c.imu_avg_percentage, c.imu_sem1, c.imu_sem2, c.imu_sem3,
+      c.imu_sem4, c.imu_sem5, c.imu_sem6, c.imu_sem7, c.imu_sem8,
+      c.bmi, c.extra_curricular, c.status, c.photo_path, c.photo_name,
+      c.nationality, c.eye_color, c.eye_vision, c.language_known, c.waist_in_cm,
+      c.covid_vaccination, c.covid_dose, c.medical_history, c.family_medical_history,
+      c.permanent_address, c.post_applied_for,
+      c.father_occupation, c.mother_occupation, c.sibling_occupation,
+      c.marine_relative, c.educational_loan, c.graduation_course, c.graduation_university,
+      c.stcw_courses, c.cv_form_status, c.cv_form_completed_at, c.created_at,
+      i.institute_name
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
     WHERE c.id = ?
@@ -188,7 +222,24 @@ const getCadetById = async (id) => {
  */
 const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
   let query = `
-    SELECT c.*, i.institute_name 
+    SELECT c.id, c.institute_id, c.submission_id, c.name, c.email, c.phone, c.course, c.batch,
+      c.gender, c.dob, c.indos_number, c.cdc_number, c.passport_number,
+      c.tenth_percentage, c.twelfth_percentage, c.pcm_percentage, c.degree_percentage,
+      c.height, c.weight, c.blood_group, c.hometown, c.passing_out_date,
+      c.age_at_passing_out, c.batch_rank, c.no_of_arrears,
+      c.tenth_board, c.tenth_year, c.tenth_maths, c.tenth_science, c.tenth_english,
+      c.twelfth_board, c.twelfth_year, c.twelfth_english, c.twelfth_physics,
+      c.twelfth_chemistry, c.twelfth_maths,
+      c.imu_rank, c.imu_avg_percentage, c.imu_sem1, c.imu_sem2, c.imu_sem3,
+      c.imu_sem4, c.imu_sem5, c.imu_sem6, c.imu_sem7, c.imu_sem8,
+      c.bmi, c.extra_curricular, c.status, c.photo_path, c.photo_name,
+      c.nationality, c.eye_color, c.eye_vision, c.language_known, c.waist_in_cm,
+      c.covid_vaccination, c.covid_dose, c.medical_history, c.family_medical_history,
+      c.permanent_address, c.post_applied_for,
+      c.father_occupation, c.mother_occupation, c.sibling_occupation,
+      c.marine_relative, c.educational_loan, c.graduation_course, c.graduation_university,
+      c.stcw_courses, c.cv_form_status, c.cv_form_completed_at, c.created_at,
+      i.institute_name
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
     WHERE c.tenth_percentage >= 85
@@ -469,6 +520,22 @@ const updateCadet = async (id, cadetData) => {
   await db.query(query, values);
 };
 
+const saveCadetPhoto = async (cadetId, photoBuffer, mimeType, photoName) => {
+  await db.query(
+    'UPDATE cadets SET photo_data = ?, photo_mime_type = ?, photo_name = ? WHERE id = ?',
+    [photoBuffer, mimeType, photoName, cadetId],
+  );
+};
+
+const getCadetPhoto = async (cadetId) => {
+  const [rows] = await db.query(
+    'SELECT photo_data, photo_mime_type FROM cadets WHERE id = ?',
+    [cadetId],
+  );
+  if (rows.length === 0 || !rows[0].photo_data) return null;
+  return rows[0];
+};
+
 const deleteCadet = async (id) => {
   await db.query('DELETE FROM cadets WHERE id = ?', [id]);
 };
@@ -481,5 +548,7 @@ module.exports = {
   getShortlistCountByInstitute,
   updateCVData,
   updateCadet,
+  saveCadetPhoto,
+  getCadetPhoto,
   deleteCadet,
 };

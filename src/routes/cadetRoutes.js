@@ -8,6 +8,7 @@ const {
   exportShortlistedCadets,
   getShortlistStats,
   updateCadet,
+  getCadetPhoto,
   deleteCadet,
 } = require('../controllers/cadetController');
 const { authMiddleware } = require('../middleware/authMiddleware');
@@ -52,6 +53,9 @@ router.get(
   requirePermission('cadets', 'view'),
   exportShortlistedCadets,
 );
+
+// Serve cadet photo from DB (no auth needed for <img> tags)
+router.get('/:id/photo', getCadetPhoto);
 
 router.get(
   '/:id',
