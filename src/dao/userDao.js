@@ -12,13 +12,13 @@ const findUserById = async (id) => {
 };
 
 const createUser = async (userData) => {
-  const { email, password, role } = userData;
+  const { email, password, role, first_name, last_name } = userData;
   const id = uuidv4();
 
   await db.query(
-    `INSERT INTO users (id, email, password, role) 
-     VALUES (?, ?, ?, ?)`,
-    [id, email, password, role || 'admin'],
+    `INSERT INTO users (id, email, password, role, first_name, last_name) 
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, email, password, role || 'admin', first_name || '', last_name || ''],
   );
   return id;
 };
