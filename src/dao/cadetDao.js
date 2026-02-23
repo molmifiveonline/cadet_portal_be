@@ -65,8 +65,8 @@ const createCadet = async (cadetData) => {
       tenth_board, tenth_year, tenth_maths, tenth_science, tenth_english,
       twelfth_board, twelfth_year, twelfth_english, twelfth_physics, twelfth_chemistry, twelfth_maths,
       imu_rank, imu_avg_percentage, imu_sem1, imu_sem2, imu_sem3, imu_sem4, imu_sem5, imu_sem6, imu_sem7, imu_sem8,
-      bmi, extra_curricular, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      bmi, extra_curricular, status, batch_year
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       institute_id,
@@ -117,6 +117,7 @@ const createCadet = async (cadetData) => {
       bmi,
       extra_curricular,
       status || 'active',
+      cadetData.batch_year || null,
     ],
   );
   return id;
@@ -140,13 +141,18 @@ const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
       c.permanent_address, c.post_applied_for,
       c.father_occupation, c.mother_occupation, c.sibling_occupation,
       c.marine_relative, c.educational_loan, c.graduation_course, c.graduation_university,
-      c.stcw_courses, c.cv_form_status, c.cv_form_completed_at, c.created_at,
+      c.stcw_courses, c.cv_form_status, c.cv_form_completed_at, c.created_at, c.batch_year,
       i.institute_name
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
   `;
   let queryParams = [];
   let whereClauses = [];
+
+  if (filters.adminYear && filters.adminYear !== 'all') {
+    whereClauses.push('c.batch_year = ?');
+    queryParams.push(filters.adminYear);
+  }
 
   if (filters.instituteId) {
     whereClauses.push('c.institute_id = ?');
@@ -205,7 +211,7 @@ const getCadetById = async (id) => {
       c.permanent_address, c.post_applied_for,
       c.father_occupation, c.mother_occupation, c.sibling_occupation,
       c.marine_relative, c.educational_loan, c.graduation_course, c.graduation_university,
-      c.stcw_courses, c.cv_form_status, c.cv_form_completed_at, c.created_at,
+      c.stcw_courses, c.cv_form_status, c.cv_form_completed_at, c.created_at, c.batch_year,
       i.institute_name
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
@@ -238,7 +244,7 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
       c.permanent_address, c.post_applied_for,
       c.father_occupation, c.mother_occupation, c.sibling_occupation,
       c.marine_relative, c.educational_loan, c.graduation_course, c.graduation_university,
-      c.stcw_courses, c.cv_form_status, c.cv_form_completed_at, c.created_at,
+      c.stcw_courses, c.cv_form_status, c.cv_form_completed_at, c.created_at, c.batch_year,
       i.institute_name
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
@@ -256,6 +262,11 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
   `;
   let queryParams = [];
   let additionalClauses = [];
+
+  if (filters.adminYear && filters.adminYear !== 'all') {
+    additionalClauses.push('c.batch_year = ?');
+    queryParams.push(filters.adminYear);
+  }
 
   if (filters.instituteId) {
     additionalClauses.push('c.institute_id = ?');

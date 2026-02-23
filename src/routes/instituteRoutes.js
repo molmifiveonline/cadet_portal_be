@@ -18,6 +18,7 @@ const {
   deleteSubmission,
   bulkDeleteSubmissions,
   bulkImportSubmissions,
+  loginInstitute,
 } = require('../controllers/instituteSubmissionController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
@@ -28,6 +29,8 @@ const upload = require('../middleware/uploadMiddleware');
 
 // Public routes (protected by token in URL/Body)
 router.get('/verify-token', verifyInstituteToken);
+router.post('/login', loginInstitute);
+
 router.post('/submit-excel', upload.single('file'), submitInstituteExcel);
 
 // Submissions Management (Admin)

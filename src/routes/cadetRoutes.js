@@ -5,7 +5,7 @@ const {
   getCadetById,
   importCadets,
   getShortlistedCadets,
-  exportShortlistedCadets,
+
   getShortlistStats,
   updateCadet,
   getCadetPhoto,
@@ -45,13 +45,6 @@ router.get(
   authMiddleware,
   requirePermission('cadets', 'view'),
   getShortlistStats,
-);
-
-router.get(
-  '/shortlisted/export/:instituteId',
-  authMiddleware,
-  requirePermission('cadets', 'view'),
-  exportShortlistedCadets,
 );
 
 // Serve cadet photo from DB (no auth needed for <img> tags)

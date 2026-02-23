@@ -38,7 +38,7 @@ const authMiddleware = (req, res, next) => {
  *
  * Usage:
  * - checkRole('SuperAdmin') - Only SuperAdmin can access
- * - checkRole(['SuperAdmin', 'Trainer']) - SuperAdmin or Trainer can access
+ * - checkRole(['SuperAdmin', 'Institute']) - SuperAdmin or Institute can access
  */
 const checkRole = (allowedRoles) => {
   return (req, res, next) => {

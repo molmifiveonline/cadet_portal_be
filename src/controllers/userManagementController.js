@@ -71,7 +71,7 @@ const createUser = async (req, res, next) => {
     const newUser = await userManagementDao.createUser(
       email,
       password,
-      role || 'Candidate',
+      role || 'Cadet',
       first_name,
       last_name,
     );
@@ -81,7 +81,7 @@ const createUser = async (req, res, next) => {
       await activityLogDao.createLog(
         req.user.id,
         'CREATE_USER',
-        `Created user: ${first_name} ${last_name} (${email}) with role ${role || 'Candidate'}`,
+        `Created user: ${first_name} ${last_name} (${email}) with role ${role || 'Cadet'}`,
         req.ip || req.connection.remoteAddress,
       );
     }

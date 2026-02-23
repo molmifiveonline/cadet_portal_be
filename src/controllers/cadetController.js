@@ -12,7 +12,11 @@ const getAllCadets = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';
-    const instituteId = req.query.instituteId;
+    // If the logged-in user is an Institute, force their ID instead of trusting the query param
+    const instituteId =
+      req.user?.role === 'Institute'
+        ? req.user.instituteId
+        : req.query.instituteId;
     const batch = req.query.batch;
     const batchId = req.query.batchId; // Legacy support if needed, or map to batch name
 
@@ -176,7 +180,6 @@ const getCadetById = async (req, res) => {
 
 // Import shortlist services
 const shortlistService = require('../services/shortlistService');
-const excelExportService = require('../services/excelExportService');
 
 /**
  * Get all shortlisted cadets with pagination and filters
@@ -186,7 +189,11 @@ const getShortlistedCadets = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';
-    const instituteId = req.query.instituteId;
+    // Force scoping for Institute users
+    const instituteId =
+      req.user?.role === 'Institute'
+        ? req.user.instituteId
+        : req.query.instituteId;
 
     const offset = (page - 1) * limit;
 
@@ -212,73 +219,6 @@ const getShortlistedCadets = async (req, res) => {
     console.error('Get Shortlisted Cadets Error:', error);
     res.status(500).json({
       message: 'Error fetching shortlisted cadets',
-      error: error.message,
-    });
-  }
-};
-
-/**
- * Export shortlisted cadets for a specific institute as Excel
- */
-const exportShortlistedCadets = async (req, res) => {
-  try {
-    const { instituteId } = req.params;
-
-    if (!instituteId || instituteId === 'all') {
-      return res.status(400).json({
-        message: 'Please select a specific institute to export',
-      });
-    }
-
-    // Get institute info
-    const institute = await instituteDao.getInstituteById(instituteId);
-    if (!institute) {
-      return res.status(404).json({ message: 'Institute not found' });
-    }
-
-    // Get all shortlisted cadets for this institute (no limit)
-    const { data: cadets } = await shortlistService.getShortlistedCadets(
-      10000,
-      0,
-      { instituteId },
-    );
-
-    if (cadets.length === 0) {
-      return res.status(404).json({
-        message: 'No shortlisted cadets found for this institute',
-      });
-    }
-
-    // Generate Excel file
-    const excelBuffer = await excelExportService.generateCadetsExcel(
-      cadets,
-      institute,
-    );
-
-    // Set headers for file download
-    const filename = `Shortlisted_Cadets_${institute.institute_name.replace(/\s+/g, '_')}_${Date.now()}.xlsx`;
-
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-
-    // Log activity
-    if (req.user && req.user.id) {
-      await activityLogDao.createLog(
-        req.user.id,
-        'EXPORT_SHORTLIST',
-        `Exported ${cadets.length} shortlisted cadets for institute ${institute.institute_name}`,
-        req.ip || req.connection.remoteAddress,
-      );
-    }
-
-    res.send(excelBuffer);
-  } catch (error) {
-    console.error('Export Shortlisted Cadets Error:', error);
-    res.status(500).json({
-      message: 'Error exporting shortlisted cadets',
       error: error.message,
     });
   }
@@ -400,7 +340,7 @@ module.exports = {
   importCadets,
   getCadetById,
   getShortlistedCadets,
-  exportShortlistedCadets,
+
   getShortlistStats,
   updateCadet,
   getCadetPhoto,

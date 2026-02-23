@@ -1,4 +1,6 @@
 const instituteDao = require('../dao/instituteDao');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const activityLogDao = require('../dao/activityLogDao');
 const { sendEmail, emailTemplates } = require('../services/emailService');
 const jwt = require('jsonwebtoken');
@@ -7,7 +9,7 @@ const cadetDao = require('../dao/cadetDao');
 
 const sendInstituteEmail = async (req, res) => {
   try {
-    const { instituteIds, subject, description } = req.body;
+    const { instituteIds, subject, description, adminYear } = req.body;
     const file = req.file;
 
     if (!instituteIds || !subject || !description) {
@@ -46,6 +48,12 @@ const sendInstituteEmail = async (req, res) => {
     expiryDate.setDate(expiryDate.getDate() + expiryDays);
     const expiryDateString = expiryDate.toLocaleDateString('en-GB');
 
+    // Format for MySQL timestamp
+    const mysqlExpiryDate = expiryDate
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ');
+
     for (const id of ids) {
       const institute = await instituteDao.getInstituteById(id);
       if (!institute) {
@@ -53,18 +61,21 @@ const sendInstituteEmail = async (req, res) => {
         continue;
       }
 
-      // Generate Token
-      const token = jwt.sign(
-        {
-          instituteId: id,
-          type: 'excel_submission',
-          exp: Math.floor(Date.now() / 1000) + expiryDays * 24 * 60 * 60,
-        },
-        process.env.JWT_SECRET || 'fallback_secret',
+      // Generate Temp Credentials
+      const tempUsername = `INST-${Math.floor(100000 + Math.random() * 900000)}`;
+      const tempPassword = crypto.randomBytes(4).toString('hex').toUpperCase();
+
+      // Store in DB
+      await instituteDao.updateInstituteCredentials(
+        id,
+        tempUsername,
+        tempPassword,
+        mysqlExpiryDate,
+        adminYear || new Date().getFullYear(),
       );
 
-      // Generate Link
-      const link = `${process.env.FRONTEND_URL}/institute/submit-excel?token=${token}`;
+      // Generate Link (No token needed now)
+      const link = `${process.env.FRONTEND_URL}/institute/submit-excel`;
 
       // Prepare Email
       const emailContent = emailTemplates.instituteExcelSubmission({
@@ -73,6 +84,9 @@ const sendInstituteEmail = async (req, res) => {
         description,
         link,
         expiryDate: expiryDateString,
+        tempUsername,
+        tempPassword,
+        adminYear: adminYear || new Date().getFullYear(),
       });
 
       // Send Email
@@ -118,6 +132,56 @@ const sendInstituteEmail = async (req, res) => {
     res
       .status(500)
       .json({ message: 'Error sending emails', error: error.message });
+  }
+};
+
+const loginInstitute = async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res
+        .status(400)
+        .json({ message: 'Username and password are required' });
+    }
+
+    const institute = await instituteDao.getInstituteByTempUsername(username);
+
+    if (!institute) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Check expiry
+    if (new Date() > new Date(institute.temp_expiry)) {
+      return res.status(401).json({ message: 'Credentials have expired' });
+    }
+
+    // Check password
+    const isMatch = await bcrypt.compare(password, institute.temp_password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Generate Token
+    const token = jwt.sign(
+      {
+        instituteId: institute.id,
+        adminYear: institute.batch_year,
+        type: 'excel_submission',
+        exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 7 days
+      },
+      process.env.JWT_SECRET || 'fallback_secret',
+    );
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      instituteName: institute.institute_name,
+    });
+  } catch (error) {
+    console.error('Institute Login Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
@@ -182,6 +246,7 @@ const submitInstituteExcel = async (req, res) => {
       }
 
       const instituteId = decoded.instituteId;
+      const adminYear = decoded.adminYear;
       const institute = await instituteDao.getInstituteById(instituteId);
 
       if (!institute) {
@@ -198,6 +263,7 @@ const submitInstituteExcel = async (req, res) => {
         filename,
         file.originalname,
         file.buffer,
+        adminYear,
       );
 
       res.json({
@@ -468,4 +534,5 @@ module.exports = {
   deleteSubmission,
   bulkDeleteSubmissions,
   bulkImportSubmissions,
+  loginInstitute,
 };

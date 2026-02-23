@@ -147,6 +147,7 @@ const mapRowToCadetData = (rowData, headers, submission) => {
     ]),
 
     status: 'active',
+    batch_year: submission.batch_year,
   };
 };
 

@@ -22,12 +22,13 @@ const getLogsLast3Months = async (limit, offset, searchTerm = '') => {
     let query = `
       SELECT 
         al.*,
-        u.email as user_email,
+        COALESCE(u.email, i.institute_email) as user_email,
         u.first_name,
         u.last_name,
-        CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) as user_name
+        COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), i.institute_name, 'Unknown') as user_name
       FROM activity_logs al
       LEFT JOIN users u ON al.user_id = u.id
+      LEFT JOIN institutes i ON al.user_id = i.id
       WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL 3 MONTH)
     `;
 
@@ -37,13 +38,17 @@ const getLogsLast3Months = async (limit, offset, searchTerm = '') => {
     if (searchTerm && searchTerm.trim() !== '') {
       query += ` AND (
         u.email LIKE ? 
+        OR i.institute_email LIKE ?
         OR u.first_name LIKE ? 
         OR u.last_name LIKE ?
+        OR i.institute_name LIKE ?
         OR al.action LIKE ? 
         OR al.details LIKE ?
       )`;
       const searchPattern = `%${searchTerm}%`;
       params.push(
+        searchPattern,
+        searchPattern,
         searchPattern,
         searchPattern,
         searchPattern,
@@ -70,6 +75,7 @@ const countLogsLast3Months = async (searchTerm = '') => {
       SELECT COUNT(*) as count
       FROM activity_logs al
       LEFT JOIN users u ON al.user_id = u.id
+      LEFT JOIN institutes i ON al.user_id = i.id
       WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL 3 MONTH)
     `;
 
@@ -79,13 +85,17 @@ const countLogsLast3Months = async (searchTerm = '') => {
     if (searchTerm && searchTerm.trim() !== '') {
       query += ` AND (
         u.email LIKE ? 
+        OR i.institute_email LIKE ?
         OR u.first_name LIKE ? 
         OR u.last_name LIKE ?
+        OR i.institute_name LIKE ?
         OR al.action LIKE ? 
         OR al.details LIKE ?
       )`;
       const searchPattern = `%${searchTerm}%`;
       params.push(
+        searchPattern,
+        searchPattern,
         searchPattern,
         searchPattern,
         searchPattern,

@@ -4,6 +4,7 @@ const UserDao = require('../dao/userDao');
 const db = require('../config/database');
 const { sendEmail } = require('../services/emailService');
 const activityLogDao = require('../dao/activityLogDao');
+const instituteDao = require('../dao/instituteDao');
 
 const login = async (req, res) => {
   try {
@@ -15,34 +16,80 @@ const login = async (req, res) => {
         .json({ message: 'Email and password are required' });
     }
 
-    const user = await UserDao.findUserByEmail(email);
+    let user = null;
+    let roleName = 'Cadet';
+    let instituteId = null;
+
+    // Check if it's an Institute login (Using temp username)
+    if (!email.includes('@') && email.toUpperCase().startsWith('INST-')) {
+      const institute = await instituteDao.getInstituteByTempUsername(
+        email.toUpperCase(),
+      );
+
+      if (institute) {
+        if (new Date() > new Date(institute.temp_expiry)) {
+          return res
+            .status(401)
+            .json({ message: 'Institute credentials have expired' });
+        }
+
+        const isMatch = await bcrypt.compare(password, institute.temp_password);
+        if (!isMatch) {
+          return res
+            .status(401)
+            .json({ message: 'Invalid User ID or password' });
+        }
+
+        user = {
+          id: institute.id, // Using institute ID as user ID for consistent token schema
+          email: institute.institute_email,
+          first_name: institute.institute_name,
+          last_name: '',
+        };
+        roleName = 'Institute';
+        instituteId = institute.id;
+      } else {
+        console.log(`[AUTH] Institute ${email} NOT found in database.`);
+      }
+    }
+
+    // If not found as institute, try as regular Admin user
     if (!user) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      user = await UserDao.findUserByEmail(email);
+      if (!user) {
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+
+      if (
+        user.status !== undefined &&
+        user.status !== 1 &&
+        user.status !== 'active'
+      ) {
+        return res.status(403).json({ message: 'Account is inactive' });
+      }
+
+      roleName = user.role || 'Cadet';
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid email or password' });
-    }
+    const payload = {
+      id: user.id,
+      role: roleName,
+      email: user.email,
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
+    };
 
-    if (
-      user.status !== undefined &&
-      user.status !== 1 &&
-      user.status !== 'active'
-    ) {
-      return res.status(403).json({ message: 'Account is inactive' });
+    if (instituteId) {
+      payload.instituteId = instituteId;
     }
-
-    const roleName = user.role || 'Candidate';
 
     const token = jwt.sign(
-      {
-        id: user.id,
-        role: roleName,
-        email: user.email,
-        first_name: user.first_name || '',
-        last_name: user.last_name || '',
-      },
+      payload,
       process.env.JWT_SECRET || 'fallback_secret',
       { expiresIn: '1d' },
     );
@@ -64,6 +111,7 @@ const login = async (req, res) => {
         role: roleName,
         first_name: user.first_name || '',
         last_name: user.last_name || '',
+        instituteId: instituteId || undefined,
       },
     });
   } catch (error) {

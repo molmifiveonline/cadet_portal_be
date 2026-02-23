@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
+const bcrypt = require('bcryptjs');
 
 const createInstitute = async (instituteData) => {
   const { institute_name, institute_email, mobile_number, address, location } =
@@ -99,11 +100,12 @@ const createSubmission = async (
   fileName,
   originalName,
   fileData,
+  adminYear,
 ) => {
   const id = uuidv4();
   await db.query(
-    'INSERT INTO institute_submissions (id, institute_id, file_name, original_name, file_data) VALUES (?, ?, ?, ?, ?)',
-    [id, instituteId, fileName, originalName, fileData],
+    'INSERT INTO institute_submissions (id, institute_id, file_name, original_name, file_data, batch_year) VALUES (?, ?, ?, ?, ?, ?)',
+    [id, instituteId, fileName, originalName, fileData, adminYear],
   );
   return id;
 };
@@ -116,7 +118,7 @@ const getAllSubmissions = async (
 ) => {
   // Exclude file_data from this query for performance
   let query = `
-    SELECT isub.id, isub.institute_id, isub.file_name, isub.original_name, isub.status, isub.created_at, i.institute_name 
+    SELECT isub.id, isub.institute_id, isub.file_name, isub.original_name, isub.status, isub.created_at, isub.batch_year, i.institute_name 
     FROM institute_submissions isub
     LEFT JOIN institutes i ON isub.institute_id = i.id
   `;
@@ -182,7 +184,7 @@ const deleteSubmissions = async (ids) => {
 
 const getSubmissionById = async (id) => {
   const [rows] = await db.query(
-    'SELECT id, institute_id, file_name, original_name, status, created_at FROM institute_submissions WHERE id = ?',
+    'SELECT id, institute_id, file_name, original_name, status, created_at, batch_year FROM institute_submissions WHERE id = ?',
     [id],
   );
   return rows[0];
@@ -202,6 +204,40 @@ const updateSubmissionStatus = async (id, status) => {
     [status, id],
   );
   return result.affectedRows > 0;
+  return result.affectedRows > 0;
+};
+
+const updateInstituteCredentials = async (
+  id,
+  tempUsername,
+  tempPassword,
+  tempExpiry,
+  adminYear,
+) => {
+  const hashedPassword = await bcrypt.hash(tempPassword, 10);
+  const [result] = await db.query(
+    `UPDATE institutes 
+     SET temp_username = ?, temp_password = ?, temp_expiry = ?, batch_year = ?
+     WHERE id = ?`,
+    [tempUsername, hashedPassword, tempExpiry, adminYear, id],
+  );
+  return result.affectedRows > 0;
+};
+
+const getInstituteByTempUsername = async (username) => {
+  const [rows] = await db.query(
+    'SELECT * FROM institutes WHERE temp_username = ?',
+    [username],
+  );
+  return rows[0];
+};
+
+const getInstituteByEmail = async (email) => {
+  const [rows] = await db.query(
+    'SELECT * FROM institutes WHERE institute_email = ?',
+    [email],
+  );
+  return rows[0];
 };
 
 module.exports = {
@@ -217,4 +253,8 @@ module.exports = {
   getSubmissionById,
   getSubmissionFile,
   updateSubmissionStatus,
+  updateSubmissionStatus,
+  updateInstituteCredentials,
+  getInstituteByTempUsername,
+  getInstituteByEmail,
 };
