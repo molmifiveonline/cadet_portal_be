@@ -5,6 +5,7 @@ const {
   parseExcelFile,
   findHeaderRow,
   mapRowToCadetData,
+  isRowEmpty,
 } = require('../services/excelImportService');
 
 const getAllCadets = async (req, res) => {
@@ -61,7 +62,7 @@ const importCadets = async (req, res) => {
       return res.status(400).json({ message: 'Institute ID is required' });
     }
 
-    const rawData = parseExcelFile(file.buffer);
+    const { rawData } = parseExcelFile(file.buffer);
 
     // Potential header keywords to look for
     const headerKeywords = [
@@ -115,7 +116,7 @@ const importCadets = async (req, res) => {
 
     for (let i = headerRowIndex + 1; i < rawData.length; i++) {
       const rowData = rawData[i];
-      if (!rowData || rowData.length === 0) continue;
+      if (isRowEmpty(rowData)) continue;
 
       try {
         const cadetData = mapRowToCadetData(rowData, headers, mockSubmission);
@@ -124,7 +125,7 @@ const importCadets = async (req, res) => {
         if (batchName) cadetData.batch = batchName;
 
         // Minimal requirement: Name
-        if (cadetData.name) {
+        if (cadetData.name_as_in_indos_cert) {
           await cadetDao.createCadet(cadetData);
           importedCount++;
         } else {

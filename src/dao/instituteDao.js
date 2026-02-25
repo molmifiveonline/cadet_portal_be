@@ -3,14 +3,30 @@ const db = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 const createInstitute = async (instituteData) => {
-  const { institute_name, institute_email, mobile_number, address, location } =
-    instituteData;
+  const {
+    institute_name,
+    institute_email,
+    mobile_number,
+    address,
+    location,
+    contact_person,
+    institute_type,
+  } = instituteData;
   const id = uuidv4();
 
   await db.query(
-    `INSERT INTO institutes (id, institute_name, institute_email, mobile_number, address, location) 
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, institute_name, institute_email, mobile_number, address, location],
+    `INSERT INTO institutes (id, institute_name, institute_email, mobile_number, address, location, contact_person, institute_type) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      institute_name,
+      institute_email,
+      mobile_number,
+      address,
+      location,
+      contact_person || null,
+      institute_type || null,
+    ],
   );
   return id;
 };
@@ -78,14 +94,30 @@ const getInstituteById = async (id) => {
 };
 
 const updateInstitute = async (id, instituteData) => {
-  const { institute_name, institute_email, mobile_number, address, location } =
-    instituteData;
+  const {
+    institute_name,
+    institute_email,
+    mobile_number,
+    address,
+    location,
+    contact_person,
+    institute_type,
+  } = instituteData;
 
   const [result] = await db.query(
     `UPDATE institutes 
-     SET institute_name = ?, institute_email = ?, mobile_number = ?, address = ?, location = ?
+     SET institute_name = ?, institute_email = ?, mobile_number = ?, address = ?, location = ?, contact_person = ?, institute_type = ?
      WHERE id = ?`,
-    [institute_name, institute_email, mobile_number, address, location, id],
+    [
+      institute_name,
+      institute_email,
+      mobile_number,
+      address,
+      location,
+      contact_person || null,
+      institute_type || null,
+      id,
+    ],
   );
   return result.affectedRows > 0;
 };
@@ -224,6 +256,14 @@ const updateInstituteCredentials = async (
   return result.affectedRows > 0;
 };
 
+const extendInstituteExpiry = async (id, newExpiry) => {
+  const [result] = await db.query(
+    'UPDATE institutes SET temp_expiry = ? WHERE id = ?',
+    [newExpiry, id],
+  );
+  return result.affectedRows > 0;
+};
+
 const getInstituteByTempUsername = async (username) => {
   const [rows] = await db.query(
     'SELECT * FROM institutes WHERE temp_username = ?',
@@ -253,8 +293,8 @@ module.exports = {
   getSubmissionById,
   getSubmissionFile,
   updateSubmissionStatus,
-  updateSubmissionStatus,
   updateInstituteCredentials,
+  extendInstituteExpiry,
   getInstituteByTempUsername,
   getInstituteByEmail,
 };
