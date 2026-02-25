@@ -1,4 +1,5 @@
 const cvTokenDao = require('../dao/cvTokenDao');
+const { CV_TOKEN_EXPIRY_DAYS } = require('../config/constants');
 
 /**
  * CV Token Service - Business logic for managing CV form tokens
@@ -11,7 +12,11 @@ const cvTokenDao = require('../dao/cvTokenDao');
  * @param {number} expirationDays - Days until expiration (default: 7)
  * @returns {Object} Token data
  */
-const generateCVToken = async (cadetId, instituteId, expirationDays = 7) => {
+const generateCVToken = async (
+  cadetId,
+  instituteId,
+  expirationDays = CV_TOKEN_EXPIRY_DAYS,
+) => {
   try {
     // Revoke any existing active tokens for this cadet
     await cvTokenDao.revokeAllCadetTokens(cadetId);
@@ -36,7 +41,10 @@ const generateCVToken = async (cadetId, instituteId, expirationDays = 7) => {
  * @param {number} expirationDays - Days until expiration
  * @returns {Array} Array of token data
  */
-const generateBulkCVTokens = async (cadets, expirationDays = 7) => {
+const generateBulkCVTokens = async (
+  cadets,
+  expirationDays = CV_TOKEN_EXPIRY_DAYS,
+) => {
   try {
     const tokens = [];
 
@@ -138,7 +146,11 @@ const getInstituteTokens = async (instituteId) => {
 const regenerateToken = async (cadetId, instituteId) => {
   try {
     // This will revoke old tokens and create a new one
-    const tokenData = await generateCVToken(cadetId, instituteId, 7);
+    const tokenData = await generateCVToken(
+      cadetId,
+      instituteId,
+      CV_TOKEN_EXPIRY_DAYS,
+    );
     return tokenData;
   } catch (error) {
     console.error('Error regenerating token:', error);

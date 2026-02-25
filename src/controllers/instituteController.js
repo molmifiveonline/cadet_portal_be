@@ -1,5 +1,9 @@
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
+const {
+  DEFAULT_PAGE_SIZE,
+  MOBILE_NUMBER_REGEX,
+} = require('../config/constants');
 
 const createInstitute = async (req, res) => {
   try {
@@ -9,6 +13,8 @@ const createInstitute = async (req, res) => {
       mobile_number,
       address,
       location,
+      contact_person,
+      institute_type,
     } = req.body;
 
     if (
@@ -21,7 +27,7 @@ const createInstitute = async (req, res) => {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    if (!/^\d{10}$/.test(mobile_number)) {
+    if (!MOBILE_NUMBER_REGEX.test(mobile_number)) {
       return res
         .status(400)
         .json({ message: 'Mobile number must be a 10-digit number' });
@@ -33,6 +39,8 @@ const createInstitute = async (req, res) => {
       mobile_number,
       address,
       location,
+      contact_person,
+      institute_type,
     });
 
     // Log activity
@@ -60,7 +68,7 @@ const createInstitute = async (req, res) => {
 const getAllInstitutes = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
     const hasSubmissions = req.query.hasSubmissions === 'true';
     let sortBy = req.query.sortBy || 'created_at';
@@ -140,6 +148,8 @@ const updateInstitute = async (req, res) => {
       mobile_number,
       address,
       location,
+      contact_person,
+      institute_type,
     } = req.body;
 
     if (
@@ -152,7 +162,7 @@ const updateInstitute = async (req, res) => {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    if (!/^\d{10}$/.test(mobile_number)) {
+    if (!MOBILE_NUMBER_REGEX.test(mobile_number)) {
       return res
         .status(400)
         .json({ message: 'Mobile number must be a 10-digit number' });
@@ -164,6 +174,8 @@ const updateInstitute = async (req, res) => {
       mobile_number,
       address,
       location,
+      contact_person,
+      institute_type,
     });
 
     if (!success) {
@@ -224,10 +236,65 @@ const deleteInstitute = async (req, res) => {
   }
 };
 
+const extendInstituteToken = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { additionalDays } = req.body;
+
+    if (!additionalDays || isNaN(additionalDays) || additionalDays <= 0) {
+      return res
+        .status(400)
+        .json({ message: 'additionalDays must be a positive number' });
+    }
+
+    const institute = await instituteDao.getInstituteById(id);
+    if (!institute) {
+      return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    if (!institute.temp_expiry) {
+      return res.status(400).json({
+        message:
+          'No active submission token found for this institute. Send an email first.',
+      });
+    }
+
+    // Calculate new expiry: extend from current expiry (or now if already expired)
+    const currentExpiry = new Date(institute.temp_expiry);
+    const baseDate = currentExpiry > new Date() ? currentExpiry : new Date();
+    baseDate.setDate(baseDate.getDate() + parseInt(additionalDays, 10));
+    const newExpiry = baseDate.toISOString().slice(0, 19).replace('T', ' ');
+
+    await instituteDao.extendInstituteExpiry(id, newExpiry);
+
+    // Log activity
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'EXTEND_INSTITUTE_TOKEN',
+        `Extended token expiry by ${additionalDays} days for institute: ${institute.institute_name}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.json({
+      success: true,
+      message: `Token expiry extended by ${additionalDays} days`,
+      new_expiry: newExpiry,
+    });
+  } catch (error) {
+    console.error('Extend Institute Token Error:', error);
+    res
+      .status(500)
+      .json({ message: 'Error extending token', error: error.message });
+  }
+};
+
 module.exports = {
   createInstitute,
   getAllInstitutes,
   getInstituteById,
   updateInstitute,
   deleteInstitute,
+  extendInstituteToken,
 };

@@ -1,9 +1,14 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const UserDao = require('../dao/userDao');
-const db = require('../config/database');
-const { sendEmail } = require('../services/emailService');
+const { sendEmail, emailTemplates } = require('../services/emailService');
 const activityLogDao = require('../dao/activityLogDao');
+const {
+  JWT_SECRET,
+  JWT_EXPIRE,
+  ROLES,
+  BCRYPT_SALT_ROUNDS,
+} = require('../config/constants');
 const instituteDao = require('../dao/instituteDao');
 
 const login = async (req, res) => {
@@ -17,7 +22,7 @@ const login = async (req, res) => {
     }
 
     let user = null;
-    let roleName = 'Cadet';
+    let roleName = ROLES.CADET;
     let instituteId = null;
 
     // Check if it's an Institute login (Using temp username)
@@ -46,7 +51,7 @@ const login = async (req, res) => {
           first_name: institute.institute_name,
           last_name: '',
         };
-        roleName = 'Institute';
+        roleName = ROLES.INSTITUTE;
         instituteId = institute.id;
       } else {
         console.log(`[AUTH] Institute ${email} NOT found in database.`);
@@ -73,7 +78,7 @@ const login = async (req, res) => {
         return res.status(403).json({ message: 'Account is inactive' });
       }
 
-      roleName = user.role || 'Cadet';
+      roleName = user.role || ROLES.CADET;
     }
 
     const payload = {
@@ -88,11 +93,9 @@ const login = async (req, res) => {
       payload.instituteId = instituteId;
     }
 
-    const token = jwt.sign(
-      payload,
-      process.env.JWT_SECRET || 'fallback_secret',
-      { expiresIn: '1d' },
-    );
+    const token = jwt.sign(payload, JWT_SECRET, {
+      expiresIn: JWT_EXPIRE,
+    });
 
     // Log activity
     await activityLogDao.createLog(
@@ -137,27 +140,16 @@ const forgotPassword = async (req, res) => {
     }
 
     const resetLink = `${process.env.FRONTEND_URL}/reset-password?id=${user.id}`;
-    const subject = 'Reset Password Link';
-    const html = `
-      <div style="font-family: Arial, sans-serif;">
-        <div style="background-color: #f4f4f4; padding: 20px; text-align: center;">
-            <h2>Reset Password Link</h2>
-        </div>
-        <div style="padding: 20px;">
-            <p>Hi,</p>
-            <p>You requested to reset your password. Click the link below to reset it:</p>
-            <p><a href="${resetLink}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a></p>
-            <p>If you didn't request this, you can ignore this email.</p>
-        </div>
-        <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-            &copy; ${new Date().getFullYear()} Molmi. All rights reserved.
-        </div>
-      </div>
-    `;
+    const template = emailTemplates.forgotPassword({ resetLink });
 
     // Only attempt to send email if SMTP is configured, else just log it for dev
     if (process.env.SMTP_USER) {
-      await sendEmail({ to: email, subject, html, text: 'Reset Password' });
+      await sendEmail({
+        to: email,
+        subject: template.subject,
+        html: template.html,
+        text: 'Reset Password',
+      });
     } else {
       console.log(`[DEV] Forgot Password Link for ${email}: ${resetLink}`);
     }
@@ -189,7 +181,7 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ message: 'Passwords do not match' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
     const updated = await UserDao.updateUserPassword(userId, hashedPassword);
 
     if (updated) {
@@ -198,12 +190,11 @@ const resetPassword = async (req, res) => {
 
       // Optionally send a confirmation email
       if (user && process.env.SMTP_USER) {
-        const subject = 'Password Reset Successful';
-        const html = `<p>Hi,</p><p>Your password has been successfully updated.</p>`;
+        const template = emailTemplates.resetPasswordSuccess();
         await sendEmail({
           to: user.email,
-          subject,
-          html,
+          subject: template.subject,
+          html: template.html,
           text: 'Password Reset Successful',
         });
       }

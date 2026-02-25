@@ -3,14 +3,30 @@ const db = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 const createInstitute = async (instituteData) => {
-  const { institute_name, institute_email, mobile_number, address, location } =
-    instituteData;
+  const {
+    institute_name,
+    institute_email,
+    mobile_number,
+    address,
+    location,
+    contact_person,
+    institute_type,
+  } = instituteData;
   const id = uuidv4();
 
   await db.query(
-    `INSERT INTO institutes (id, institute_name, institute_email, mobile_number, address, location) 
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, institute_name, institute_email, mobile_number, address, location],
+    `INSERT INTO institutes (id, institute_name, institute_email, mobile_number, address, location, contact_person, institute_type) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      institute_name,
+      institute_email,
+      mobile_number,
+      address,
+      location,
+      contact_person || null,
+      institute_type || null,
+    ],
   );
   return id;
 };
@@ -42,12 +58,16 @@ const getAllInstitutes = async (
       i.institute_email LIKE ? OR 
       i.mobile_number LIKE ? OR 
       i.address LIKE ? OR 
-      i.location LIKE ?
+      i.location LIKE ? OR
+      i.contact_person LIKE ? OR
+      i.institute_type LIKE ?
     )`;
 
     query += whereClause;
     countQuery += whereClause;
     const searchParams = [
+      searchPattern,
+      searchPattern,
       searchPattern,
       searchPattern,
       searchPattern,
@@ -78,14 +98,30 @@ const getInstituteById = async (id) => {
 };
 
 const updateInstitute = async (id, instituteData) => {
-  const { institute_name, institute_email, mobile_number, address, location } =
-    instituteData;
+  const {
+    institute_name,
+    institute_email,
+    mobile_number,
+    address,
+    location,
+    contact_person,
+    institute_type,
+  } = instituteData;
 
   const [result] = await db.query(
     `UPDATE institutes 
-     SET institute_name = ?, institute_email = ?, mobile_number = ?, address = ?, location = ?
+     SET institute_name = ?, institute_email = ?, mobile_number = ?, address = ?, location = ?, contact_person = ?, institute_type = ?
      WHERE id = ?`,
-    [institute_name, institute_email, mobile_number, address, location, id],
+    [
+      institute_name,
+      institute_email,
+      mobile_number,
+      address,
+      location,
+      contact_person || null,
+      institute_type || null,
+      id,
+    ],
   );
   return result.affectedRows > 0;
 };
@@ -100,12 +136,12 @@ const createSubmission = async (
   fileName,
   originalName,
   fileData,
-  adminYear,
+  batch_year,
 ) => {
   const id = uuidv4();
   await db.query(
     'INSERT INTO institute_submissions (id, institute_id, file_name, original_name, file_data, batch_year) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, instituteId, fileName, originalName, fileData, adminYear],
+    [id, instituteId, fileName, originalName, fileData, batch_year],
   );
   return id;
 };
@@ -212,14 +248,22 @@ const updateInstituteCredentials = async (
   tempUsername,
   tempPassword,
   tempExpiry,
-  adminYear,
+  batch_year,
 ) => {
   const hashedPassword = await bcrypt.hash(tempPassword, 10);
   const [result] = await db.query(
     `UPDATE institutes 
      SET temp_username = ?, temp_password = ?, temp_expiry = ?, batch_year = ?
      WHERE id = ?`,
-    [tempUsername, hashedPassword, tempExpiry, adminYear, id],
+    [tempUsername, hashedPassword, tempExpiry, batch_year, id],
+  );
+  return result.affectedRows > 0;
+};
+
+const extendInstituteExpiry = async (id, newExpiry) => {
+  const [result] = await db.query(
+    'UPDATE institutes SET temp_expiry = ? WHERE id = ?',
+    [newExpiry, id],
   );
   return result.affectedRows > 0;
 };
@@ -253,8 +297,8 @@ module.exports = {
   getSubmissionById,
   getSubmissionFile,
   updateSubmissionStatus,
-  updateSubmissionStatus,
   updateInstituteCredentials,
+  extendInstituteExpiry,
   getInstituteByTempUsername,
   getInstituteByEmail,
 };

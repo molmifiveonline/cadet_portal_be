@@ -4,6 +4,7 @@ const cadetDao = require('../dao/cadetDao');
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const emailService = require('../services/emailService');
+const { CV_TOKEN_EXPIRY_DAYS } = require('../config/constants');
 
 /**
  * Get CV form data by token (public endpoint)
@@ -139,12 +140,12 @@ const sendCVFormEmail = async (req, res) => {
       const tokenData = await cvTokenService.generateCVToken(
         cadet.id,
         instituteId,
-        7, // 7 days expiration
+        CV_TOKEN_EXPIRY_DAYS,
       );
       tokens.push({
         ...tokenData,
-        cadet_name: cadet.name,
-        cadet_email: cadet.email,
+        cadet_name: cadet.name_as_in_indos_cert,
+        cadet_email: cadet.email_id,
       });
     }
 
@@ -215,8 +216,8 @@ const resendCVFormEmail = async (req, res) => {
     await emailService.sendCVFormEmail(institute, [
       {
         ...tokenData,
-        cadet_name: cadet.name,
-        cadet_email: cadet.email,
+        cadet_name: cadet.name_as_in_indos_cert,
+        cadet_email: cadet.email_id,
       },
     ]);
 
@@ -225,7 +226,7 @@ const resendCVFormEmail = async (req, res) => {
       await activityLogDao.createLog(
         req.user.id,
         'RESEND_CV_FORM',
-        `Resent CV form email for cadet ${cadet.name} to ${institute.institute_name}`,
+        `Resent CV form email for cadet ${cadet.name_as_in_indos_cert} to ${institute.institute_name}`,
         req.ip || req.connection.remoteAddress,
       );
     }

@@ -1,4 +1,5 @@
 const rolePermissionDao = require('../dao/rolePermissionDao');
+const { ROLES } = require('../config/constants');
 
 /* PERMISSION MIDDLEWARE
  * Checks if user has required permission to access route
@@ -18,7 +19,7 @@ const requirePermission = (module, action) => {
       }
 
       // Super Admin always has access
-      if (user.role === 'SuperAdmin') {
+      if (user.role === ROLES.SUPER_ADMIN) {
         return next();
       }
 
@@ -63,7 +64,7 @@ const requireAnyPermission = (permissionPairs) => {
       }
 
       // Super Admin always has access
-      if (user.role === 'SuperAdmin') {
+      if (user.role === ROLES.SUPER_ADMIN) {
         return next();
       }
 
@@ -108,7 +109,7 @@ const requireSuperAdmin = (req, res, next) => {
       });
     }
 
-    if (user.role !== 'SuperAdmin') {
+    if (user.role !== ROLES.SUPER_ADMIN) {
       return res.status(403).json({
         success: false,
         message: 'This action is restricted to Super Administrators only',

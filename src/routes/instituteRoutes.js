@@ -6,11 +6,10 @@ const {
   getInstituteById,
   updateInstitute,
   deleteInstitute,
+  extendInstituteToken,
 } = require('../controllers/instituteController');
 
 const {
-  sendInstituteEmail,
-  verifyInstituteToken,
   submitInstituteExcel,
   getAllSubmissions,
   importSubmission,
@@ -18,8 +17,13 @@ const {
   deleteSubmission,
   bulkDeleteSubmissions,
   bulkImportSubmissions,
-  loginInstitute,
 } = require('../controllers/instituteSubmissionController');
+
+const {
+  sendInstituteEmail,
+  verifyInstituteToken,
+  loginInstitute,
+} = require('../controllers/instituteAuthController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requirePermission } = require('../middleware/permissionMiddleware');
@@ -31,7 +35,12 @@ const upload = require('../middleware/uploadMiddleware');
 router.get('/verify-token', verifyInstituteToken);
 router.post('/login', loginInstitute);
 
-router.post('/submit-excel', upload.single('file'), submitInstituteExcel);
+router.post(
+  '/submit-excel',
+  authMiddleware,
+  upload.single('file'),
+  submitInstituteExcel,
+);
 
 // Submissions Management (Admin)
 router.get(
@@ -101,6 +110,12 @@ router.get(
   authMiddleware,
   requirePermission('institutes', 'view'),
   getInstituteById,
+);
+router.put(
+  '/:id/extend-token',
+  authMiddleware,
+  requirePermission('institutes', 'edit'),
+  extendInstituteToken,
 );
 router.put(
   '/:id',

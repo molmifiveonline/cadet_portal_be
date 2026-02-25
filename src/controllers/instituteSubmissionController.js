@@ -1,257 +1,42 @@
 const instituteDao = require('../dao/instituteDao');
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
 const activityLogDao = require('../dao/activityLogDao');
-const { sendEmail, emailTemplates } = require('../services/emailService');
-const jwt = require('jsonwebtoken');
-
 const cadetDao = require('../dao/cadetDao');
-
-const sendInstituteEmail = async (req, res) => {
-  try {
-    const { instituteIds, subject, description, adminYear } = req.body;
-    const file = req.file;
-
-    if (!instituteIds || !subject || !description) {
-      return res.status(400).json({
-        message: 'Institute IDs, subject, and description are required',
-      });
-    }
-
-    if (!file) {
-      return res.status(400).json({ message: 'Excel format file is required' });
-    }
-
-    // Parse instituteIds if it's a string (from FormData)
-    let ids = [];
-    try {
-      // Check if instituteIds is already an array or needs parsing
-      if (Array.isArray(instituteIds)) {
-        ids = instituteIds;
-      } else if (typeof instituteIds === 'string') {
-        // Try parsing as JSON first (in case of stringified array)
-        if (instituteIds.trim().startsWith('[')) {
-          ids = JSON.parse(instituteIds);
-        } else {
-          // Treat as comma-separated or single ID
-          ids = instituteIds.split(',').map((id) => id.trim());
-        }
-      }
-    } catch (e) {
-      // Fallback
-      ids = [instituteIds];
-    }
-
-    const results = [];
-    const expiryDays = 7;
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + expiryDays);
-    const expiryDateString = expiryDate.toLocaleDateString('en-GB');
-
-    // Format for MySQL timestamp
-    const mysqlExpiryDate = expiryDate
-      .toISOString()
-      .slice(0, 19)
-      .replace('T', ' ');
-
-    for (const id of ids) {
-      const institute = await instituteDao.getInstituteById(id);
-      if (!institute) {
-        results.push({ id, status: 'failed', reason: 'Institute not found' });
-        continue;
-      }
-
-      // Generate Temp Credentials
-      const tempUsername = `INST-${Math.floor(100000 + Math.random() * 900000)}`;
-      const tempPassword = crypto.randomBytes(4).toString('hex').toUpperCase();
-
-      // Store in DB
-      await instituteDao.updateInstituteCredentials(
-        id,
-        tempUsername,
-        tempPassword,
-        mysqlExpiryDate,
-        adminYear || new Date().getFullYear(),
-      );
-
-      // Generate Link (No token needed now)
-      const link = `${process.env.FRONTEND_URL}/institute/submit-excel`;
-
-      // Prepare Email
-      const emailContent = emailTemplates.instituteExcelSubmission({
-        instituteName: institute.institute_name,
-        subject,
-        description,
-        link,
-        expiryDate: expiryDateString,
-        tempUsername,
-        tempPassword,
-        adminYear: adminYear || new Date().getFullYear(),
-      });
-
-      // Send Email
-      try {
-        await sendEmail({
-          to: institute.institute_email, // Auto-filled institute email
-          subject: emailContent.subject,
-          html: emailContent.html,
-          attachments: [
-            {
-              filename: file.originalname,
-              content: file.buffer,
-            },
-          ],
-        });
-        results.push({
-          id,
-          status: 'success',
-          email: institute.institute_email,
-        });
-      } catch (err) {
-        console.error(`Failed to send email to institute ${id}:`, err);
-        results.push({ id, status: 'failed', reason: err.message });
-      }
-    }
-
-    // Log activity
-    if (req.user && req.user.id) {
-      await activityLogDao.createLog(
-        req.user.id,
-        'SEND_INSTITUTE_EMAIL',
-        `Sent excel submission email to ${results.filter((r) => r.status === 'success').length} institutes`,
-        req.ip || req.connection.remoteAddress,
-      );
-    }
-
-    res.json({
-      message: 'Email processing completed',
-      results,
-    });
-  } catch (error) {
-    console.error('Send Institute Email Error:', error);
-    res
-      .status(500)
-      .json({ message: 'Error sending emails', error: error.message });
-  }
-};
-
-const loginInstitute = async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res
-        .status(400)
-        .json({ message: 'Username and password are required' });
-    }
-
-    const institute = await instituteDao.getInstituteByTempUsername(username);
-
-    if (!institute) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    // Check expiry
-    if (new Date() > new Date(institute.temp_expiry)) {
-      return res.status(401).json({ message: 'Credentials have expired' });
-    }
-
-    // Check password
-    const isMatch = await bcrypt.compare(password, institute.temp_password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    // Generate Token
-    const token = jwt.sign(
-      {
-        instituteId: institute.id,
-        adminYear: institute.batch_year,
-        type: 'excel_submission',
-        exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 7 days
-      },
-      process.env.JWT_SECRET || 'fallback_secret',
-    );
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      token,
-      instituteName: institute.institute_name,
-    });
-  } catch (error) {
-    console.error('Institute Login Error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-const verifyInstituteToken = async (req, res) => {
-  try {
-    const { token } = req.query;
-
-    if (!token) {
-      return res.status(400).json({ message: 'Token is required' });
-    }
-
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-      if (decoded.type !== 'excel_submission') {
-        return res.status(401).json({ message: 'Invalid token type' });
-      }
-
-      const instituteId = decoded.instituteId;
-      const institute = await instituteDao.getInstituteById(instituteId);
-
-      if (!institute) {
-        return res.status(404).json({ message: 'Institute not found' });
-      }
-
-      res.json({
-        success: true,
-        instituteName: institute.institute_name,
-        valid: true,
-      });
-    } catch (err) {
-      return res
-        .status(401)
-        .json({ message: 'Invalid or expired token', error: err.message });
-    }
-  } catch (error) {
-    console.error('Verify Token Error:', error);
-    res
-      .status(500)
-      .json({ message: 'Error verifying token', error: error.message });
-  }
-};
+const {
+  DEFAULT_PAGE_SIZE,
+  EXCEL_HEADER_KEYWORDS,
+  SUBMISSION_STATUS,
+} = require('../config/constants');
+const {
+  parseExcelFile,
+  findHeaderRow,
+  mapRowToCadetData,
+  isRowEmpty,
+} = require('../services/excelImportService');
 
 const submitInstituteExcel = async (req, res) => {
   try {
-    const { token } = req.body;
     const file = req.file;
-
-    if (!token) {
-      return res.status(400).json({ message: 'Token is required' });
-    }
 
     if (!file) {
       return res.status(400).json({ message: 'Excel file is required' });
     }
 
+    if (!req.user || !req.user.instituteId) {
+      return res
+        .status(401)
+        .json({ message: 'Unauthorized. Institute account required.' });
+    }
+
+    const instituteId = req.user.instituteId;
+
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-      if (decoded.type !== 'excel_submission') {
-        return res.status(401).json({ message: 'Invalid token type' });
-      }
-
-      const instituteId = decoded.instituteId;
-      const adminYear = decoded.adminYear;
       const institute = await instituteDao.getInstituteById(instituteId);
 
       if (!institute) {
         return res.status(404).json({ message: 'Institute not found' });
       }
+
+      const batch_year = institute.batch_year;
 
       // Generate filename for DB record
       const timestamp = Date.now();
@@ -263,7 +48,7 @@ const submitInstituteExcel = async (req, res) => {
         filename,
         file.originalname,
         file.buffer,
-        adminYear,
+        batch_year,
       );
 
       res.json({
@@ -273,8 +58,8 @@ const submitInstituteExcel = async (req, res) => {
       });
     } catch (err) {
       return res
-        .status(401)
-        .json({ message: 'Invalid or expired token', error: err.message });
+        .status(500)
+        .json({ message: 'Error processing submission', error: err.message });
     }
   } catch (error) {
     console.error('Submit Excel Error:', error);
@@ -287,7 +72,7 @@ const submitInstituteExcel = async (req, res) => {
 const getAllSubmissions = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const status = req.query.status || 'all';
     const search = req.query.search || '';
 
@@ -314,37 +99,19 @@ const getAllSubmissions = async (req, res) => {
   }
 };
 
-const {
-  parseExcelFile,
-  findHeaderRow,
-  mapRowToCadetData,
-} = require('../services/excelImportService');
-
 // Helper function for import logic
 const processImport = async (id, userId, clientIp) => {
   const submission = await instituteDao.getSubmissionById(id);
   if (!submission) throw new Error('Submission not found');
-  if (submission.status === 'imported')
+  if (submission.status === SUBMISSION_STATUS.IMPORTED)
     throw new Error('Submission already imported');
 
   const submissionFile = await instituteDao.getSubmissionFile(id);
   if (!submissionFile || !submissionFile.file_data)
     throw new Error('File data not found');
 
-  const rawData = parseExcelFile(submissionFile.file_data);
-  const headerKeywords = [
-    'name',
-    'email',
-    'phone',
-    'contact',
-    'dob',
-    'gender',
-    'batch',
-    's.no',
-    'sr.no',
-    'roll no',
-    'indos',
-  ];
+  const { rawData } = parseExcelFile(submissionFile.file_data);
+  const headerKeywords = EXCEL_HEADER_KEYWORDS;
   const headerInfo = findHeaderRow(rawData, headerKeywords);
   if (!headerInfo)
     throw new Error('Could not identify header row in Excel file');
@@ -355,10 +122,10 @@ const processImport = async (id, userId, clientIp) => {
 
   for (let i = headerRowIndex + 1; i < rawData.length; i++) {
     const rowData = rawData[i];
-    if (!rowData || rowData.length === 0) continue;
+    if (isRowEmpty(rowData)) continue;
     try {
       const cadetData = mapRowToCadetData(rowData, headers, submission);
-      if (cadetData.name) {
+      if (cadetData.name_as_in_indos_cert) {
         await cadetDao.createCadet(cadetData);
         successCount++;
       } else {
@@ -370,7 +137,7 @@ const processImport = async (id, userId, clientIp) => {
     }
   }
 
-  await instituteDao.updateSubmissionStatus(id, 'imported');
+  await instituteDao.updateSubmissionStatus(id, SUBMISSION_STATUS.IMPORTED);
 
   if (userId) {
     await activityLogDao.createLog(
@@ -525,8 +292,6 @@ const downloadSubmission = async (req, res) => {
 };
 
 module.exports = {
-  sendInstituteEmail,
-  verifyInstituteToken,
   submitInstituteExcel,
   getAllSubmissions,
   importSubmission,
@@ -534,5 +299,4 @@ module.exports = {
   deleteSubmission,
   bulkDeleteSubmissions,
   bulkImportSubmissions,
-  loginInstitute,
 };
