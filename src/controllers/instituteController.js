@@ -1,5 +1,9 @@
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
+const {
+  DEFAULT_PAGE_SIZE,
+  MOBILE_NUMBER_REGEX,
+} = require('../config/constants');
 
 const createInstitute = async (req, res) => {
   try {
@@ -23,7 +27,7 @@ const createInstitute = async (req, res) => {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    if (!/^\d{10}$/.test(mobile_number)) {
+    if (!MOBILE_NUMBER_REGEX.test(mobile_number)) {
       return res
         .status(400)
         .json({ message: 'Mobile number must be a 10-digit number' });
@@ -64,7 +68,7 @@ const createInstitute = async (req, res) => {
 const getAllInstitutes = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
     const hasSubmissions = req.query.hasSubmissions === 'true';
     let sortBy = req.query.sortBy || 'created_at';
@@ -158,7 +162,7 @@ const updateInstitute = async (req, res) => {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    if (!/^\d{10}$/.test(mobile_number)) {
+    if (!MOBILE_NUMBER_REGEX.test(mobile_number)) {
       return res
         .status(400)
         .json({ message: 'Mobile number must be a 10-digit number' });

@@ -2,8 +2,18 @@
 
 module.exports = {
   // JWT
-  JWT_SECRET: process.env.JWT_SECRET || 'your_jwt_secret_key',
-  JWT_EXPIRE: '24h',
+  JWT_SECRET: process.env.JWT_SECRET || 'fallback_secret',
+  JWT_EXPIRE: '1d',
+
+  // Bcrypt
+  BCRYPT_SALT_ROUNDS: 10,
+
+  // Roles
+  ROLES: {
+    SUPER_ADMIN: 'SuperAdmin',
+    INSTITUTE: 'Institute',
+    CADET: 'Cadet',
+  },
 
   // File Upload Limits
   MAX_FILE_SIZE: {
@@ -27,8 +37,40 @@ module.exports = {
   EMAIL_FROM_NAME: process.env.EMAIL_FROM_NAME || 'MOLMI Recruitment Team',
 
   // Pagination
-  DEFAULT_PAGE_SIZE: 50,
+  DEFAULT_PAGE_SIZE: 10,
   MAX_PAGE_SIZE: 200,
+
+  // Expiry
+  INSTITUTE_CREDENTIAL_EXPIRY_DAYS: 7,
+  CV_TOKEN_EXPIRY_DAYS: 7,
+
+  // Submission Status
+  SUBMISSION_STATUS: {
+    PENDING: 'pending',
+    IMPORTED: 'imported',
+    REJECTED: 'rejected',
+  },
+
+  // Excel Import
+  EXCEL_HEADER_KEYWORDS: [
+    'name',
+    'email',
+    'phone',
+    'contact',
+    'dob',
+    'gender',
+    'batch',
+    's.no',
+    'sr.no',
+    'roll no',
+    'indos',
+  ],
+
+  // Validation
+  MOBILE_NUMBER_REGEX: /^\d{10}$/,
+
+  // Activity Logs
+  ACTIVITY_LOG_RETENTION_MONTHS: 3,
 
   // Cadet Stages
   CADET_STAGES: {

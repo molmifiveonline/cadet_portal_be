@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { ACTIVITY_LOG_RETENTION_MONTHS } = require('../config/constants');
 
 const createLog = async (userId, action, details = '', ipAddress = null) => {
   try {
@@ -29,7 +30,7 @@ const getLogsLast3Months = async (limit, offset, searchTerm = '') => {
       FROM activity_logs al
       LEFT JOIN users u ON al.user_id = u.id
       LEFT JOIN institutes i ON al.user_id = i.id
-      WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL 3 MONTH)
+      WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL ${ACTIVITY_LOG_RETENTION_MONTHS} MONTH)
     `;
 
     const params = [];
@@ -76,7 +77,7 @@ const countLogsLast3Months = async (searchTerm = '') => {
       FROM activity_logs al
       LEFT JOIN users u ON al.user_id = u.id
       LEFT JOIN institutes i ON al.user_id = i.id
-      WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL 3 MONTH)
+      WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL ${ACTIVITY_LOG_RETENTION_MONTHS} MONTH)
     `;
 
     const params = [];

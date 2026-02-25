@@ -1,7 +1,17 @@
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
-
 const cadetDao = require('../dao/cadetDao');
+const {
+  DEFAULT_PAGE_SIZE,
+  EXCEL_HEADER_KEYWORDS,
+  SUBMISSION_STATUS,
+} = require('../config/constants');
+const {
+  parseExcelFile,
+  findHeaderRow,
+  mapRowToCadetData,
+  isRowEmpty,
+} = require('../services/excelImportService');
 
 const submitInstituteExcel = async (req, res) => {
   try {
@@ -26,7 +36,7 @@ const submitInstituteExcel = async (req, res) => {
         return res.status(404).json({ message: 'Institute not found' });
       }
 
-      const adminYear = institute.batch_year;
+      const batch_year = institute.batch_year;
 
       // Generate filename for DB record
       const timestamp = Date.now();
@@ -38,7 +48,7 @@ const submitInstituteExcel = async (req, res) => {
         filename,
         file.originalname,
         file.buffer,
-        adminYear,
+        batch_year,
       );
 
       res.json({
@@ -62,7 +72,7 @@ const submitInstituteExcel = async (req, res) => {
 const getAllSubmissions = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const status = req.query.status || 'all';
     const search = req.query.search || '';
 
@@ -89,18 +99,11 @@ const getAllSubmissions = async (req, res) => {
   }
 };
 
-const {
-  parseExcelFile,
-  findHeaderRow,
-  mapRowToCadetData,
-  isRowEmpty,
-} = require('../services/excelImportService');
-
 // Helper function for import logic
 const processImport = async (id, userId, clientIp) => {
   const submission = await instituteDao.getSubmissionById(id);
   if (!submission) throw new Error('Submission not found');
-  if (submission.status === 'imported')
+  if (submission.status === SUBMISSION_STATUS.IMPORTED)
     throw new Error('Submission already imported');
 
   const submissionFile = await instituteDao.getSubmissionFile(id);
@@ -108,19 +111,7 @@ const processImport = async (id, userId, clientIp) => {
     throw new Error('File data not found');
 
   const { rawData } = parseExcelFile(submissionFile.file_data);
-  const headerKeywords = [
-    'name',
-    'email',
-    'phone',
-    'contact',
-    'dob',
-    'gender',
-    'batch',
-    's.no',
-    'sr.no',
-    'roll no',
-    'indos',
-  ];
+  const headerKeywords = EXCEL_HEADER_KEYWORDS;
   const headerInfo = findHeaderRow(rawData, headerKeywords);
   if (!headerInfo)
     throw new Error('Could not identify header row in Excel file');
@@ -146,7 +137,7 @@ const processImport = async (id, userId, clientIp) => {
     }
   }
 
-  await instituteDao.updateSubmissionStatus(id, 'imported');
+  await instituteDao.updateSubmissionStatus(id, SUBMISSION_STATUS.IMPORTED);
 
   if (userId) {
     await activityLogDao.createLog(

@@ -4,6 +4,7 @@ const cadetDao = require('../dao/cadetDao');
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const emailService = require('../services/emailService');
+const { CV_TOKEN_EXPIRY_DAYS } = require('../config/constants');
 
 /**
  * Get CV form data by token (public endpoint)
@@ -139,7 +140,7 @@ const sendCVFormEmail = async (req, res) => {
       const tokenData = await cvTokenService.generateCVToken(
         cadet.id,
         instituteId,
-        7, // 7 days expiration
+        CV_TOKEN_EXPIRY_DAYS,
       );
       tokens.push({
         ...tokenData,

@@ -4,10 +4,14 @@ const crypto = require('crypto');
 const activityLogDao = require('../dao/activityLogDao');
 const { sendEmail, emailTemplates } = require('../services/emailService');
 const jwt = require('jsonwebtoken');
+const {
+  JWT_SECRET,
+  INSTITUTE_CREDENTIAL_EXPIRY_DAYS,
+} = require('../config/constants');
 
 const sendInstituteEmail = async (req, res) => {
   try {
-    const { instituteIds, subject, description, adminYear } = req.body;
+    const { instituteIds, subject, description, batch_year } = req.body;
     const file = req.file;
 
     if (!instituteIds || !subject || !description) {
@@ -41,7 +45,7 @@ const sendInstituteEmail = async (req, res) => {
     }
 
     const results = [];
-    const expiryDays = 7;
+    const expiryDays = INSTITUTE_CREDENTIAL_EXPIRY_DAYS;
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + expiryDays);
     const expiryDateString = expiryDate.toLocaleDateString('en-GB');
@@ -69,7 +73,7 @@ const sendInstituteEmail = async (req, res) => {
         tempUsername,
         tempPassword,
         mysqlExpiryDate,
-        adminYear || new Date().getFullYear(),
+        batch_year || new Date().getFullYear(),
       );
 
       // Generate Link (No token needed now)
@@ -84,7 +88,7 @@ const sendInstituteEmail = async (req, res) => {
         expiryDate: expiryDateString,
         tempUsername,
         tempPassword,
-        adminYear: adminYear || new Date().getFullYear(),
+        batch_year: batch_year || new Date().getFullYear(),
       });
 
       // Send Email
@@ -166,9 +170,11 @@ const loginInstitute = async (req, res) => {
         instituteId: institute.id,
         adminYear: institute.batch_year,
         type: 'excel_submission',
-        exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 7 days
+        exp:
+          Math.floor(Date.now() / 1000) +
+          INSTITUTE_CREDENTIAL_EXPIRY_DAYS * 24 * 60 * 60,
       },
-      process.env.JWT_SECRET || 'fallback_secret',
+      JWT_SECRET,
     );
 
     res.json({
@@ -192,7 +198,7 @@ const verifyInstituteToken = async (req, res) => {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, JWT_SECRET);
 
       if (decoded.type !== 'excel_submission') {
         return res.status(401).json({ message: 'Invalid token type' });

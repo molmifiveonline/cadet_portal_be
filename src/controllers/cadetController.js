@@ -1,6 +1,13 @@
 const cadetDao = require('../dao/cadetDao');
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
+const shortlistService = require('../services/shortlistService');
+const {
+  DEFAULT_PAGE_SIZE,
+  ROLES,
+  EXCEL_HEADER_KEYWORDS,
+  SUBMISSION_STATUS,
+} = require('../config/constants');
 const {
   parseExcelFile,
   findHeaderRow,
@@ -11,15 +18,16 @@ const {
 const getAllCadets = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
     // If the logged-in user is an Institute, force their ID instead of trusting the query param
     const instituteId =
-      req.user?.role === 'Institute'
+      req.user?.role === ROLES.INSTITUTE
         ? req.user.instituteId
         : req.query.instituteId;
     const batch = req.query.batch;
-    const batchId = req.query.batchId; // Legacy support if needed, or map to batch name
+    const batch_year = req.query.batch_year; // Added
+    const course_type = req.query.course_type; // Added
 
     const offset = (page - 1) * limit;
 
@@ -27,6 +35,8 @@ const getAllCadets = async (req, res) => {
       search,
       instituteId,
       batch,
+      batch_year, // Passed to filters
+      course_type, // Passed to filters
     };
 
     const { data, total } = await cadetDao.getAllCadets(limit, offset, filters);
@@ -65,19 +75,7 @@ const importCadets = async (req, res) => {
     const { rawData } = parseExcelFile(file.buffer);
 
     // Potential header keywords to look for
-    const headerKeywords = [
-      'name',
-      'email',
-      'phone',
-      'contact',
-      'dob',
-      'gender',
-      'batch',
-      's.no',
-      'sr.no',
-      'roll no',
-      'indos',
-    ];
+    const headerKeywords = EXCEL_HEADER_KEYWORDS;
 
     const headerInfo = findHeaderRow(rawData, headerKeywords);
     if (!headerInfo) {
@@ -96,8 +94,6 @@ const importCadets = async (req, res) => {
     const timestamp = Date.now();
     const filename = `${instituteId}_${timestamp}_${file.originalname}`;
 
-    // We need to import instituteDao to create submission
-
     const submissionId = await instituteDao.createSubmission(
       instituteId,
       filename,
@@ -106,7 +102,10 @@ const importCadets = async (req, res) => {
     );
 
     // Auto-approve/import status since it's an admin import
-    await instituteDao.updateSubmissionStatus(submissionId, 'imported');
+    await instituteDao.updateSubmissionStatus(
+      submissionId,
+      SUBMISSION_STATUS.IMPORTED,
+    );
 
     // Create a mock submission object for mapping compatibility
     const mockSubmission = {
@@ -179,28 +178,30 @@ const getCadetById = async (req, res) => {
   }
 };
 
-// Import shortlist services
-const shortlistService = require('../services/shortlistService');
-
 /**
  * Get all shortlisted cadets with pagination and filters
  */
 const getShortlistedCadets = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
     // Force scoping for Institute users
     const instituteId =
-      req.user?.role === 'Institute'
+      req.user?.role === ROLES.INSTITUTE
         ? req.user.instituteId
         : req.query.instituteId;
+
+    const batch_year = req.query.batch_year;
+    const course_type = req.query.course_type;
 
     const offset = (page - 1) * limit;
 
     const filters = {
       search,
       instituteId,
+      batch_year, // Passed to filters
+      course_type, // Passed to filters
     };
 
     const { data, total } = await shortlistService.getShortlistedCadets(
@@ -252,6 +253,11 @@ const updateCadet = async (req, res) => {
       return res.status(404).json({ message: 'Cadet not found' });
     }
 
+    // Remove joined/readonly properties that shouldn't be updated in the cadets table
+    delete cadetData.institute_name;
+    delete cadetData.pcm_percentage;
+    delete cadetData.address;
+
     // Handle photo upload — save to database
     if (req.file) {
       await cadetDao.saveCadetPhoto(
@@ -272,7 +278,7 @@ const updateCadet = async (req, res) => {
       await activityLogDao.createLog(
         req.user.id,
         'UPDATE_CADET',
-        `Updated cadet ${existingCadet.name}`,
+        `Updated cadet ${existingCadet.name_as_in_indos_cert}`,
         req.ip || req.connection.remoteAddress,
       );
     }

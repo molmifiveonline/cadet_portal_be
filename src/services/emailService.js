@@ -139,7 +139,7 @@ const emailTemplates = {
 
             <p class="warning">⚠️ Do not share this user ID and password with anyone.</p>
 
-            <p>Please note that this data collection is specifically for the <strong>${data.adminYear}</strong> administrative year.</p>
+            <p>Please note that this data collection is specifically for the <strong>${data.batch_year}</strong> administrative year.</p>
 
             <p>Please download the attached Excel format and submit the required data using the link below:</p>
 
@@ -259,6 +259,33 @@ const emailTemplates = {
       </body>
       </html>
     `,
+  }),
+
+  // Forgot password email template
+  forgotPassword: (data) => ({
+    subject: 'Reset Password Link',
+    html: `
+      <div style="font-family: Arial, sans-serif;">
+        <div style="background-color: #f4f4f4; padding: 20px; text-align: center;">
+            <h2>Reset Password Link</h2>
+        </div>
+        <div style="padding: 20px;">
+            <p>Hi,</p>
+            <p>You requested to reset your password. Click the link below to reset it:</p>
+            <p><a href="${data.resetLink}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a></p>
+            <p>If you didn't request this, you can ignore this email.</p>
+        </div>
+        <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 12px; color: #666;">
+            &copy; ${new Date().getFullYear()} Molmi. All rights reserved.
+        </div>
+      </div>
+    `,
+  }),
+
+  // Password reset success confirmation template
+  resetPasswordSuccess: () => ({
+    subject: 'Password Reset Successful',
+    html: `<p>Hi,</p><p>Your password has been successfully updated.</p>`,
   }),
 };
 

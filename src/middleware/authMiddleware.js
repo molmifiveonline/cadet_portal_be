@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { JWT_SECRET } = require('../config/constants');
 
 /**
  * Middleware to verify JWT token and attach user to request
@@ -14,10 +15,7 @@ const authMiddleware = (req, res, next) => {
         .json({ message: 'Access denied. No token provided.' });
     }
 
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'fallback_secret',
-    );
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (error) {

@@ -1,10 +1,11 @@
 const userManagementDao = require('../dao/userManagementDao');
 const activityLogDao = require('../dao/activityLogDao');
+const { DEFAULT_PAGE_SIZE, ROLES } = require('../config/constants');
 
 const getUsers = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
     const offset = (page - 1) * limit;
 
@@ -71,7 +72,7 @@ const createUser = async (req, res, next) => {
     const newUser = await userManagementDao.createUser(
       email,
       password,
-      role || 'Cadet',
+      role || ROLES.CADET,
       first_name,
       last_name,
     );
@@ -81,7 +82,7 @@ const createUser = async (req, res, next) => {
       await activityLogDao.createLog(
         req.user.id,
         'CREATE_USER',
-        `Created user: ${first_name} ${last_name} (${email}) with role ${role || 'Cadet'}`,
+        `Created user: ${first_name} ${last_name} (${email}) with role ${role || ROLES.CADET}`,
         req.ip || req.connection.remoteAddress,
       );
     }

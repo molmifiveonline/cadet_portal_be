@@ -58,12 +58,16 @@ const getAllInstitutes = async (
       i.institute_email LIKE ? OR 
       i.mobile_number LIKE ? OR 
       i.address LIKE ? OR 
-      i.location LIKE ?
+      i.location LIKE ? OR
+      i.contact_person LIKE ? OR
+      i.institute_type LIKE ?
     )`;
 
     query += whereClause;
     countQuery += whereClause;
     const searchParams = [
+      searchPattern,
+      searchPattern,
       searchPattern,
       searchPattern,
       searchPattern,
@@ -132,12 +136,12 @@ const createSubmission = async (
   fileName,
   originalName,
   fileData,
-  adminYear,
+  batch_year,
 ) => {
   const id = uuidv4();
   await db.query(
     'INSERT INTO institute_submissions (id, institute_id, file_name, original_name, file_data, batch_year) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, instituteId, fileName, originalName, fileData, adminYear],
+    [id, instituteId, fileName, originalName, fileData, batch_year],
   );
   return id;
 };
@@ -244,14 +248,14 @@ const updateInstituteCredentials = async (
   tempUsername,
   tempPassword,
   tempExpiry,
-  adminYear,
+  batch_year,
 ) => {
   const hashedPassword = await bcrypt.hash(tempPassword, 10);
   const [result] = await db.query(
     `UPDATE institutes 
      SET temp_username = ?, temp_password = ?, temp_expiry = ?, batch_year = ?
      WHERE id = ?`,
-    [tempUsername, hashedPassword, tempExpiry, adminYear, id],
+    [tempUsername, hashedPassword, tempExpiry, batch_year, id],
   );
   return result.affectedRows > 0;
 };

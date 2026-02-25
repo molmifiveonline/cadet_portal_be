@@ -25,14 +25,19 @@ const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
   let queryParams = [];
   let whereClauses = [];
 
-  if (filters.adminYear && filters.adminYear !== 'all') {
+  if (filters.batch_year && filters.batch_year !== 'all') {
     whereClauses.push('c.batch_year = ?');
-    queryParams.push(filters.adminYear);
+    queryParams.push(filters.batch_year);
   }
 
   if (filters.instituteId) {
     whereClauses.push('c.institute_id = ?');
     queryParams.push(filters.instituteId);
+  }
+
+  if (filters.course_type && filters.course_type !== 'all') {
+    whereClauses.push('c.course LIKE ?');
+    queryParams.push(`%${filters.course_type}%`);
   }
 
   if (filters.batch) {
@@ -102,14 +107,19 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
   let queryParams = [];
   let additionalClauses = [];
 
-  if (filters.adminYear && filters.adminYear !== 'all') {
+  if (filters.batch_year && filters.batch_year !== 'all') {
     additionalClauses.push('c.batch_year = ?');
-    queryParams.push(filters.adminYear);
+    queryParams.push(filters.batch_year);
   }
 
   if (filters.instituteId) {
     additionalClauses.push('c.institute_id = ?');
     queryParams.push(filters.instituteId);
+  }
+
+  if (filters.course_type && filters.course_type !== 'all') {
+    additionalClauses.push('c.course LIKE ?');
+    queryParams.push(`%${filters.course_type}%`);
   }
 
   if (filters.search) {
