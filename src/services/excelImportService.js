@@ -177,6 +177,7 @@ const mapRowToCadetData = (rowData, headers, submission) => {
       'IMU Avg All Semester',
       'IMU Avg All Semester %',
       'IMU Avg All Semester Percentage',
+      'IMU Avg',
     ]),
     imu_sem_1_percentage: getValue(['IMU Sem 1']),
     imu_sem_2_percentage: getValue(['IMU Sem 2']),

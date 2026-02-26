@@ -21,13 +21,26 @@ const submitInstituteExcel = async (req, res) => {
       return res.status(400).json({ message: 'Excel file is required' });
     }
 
-    if (!req.user || !req.user.instituteId) {
+    if (!req.user) {
+      return res.status(401).json({ message: 'Unauthorized. Please log in.' });
+    }
+
+    const isAdmin =
+      req.user.role === 'role-super-admin' || req.user.role === 'SuperAdmin';
+    let instituteId = req.user.instituteId;
+
+    if (isAdmin) {
+      if (!req.body.instituteId) {
+        return res
+          .status(400)
+          .json({ message: 'Institute ID is required for Admins.' });
+      }
+      instituteId = req.body.instituteId;
+    } else if (!instituteId) {
       return res
         .status(401)
         .json({ message: 'Unauthorized. Institute account required.' });
     }
-
-    const instituteId = req.user.instituteId;
 
     try {
       const institute = await instituteDao.getInstituteById(instituteId);
@@ -36,7 +49,10 @@ const submitInstituteExcel = async (req, res) => {
         return res.status(404).json({ message: 'Institute not found' });
       }
 
-      const batch_year = institute.batch_year;
+      const batch_year =
+        isAdmin && req.body.batch_year
+          ? req.body.batch_year
+          : institute.batch_year;
 
       // Generate filename for DB record
       const timestamp = Date.now();
