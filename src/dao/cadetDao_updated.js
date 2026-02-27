@@ -9,7 +9,6 @@ const createCadet = async (cadetData) => {
     email,
     phone,
     course,
-    batch,
     gender,
     dob,
     indos_number,
@@ -18,7 +17,6 @@ const createCadet = async (cadetData) => {
     tenth_percentage,
     twelfth_percentage,
     pcm_percentage,
-    degree_percentage,
     height,
     weight,
     blood_group,
@@ -51,22 +49,21 @@ const createCadet = async (cadetData) => {
     bmi,
     extra_curricular,
     status,
+    address,
   } = cadetData;
 
   const id = uuidv4();
 
   await db.query(
     `INSERT INTO cadets (
-      id, institute_id, submission_id, name, email, phone, course, batch, 
-      gender, dob, indos_number, cdc_number, passport_number, 
-      tenth_percentage, twelfth_percentage, pcm_percentage, degree_percentage, 
+      tenth_percentage, twelfth_percentage, pcm_percentage, 
       height, weight, blood_group,
-      hometown, passing_out_date, age_at_passing_out, batch_rank, no_of_arrears,
+      hometown, address, passing_out_date, age_at_passing_out, batch_rank, no_of_arrears,
       tenth_board, tenth_year, tenth_maths, tenth_science, tenth_english,
       twelfth_board, twelfth_year, twelfth_english, twelfth_physics, twelfth_chemistry, twelfth_maths,
       imu_rank, imu_avg_percentage, imu_sem1, imu_sem2, imu_sem3, imu_sem4, imu_sem5, imu_sem6, imu_sem7, imu_sem8,
       bmi, extra_curricular, status, batch_year
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       institute_id,
@@ -75,7 +72,6 @@ const createCadet = async (cadetData) => {
       email,
       phone,
       course,
-      batch,
       gender,
       dob,
       indos_number,
@@ -84,11 +80,11 @@ const createCadet = async (cadetData) => {
       tenth_percentage,
       twelfth_percentage,
       pcm_percentage,
-      degree_percentage,
       height,
       weight,
       blood_group,
       hometown,
+      address,
       passing_out_date,
       age_at_passing_out,
       batch_rank,
@@ -125,7 +121,7 @@ const createCadet = async (cadetData) => {
 
 const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
   let query = `
-    SELECT c.id, c.institute_id, c.submission_id, c.course, c.name_as_in_indos_cert, c.gender, c.home_town_or_nearby_airport, c.passing_out_date, c.date_of_birth, c.age_when_passing_out, c.contact_number, c.email_id, c.batch_rank_out_of_72_cadets, c.no_of_arrears, c.tenth_std_board, c.tenth_std_pass_out_year, c.tenth_avg_percentage, c.tenth_std_maths, c.tenth_std_science, c.tenth_std_english, c.twelfth_std_board, c.twelfth_std_pass_out_year, c.twelfth_pcm_avg_percentage, c.twelfth_std_english, c.twelfth_std_physics, c.twelfth_std_chemistry, c.twelfth_std_maths, c.imu_rank, c.imu_avg_all_semester_percentage, c.imu_sem_1_percentage, c.imu_sem_2_percentage, c.imu_sem_3_percentage, c.imu_sem_4_percentage, c.imu_sem_5_percentage, c.imu_sem_6_percentage, c.imu_sem_7_percentage, c.imu_sem_8_percentage, c.weight_in_kgs, c.height_in_cms, c.bmi, c.any_extra_curricular_achievement, c.batch, c.status, c.created_at, c.batch_year, c.photo_path, c.photo_data, c.photo_mime_type, c.photo_name, c.cv_form_status, c.cv_form_completed_at, c.passport_number, c.indos_number, c.cdc_number, c.blood_group, c.nationality, c.eye_color, c.eye_vision, c.language_known, c.waist_in_cm, c.covid_vaccination, c.covid_dose, c.medical_history, c.family_medical_history, c.permanent_address, c.post_applied_for, c.father_occupation, c.mother_occupation, c.sibling_occupation, c.marine_relative, c.educational_loan, c.graduation_course, c.graduation_university, c.degree_percentage, c.stcw_courses, i.institute_name
+    SELECT c.id, c.institute_id, c.submission_id, c.course, c.name_as_in_indos_cert, c.gender, c.home_town_or_nearby_airport, c.passing_out_date, c.date_of_birth, c.age_when_passing_out, c.contact_number, c.email_id, c.batch_rank_out_of_72_cadets, c.no_of_arrears, c.tenth_std_board, c.tenth_std_pass_out_year, c.tenth_avg_percentage, c.tenth_std_maths, c.tenth_std_science, c.tenth_std_english, c.twelfth_std_board, c.twelfth_std_pass_out_year, c.twelfth_pcm_avg_percentage, c.twelfth_std_english, c.twelfth_std_physics, c.twelfth_std_chemistry, c.twelfth_std_maths, c.imu_rank, c.imu_avg_all_semester_percentage, c.imu_sem_1_percentage, c.imu_sem_2_percentage, c.imu_sem_3_percentage, c.imu_sem_4_percentage, c.imu_sem_5_percentage, c.imu_sem_6_percentage, c.imu_sem_7_percentage, c.imu_sem_8_percentage, c.weight_in_kgs, c.height_in_cms, c.bmi, c.any_extra_curricular_achievement, c.batch, c.status, c.created_at, c.batch_year, c.photo_path, c.photo_data, c.photo_mime_type, c.photo_name, c.cv_form_status, c.cv_form_completed_at, c.passport_number, c.indos_number, c.cdc_number, c.blood_group, c.nationality, c.eye_color, c.eye_vision, c.language_known, c.waist_in_cm, c.covid_vaccination, c.covid_dose, c.medical_history, c.family_medical_history, c.permanent_address, c.address, c.father_occupation, c.mother_occupation, c.marine_relative, c.educational_loan, c.graduation_university, c.stcw_elementary_first_aid, c.stcw_security_training, c.stcw_personal_safety, c.stcw_petrol_tanker, c.stcw_fire_prevention, c.stcw_chemical_tanker, c.stcw_personal_survival, c.stcw_gas_tanker, i.institute_name
     HAVING count > 0
     ORDER BY count DESC
   `;
@@ -163,7 +159,7 @@ const updateCVData = async (cadetId, cvData) => {
     'medical_history',
     'family_medical_history',
     'permanent_address',
-    'post_applied_for',
+    'address',
     // Academic fields - using existing names
     'tenth_percentage',
     'tenth_maths',
@@ -179,8 +175,6 @@ const updateCVData = async (cadetId, cvData) => {
     'twelfth_maths',
     'twelfth_board',
     'twelfth_year',
-    'degree_percentage',
-    'graduation_course',
     'graduation_university',
     // IMU semester marks - using existing fields
     'imu_rank',
@@ -196,12 +190,18 @@ const updateCVData = async (cadetId, cvData) => {
     // Family details
     'father_occupation',
     'mother_occupation',
-    'sibling_occupation',
     // Marine and loan
     'marine_relative',
     'educational_loan',
-    // STCW courses (JSON)
-    'stcw_courses',
+    // STCW Courses
+    'stcw_elementary_first_aid',
+    'stcw_security_training',
+    'stcw_personal_safety',
+    'stcw_petrol_tanker',
+    'stcw_fire_prevention',
+    'stcw_chemical_tanker',
+    'stcw_personal_survival',
+    'stcw_gas_tanker',
     // Photo
     'photo_path',
   ];
@@ -210,12 +210,7 @@ const updateCVData = async (cadetId, cvData) => {
   for (const field of allowedFields) {
     if (cvData[field] !== undefined) {
       updateFields.push(`${field} = ?`);
-      // Handle JSON fields
-      if (field === 'stcw_courses') {
-        values.push(JSON.stringify(cvData[field]));
-      } else {
-        values.push(cvData[field]);
-      }
+      values.push(cvData[field]);
     }
   }
 
@@ -251,7 +246,6 @@ const updateCadet = async (id, cadetData) => {
     'email',
     'phone',
     'course',
-    'batch',
     'gender',
     'dob',
     'indos_number',
@@ -260,11 +254,11 @@ const updateCadet = async (id, cadetData) => {
     'tenth_percentage',
     'twelfth_percentage',
     'pcm_percentage',
-    'degree_percentage',
     'height',
     'weight',
     'blood_group',
     'hometown',
+    'address',
     'passing_out_date',
     'age_at_passing_out',
     'batch_rank',
@@ -294,6 +288,16 @@ const updateCadet = async (id, cadetData) => {
     'extra_curricular',
     'status',
     'photo_path',
+    'graduation_university',
+    'marine_relative',
+    'stcw_elementary_first_aid',
+    'stcw_security_training',
+    'stcw_personal_safety',
+    'stcw_petrol_tanker',
+    'stcw_fire_prevention',
+    'stcw_chemical_tanker',
+    'stcw_personal_survival',
+    'stcw_gas_tanker',
   ];
 
   const updateFields = [];

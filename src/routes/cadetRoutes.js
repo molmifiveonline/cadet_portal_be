@@ -4,6 +4,7 @@ const {
   getAllCadets,
   getCadetById,
   importCadets,
+  createCadet,
   getShortlistedCadets,
 
   getShortlistStats,
@@ -22,6 +23,15 @@ router.get(
   authMiddleware,
   requirePermission('cadets', 'view'),
   getAllCadets,
+);
+
+// Create cadet
+router.post(
+  '/',
+  authMiddleware,
+  requirePermission('cadets', 'create'),
+  upload.single('photo'),
+  createCadet,
 );
 
 router.post(

@@ -242,6 +242,50 @@ const getShortlistStats = async (req, res) => {
   }
 };
 
+const createCadet = async (req, res) => {
+  try {
+    let cadetData = req.body;
+
+    // Default status
+    cadetData.status = cadetData.status || 'Assessment';
+
+    const newCadetId = await cadetDao.createCadet(cadetData);
+
+    // Handle photo upload — save to database
+    if (req.file) {
+      await cadetDao.saveCadetPhoto(
+        newCadetId,
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname,
+      );
+
+      const photoPath = `${req.protocol}://${req.get('host')}/api/cadets/${newCadetId}/photo`;
+      await cadetDao.updateCadet(newCadetId, { photo_path: photoPath });
+    }
+
+    // Log Activity
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'CREATE_CADET',
+        `Created new cadet: ${cadetData.name_as_in_indos_cert || 'Unknown'}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.status(201).json({
+      message: 'Cadet created successfully',
+      data: { id: newCadetId },
+    });
+  } catch (error) {
+    console.error('Create Cadet Error:', error);
+    res
+      .status(500)
+      .json({ message: 'Error creating cadet', error: error.message });
+  }
+};
+
 const updateCadet = async (req, res) => {
   try {
     const { id } = req.params;
@@ -255,8 +299,6 @@ const updateCadet = async (req, res) => {
 
     // Remove joined/readonly properties that shouldn't be updated in the cadets table
     delete cadetData.institute_name;
-    delete cadetData.pcm_percentage;
-    delete cadetData.address;
 
     // Handle photo upload — save to database
     if (req.file) {
@@ -349,6 +391,7 @@ module.exports = {
   getShortlistedCadets,
 
   getShortlistStats,
+  createCadet,
   updateCadet,
   getCadetPhoto,
   deleteCadet,

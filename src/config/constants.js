@@ -20,7 +20,7 @@ module.exports = {
     EXCEL: 10 * 1024 * 1024, // 10MB
     CV: 5 * 1024 * 1024, // 5MB
     DOCUMENT: 5 * 1024 * 1024, // 5MB
-    IMAGE: 2 * 1024 * 1024, // 2MB
+    IMAGE: 5 * 1024 * 1024, // 5MB
   },
 
   // Allowed File Types

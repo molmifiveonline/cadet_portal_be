@@ -113,8 +113,26 @@ const countLogsLast3Months = async (searchTerm = '') => {
   }
 };
 
+const deleteOldLogs = async () => {
+  try {
+    const query = `
+      DELETE FROM activity_logs 
+      WHERE created_at < DATE_SUB(NOW(), INTERVAL ${ACTIVITY_LOG_RETENTION_MONTHS} MONTH)
+    `;
+    const [result] = await db.query(query);
+    if (result.affectedRows > 0) {
+      console.log(`Auto-cleaned ${result.affectedRows} old activity logs.`);
+    }
+    return result.affectedRows;
+  } catch (error) {
+    console.error('Error deleting old activity logs:', error);
+    return 0;
+  }
+};
+
 module.exports = {
   createLog,
   getLogsLast3Months,
   countLogsLast3Months,
+  deleteOldLogs,
 };

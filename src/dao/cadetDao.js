@@ -211,11 +211,7 @@ const updateCVData = async (cadetId, cvData) => {
   for (const field of allowedFields) {
     if (cvData[field] !== undefined) {
       updateFields.push(`${field} = ?`);
-      if (field === 'stcw_courses') {
-        values.push(JSON.stringify(cvData[field]));
-      } else {
-        values.push(cvData[field]);
-      }
+      values.push(cvData[field]);
     }
   }
 
