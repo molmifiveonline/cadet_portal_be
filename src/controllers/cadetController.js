@@ -242,6 +242,51 @@ const getShortlistStats = async (req, res) => {
   }
 };
 
+/**
+ * Get shortlisted cadets for institute users (auto-scoped by instituteId from JWT)
+ */
+const getInstituteShortlistedCadets = async (req, res) => {
+  try {
+    const instituteId = req.user?.instituteId;
+
+    if (!instituteId) {
+      return res.status(403).json({
+        message: 'Access denied. Institute ID not found in token.',
+      });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
+    const search = req.query.search || '';
+    const offset = (page - 1) * limit;
+
+    const filters = {
+      search,
+      instituteId,
+    };
+
+    const { data, total } = await shortlistService.getShortlistedCadets(
+      limit,
+      offset,
+      filters,
+    );
+
+    res.json({
+      data,
+      total,
+      page,
+      limit,
+      last_page: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    console.error('Get Institute Shortlisted Cadets Error:', error);
+    res.status(500).json({
+      message: 'Error fetching shortlisted cadets',
+      error: error.message,
+    });
+  }
+};
+
 const createCadet = async (req, res) => {
   try {
     let cadetData = req.body;
@@ -389,7 +434,7 @@ module.exports = {
   importCadets,
   getCadetById,
   getShortlistedCadets,
-
+  getInstituteShortlistedCadets,
   getShortlistStats,
   createCadet,
   updateCadet,

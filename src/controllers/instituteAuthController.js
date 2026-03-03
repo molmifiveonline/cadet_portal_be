@@ -8,6 +8,7 @@ const {
   JWT_SECRET,
   INSTITUTE_CREDENTIAL_EXPIRY_DAYS,
 } = require('../config/constants');
+const shortlistService = require('../services/shortlistService');
 
 const sendInstituteEmail = async (req, res) => {
   try {
@@ -64,7 +65,7 @@ const sendInstituteEmail = async (req, res) => {
       }
 
       // Generate Temp Credentials
-      const tempUsername = `INST-${Math.floor(100000 + Math.random() * 900000)}`;
+      const tempUsername = `SUB-${Math.floor(100000 + Math.random() * 900000)}`;
       const tempPassword = crypto.randomBytes(4).toString('hex').toUpperCase();
 
       // Store in DB
@@ -134,6 +135,139 @@ const sendInstituteEmail = async (req, res) => {
     res
       .status(500)
       .json({ message: 'Error sending emails', error: error.message });
+  }
+};
+
+const sendShortlistEmail = async (req, res) => {
+  try {
+    const { instituteIds, subject } = req.body;
+
+    if (!instituteIds) {
+      return res.status(400).json({
+        message: 'Institute IDs are required',
+      });
+    }
+
+    // Parse instituteIds
+    let ids = [];
+    if (Array.isArray(instituteIds)) {
+      ids = instituteIds;
+    } else if (typeof instituteIds === 'string') {
+      if (instituteIds.trim().startsWith('[')) {
+        ids = JSON.parse(instituteIds);
+      } else {
+        ids = instituteIds.split(',').map((id) => id.trim());
+      }
+    }
+
+    // Get shortlist count per institute to include in emails
+    const shortlistCounts =
+      await shortlistService.getShortlistCountByInstitute();
+    const countMap = {};
+    shortlistCounts.forEach((item) => {
+      countMap[item.institute_id] = item.count;
+    });
+
+    const results = [];
+    const expiryDays = INSTITUTE_CREDENTIAL_EXPIRY_DAYS;
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + expiryDays);
+    const expiryDateString = expiryDate.toLocaleDateString('en-GB');
+
+    // Format for MySQL timestamp
+    const mysqlExpiryDate = expiryDate
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ');
+
+    for (const id of ids) {
+      const institute = await instituteDao.getInstituteById(id);
+      if (!institute) {
+        results.push({ id, status: 'failed', reason: 'Institute not found' });
+        continue;
+      }
+
+      const cadetCount = countMap[id] || 0;
+      if (cadetCount === 0) {
+        results.push({
+          id,
+          status: 'skipped',
+          reason: 'No shortlisted cadets',
+        });
+        continue;
+      }
+
+      // Generate SHOR- prefix credentials
+      const tempUsername = `SHOR-${Math.floor(100000 + Math.random() * 900000)}`;
+      const tempPassword = crypto.randomBytes(4).toString('hex').toUpperCase();
+
+      // Store in DB
+      await instituteDao.updateInstituteCredentials(
+        id,
+        tempUsername,
+        tempPassword,
+        mysqlExpiryDate,
+        new Date().getFullYear(),
+      );
+
+      // Generate Link
+      const link = `${process.env.FRONTEND_URL}/institute/shortlisted-cadets`;
+
+      // Prepare Email
+      const emailContent = emailTemplates.instituteShortlistView({
+        instituteName: institute.institute_name,
+        subject,
+        cadetCount,
+        link,
+        expiryDate: expiryDateString,
+        tempUsername,
+        tempPassword,
+      });
+
+      // Send Email
+      try {
+        await sendEmail({
+          to: institute.institute_email,
+          subject: emailContent.subject,
+          html: emailContent.html,
+        });
+        results.push({
+          id,
+          status: 'success',
+          email: institute.institute_email,
+          cadetCount,
+        });
+      } catch (err) {
+        console.error(
+          `Failed to send shortlist email to institute ${id}:`,
+          err,
+        );
+        results.push({ id, status: 'failed', reason: err.message });
+      }
+    }
+
+    // Log activity
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'SEND_SHORTLIST_EMAIL',
+        `Sent shortlist view email to ${results.filter((r) => r.status === 'success').length} institutes`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.json({
+      message: 'Shortlist email processing completed',
+      results,
+    });
+  } catch (error) {
+    console.error('Send Shortlist Email Error:', error);
+    res
+      .status(500)
+      .json({
+        message: 'Error sending shortlist emails',
+        error: error.message,
+      });
   }
 };
 
@@ -231,6 +365,7 @@ const verifyInstituteToken = async (req, res) => {
 
 module.exports = {
   sendInstituteEmail,
+  sendShortlistEmail,
   loginInstitute,
   verifyInstituteToken,
 };

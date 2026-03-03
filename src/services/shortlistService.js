@@ -16,15 +16,15 @@ const cadetDao = require('../dao/cadetDao');
  */
 
 const SHORTLIST_CRITERIA = {
-  tenth_percentage: 85,
-  tenth_maths: 80,
-  tenth_science: 80,
-  tenth_english: 80,
-  twelfth_percentage: 80,
-  twelfth_english: 75,
-  twelfth_physics: 75,
-  twelfth_chemistry: 75,
-  twelfth_maths: 75,
+  tenth_avg_percentage: 85,
+  tenth_std_maths: 80,
+  tenth_std_science: 80,
+  tenth_std_english: 80,
+  twelfth_pcm_avg_percentage: 80,
+  twelfth_std_english: 75,
+  twelfth_std_physics: 75,
+  twelfth_std_chemistry: 75,
+  twelfth_std_maths: 75,
   imu_rank_max: 3000,
   bmi_max: 25,
 };
@@ -39,20 +39,25 @@ const checkShortlistCriteria = (cadetData) => {
 
   const checks = [
     // 10th standard criteria
-    parseFloat(cadetData.tenth_percentage) >=
-      SHORTLIST_CRITERIA.tenth_percentage,
-    parseFloat(cadetData.tenth_maths) >= SHORTLIST_CRITERIA.tenth_maths,
-    parseFloat(cadetData.tenth_science) >= SHORTLIST_CRITERIA.tenth_science,
-    parseFloat(cadetData.tenth_english) >= SHORTLIST_CRITERIA.tenth_english,
+    parseFloat(cadetData.tenth_avg_percentage) >=
+      SHORTLIST_CRITERIA.tenth_avg_percentage,
+    parseFloat(cadetData.tenth_std_maths) >= SHORTLIST_CRITERIA.tenth_std_maths,
+    parseFloat(cadetData.tenth_std_science) >=
+      SHORTLIST_CRITERIA.tenth_std_science,
+    parseFloat(cadetData.tenth_std_english) >=
+      SHORTLIST_CRITERIA.tenth_std_english,
 
     // 12th standard criteria
-    parseFloat(cadetData.twelfth_percentage) >=
-      SHORTLIST_CRITERIA.twelfth_percentage,
-    parseFloat(cadetData.twelfth_english) >= SHORTLIST_CRITERIA.twelfth_english,
-    parseFloat(cadetData.twelfth_physics) >= SHORTLIST_CRITERIA.twelfth_physics,
-    parseFloat(cadetData.twelfth_chemistry) >=
-      SHORTLIST_CRITERIA.twelfth_chemistry,
-    parseFloat(cadetData.twelfth_maths) >= SHORTLIST_CRITERIA.twelfth_maths,
+    parseFloat(cadetData.twelfth_pcm_avg_percentage) >=
+      SHORTLIST_CRITERIA.twelfth_pcm_avg_percentage,
+    parseFloat(cadetData.twelfth_std_english) >=
+      SHORTLIST_CRITERIA.twelfth_std_english,
+    parseFloat(cadetData.twelfth_std_physics) >=
+      SHORTLIST_CRITERIA.twelfth_std_physics,
+    parseFloat(cadetData.twelfth_std_chemistry) >=
+      SHORTLIST_CRITERIA.twelfth_std_chemistry,
+    parseFloat(cadetData.twelfth_std_maths) >=
+      SHORTLIST_CRITERIA.twelfth_std_maths,
 
     // IMU and BMI criteria
     parseInt(cadetData.imu_rank) <= SHORTLIST_CRITERIA.imu_rank_max,

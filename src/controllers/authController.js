@@ -25,11 +25,27 @@ const login = async (req, res) => {
     let roleName = ROLES.CADET;
     let instituteId = null;
 
+    // Configuration for Institute temp login prefixes and their intents
+    // To add new routes in the future, simply add to this object: { prefix: 'INTENT_KEY' }
+    const INSTITUTE_PREFIX_INTENTS = {
+      'SUB-': 'institute_submit',
+      'SHOR-': 'institute_shortlist',
+      'INST-': 'institute_submit', // Legacy support
+    };
+
     // Check if it's an Institute login (Using temp username)
-    if (!email.includes('@') && email.toUpperCase().startsWith('INST-')) {
-      const institute = await instituteDao.getInstituteByTempUsername(
-        email.toUpperCase(),
-      );
+    const upperEmail = email.toUpperCase();
+
+    // Check if the username starts with any of the defined prefixes
+    const matchedPrefix = Object.keys(INSTITUTE_PREFIX_INTENTS).find((prefix) =>
+      upperEmail.startsWith(prefix),
+    );
+
+    const isInstituteLogin = !email.includes('@') && !!matchedPrefix;
+
+    if (isInstituteLogin) {
+      const institute =
+        await instituteDao.getInstituteByTempUsername(upperEmail);
 
       if (institute) {
         if (new Date() > new Date(institute.temp_expiry)) {
@@ -45,16 +61,21 @@ const login = async (req, res) => {
             .json({ message: 'Invalid User ID or password' });
         }
 
+        // Assign intent based on the matched prefix
+        const intent = INSTITUTE_PREFIX_INTENTS[matchedPrefix];
+
         user = {
           id: institute.id, // Using institute ID as user ID for consistent token schema
           email: institute.institute_email,
           first_name: institute.institute_name,
           last_name: '',
+          intent,
+          temp_expiry: institute.temp_expiry,
         };
         roleName = ROLES.INSTITUTE;
         instituteId = institute.id;
       } else {
-        console.log(`[AUTH] Institute ${email} NOT found in database.`);
+        console.log(`[AUTH] Institute ${upperEmail} NOT found in database.`);
       }
     }
 
@@ -89,6 +110,10 @@ const login = async (req, res) => {
       last_name: user.last_name || '',
     };
 
+    if (user.intent) {
+      payload.intent = user.intent;
+    }
+
     if (instituteId) {
       payload.instituteId = instituteId;
     }
@@ -115,6 +140,8 @@ const login = async (req, res) => {
         first_name: user.first_name || '',
         last_name: user.last_name || '',
         instituteId: instituteId || undefined,
+        intent: user.intent || undefined,
+        temp_expiry: user.temp_expiry || undefined,
       },
     });
   } catch (error) {

@@ -6,7 +6,7 @@ const {
   importCadets,
   createCadet,
   getShortlistedCadets,
-
+  getInstituteShortlistedCadets,
   getShortlistStats,
   updateCadet,
   getCadetPhoto,
@@ -48,6 +48,13 @@ router.get(
   authMiddleware,
   requirePermission('cadets', 'view'),
   getShortlistedCadets,
+);
+
+// Institute-specific shortlist route (auto-scoped by JWT, no permission check needed)
+router.get(
+  '/institute-shortlisted',
+  authMiddleware,
+  getInstituteShortlistedCadets,
 );
 
 router.get(

@@ -172,88 +172,70 @@ const emailTemplates = {
     `,
   }),
 
-  // CV Form invitation template
-  cvFormInvitation: (data) => ({
-    subject: 'Complete CV Details for Shortlisted Cadets - MOLMI Recruitment',
+  // Institute Shortlisted Cadets View email template
+  instituteShortlistView: (data) => ({
+    subject: data.subject || 'View Your Shortlisted Cadets - MOLMI',
     html: `
       <!DOCTYPE html>
       <html>
       <head>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 700px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #0066cc; color: white; padding: 20px; text-align: center; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #28a745; color: white; padding: 20px; text-align: center; }
           .content { background-color: #f9f9f9; padding: 30px; border: 1px solid #ddd; }
-          .cadet-list { background-color: white; padding: 20px; margin: 20px 0; border-left: 4px solid #0066cc; }
-          .cadet-item { padding: 15px; margin: 10px 0; background-color: #f5f5f5; border-radius: 5px; }
-          .button { 
-            display: inline-block; 
-            background-color: #0066cc; 
-            color: white; 
-            padding: 10px 25px; 
-            text-decoration: none; 
-            border-radius: 5px;
-            margin: 10px 5px;
-          }
           .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
-          .warning { color: #ff6600; font-weight: bold; margin: 15px 0; }
-          h3 { color: #0066cc; margin-bottom: 15px; }
+          .warning { color: #ff6600; font-weight: bold; }
+          .credentials { background-color: #fff; padding: 15px; border-left: 4px solid #28a745; margin: 20px 0; }
+          .highlight { background-color: #e8f5e9; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0; }
         </style>
       </head>
       <body>
         <div class="container">
           <div class="header">
-            <h1>MOLMI Cadet Recruitment</h1>
-            <p>CV Detail Completion Request</p>
+            <h1>MOLMI - Shortlisted Cadets</h1>
           </div>
           <div class="content">
             <p>Dear <strong>${data.instituteName}</strong>,</p>
-            
-            <p>Congratulations! The following cadets from your institute have been shortlisted for the MOLMI recruitment process:</p>
-            
-            <div class="cadet-list">
-              <h3>📋 Shortlisted Cadets (${data.cadets.length})</h3>
-              ${data.cadets
-                .map(
-                  (cadet, index) => `
-                <div class="cadet-item">
-                  <strong>${index + 1}. ${cadet.cadet_name}</strong><br>
-                  <small>Email: ${cadet.cadet_email || 'Not provided'}</small><br>
-                  <div style="margin-top: 10px;">
-                    <a href="${data.frontendUrl}/cv-form/${cadet.token}" class="button">
-                      Complete CV for ${cadet.cadet_name.split(' ')[0]}
-                    </a>
-                  </div>
-                </div>
-              `,
-                )
-                .join('')}
+
+            <p>We are pleased to inform you that <strong>${data.cadetCount}</strong> cadet(s) from your institute have been shortlisted.</p>
+
+            <div class="highlight">
+              <p style="font-size: 18px; font-weight: bold; color: #28a745; margin: 0;">
+                ${data.cadetCount} Cadet(s) Shortlisted
+              </p>
             </div>
-            
-            <p class="warning">⏰ These links will expire in 7 days (${data.expiryDate})</p>
-            
-            <p><strong>Instructions:</strong></p>
-            <ul>
-              <li>Click on the "Complete CV" button for each cadet</li>
-              <li>Review the pre-filled information from our database</li>
-              <li>Complete any missing or pending details</li>
-              <li>Submit the form to save the updated information</li>
-            </ul>
-            
-            <p><strong>Important Notes:</strong></p>
-            <ul>
-              <li>All existing data will be pre-filled and visible</li>
-              <li>Only empty/missing fields can be edited</li>
-              <li>Please ensure accuracy of all information</li>
-              <li>Each cadet's CV must be completed separately</li>
-            </ul>
-            
-            <p>If you need a new link or have any questions, please contact us immediately.</p>
-            
-            <p>Best regards,<br><strong>MOLMI Recruitment Team</strong></p>
+
+            <p>Please use the following temporary credentials to log in and view your shortlisted cadets:</p>
+
+            <div class="credentials">
+              <p><strong>User ID:</strong> ${data.tempUsername}</p>
+              <p><strong>Password:</strong> ${data.tempPassword}</p>
+            </div>
+
+            <p class="warning">⚠️ Do not share this user ID and password with anyone.</p>
+
+            <div style="text-align: center; margin: 20px 0;">
+              <a href="${data.link}" target="_blank" style="
+                display: inline-block; 
+                background-color: #28a745; 
+                color: #ffffff; 
+                padding: 12px 30px; 
+                text-decoration: none; 
+                border-radius: 5px; 
+                font-weight: bold;
+                font-family: Arial, sans-serif;
+              ">Login & View Shortlisted Cadets</a>
+            </div>
+
+            <p class="warning">⏰ These credentials will expire on ${data.expiryDate} (7 days)</p>
+
+            <p>If you have any questions, please contact the administration.</p>
+
+            <p>Best regards,<br><strong>MOLMI Administration</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated email. For support, please contact the recruitment team.</p>
+            <p>This is an automated email. Please do not reply to this message.</p>
           </div>
         </div>
       </body>
@@ -289,50 +271,8 @@ const emailTemplates = {
   }),
 };
 
-/**
- * Send CV form email to institute with links for all shortlisted cadets
- * @param {Object} institute - Institute details
- * @param {Array} tokens - Array of token data with cadet info
- */
-const sendCVFormEmail = async (institute, tokens) => {
-  try {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-
-    // Calculate expiry date (7 days from now)
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + 7);
-    const formattedExpiryDate = expiryDate.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-
-    const emailData = {
-      instituteName: institute.institute_name,
-      cadets: tokens,
-      expiryDate: formattedExpiryDate,
-      frontendUrl,
-    };
-
-    const template = emailTemplates.cvFormInvitation(emailData);
-
-    await sendEmail({
-      to: institute.institute_email,
-      subject: template.subject,
-      html: template.html,
-    });
-
-    console.log(`✉️  CV form email sent to ${institute.institute_name}`);
-    return { success: true };
-  } catch (error) {
-    console.error('❌ CV form email sending failed:', error);
-    throw error;
-  }
-};
-
 module.exports = {
   sendEmail,
   sendBulkEmails,
   emailTemplates,
-  sendCVFormEmail,
 };

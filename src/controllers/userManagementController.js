@@ -1,6 +1,6 @@
 const userManagementDao = require('../dao/userManagementDao');
 const activityLogDao = require('../dao/activityLogDao');
-const { DEFAULT_PAGE_SIZE, ROLES } = require('../config/constants');
+const { DEFAULT_PAGE_SIZE } = require('../config/constants');
 
 const getUsers = async (req, res, next) => {
   try {
@@ -50,7 +50,7 @@ const getUserById = async (req, res, next) => {
 
 const createUser = async (req, res, next) => {
   try {
-    const { email, password, role, first_name, last_name } = req.body;
+    const { email, password, first_name, last_name } = req.body;
 
     if (!email || !password) {
       return res
@@ -72,7 +72,6 @@ const createUser = async (req, res, next) => {
     const newUser = await userManagementDao.createUser(
       email,
       password,
-      role || ROLES.CADET,
       first_name,
       last_name,
     );
@@ -82,7 +81,7 @@ const createUser = async (req, res, next) => {
       await activityLogDao.createLog(
         req.user.id,
         'CREATE_USER',
-        `Created user: ${first_name} ${last_name} (${email}) with role ${role || ROLES.CADET}`,
+        `Created user: ${first_name} ${last_name} (${email})`,
         req.ip || req.connection.remoteAddress,
       );
     }
@@ -100,21 +99,19 @@ const createUser = async (req, res, next) => {
 const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { email, role, first_name, last_name, password } = req.body;
+    const { email, first_name, last_name, status, password } = req.body;
 
-    if (!email || !first_name || !last_name || !role) {
+    if (!email || !first_name || !last_name) {
       return res.status(400).json({
-        message: 'Email, first name, last name, and role are required',
+        message: 'Email, first name, and last name are required',
       });
     }
 
-    // Check if user exists
     const existingUser = await userManagementDao.findUserById(id);
     if (!existingUser) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Check if email is being changed and if it's already taken by another user
     if (email !== existingUser.email) {
       const emailTaken = await userManagementDao.findUserByEmail(email);
       if (emailTaken) {
@@ -127,27 +124,22 @@ const updateUser = async (req, res, next) => {
     const updated = await userManagementDao.updateUser(
       id,
       email,
-      role,
       first_name,
       last_name,
+      status || existingUser.status || 'active',
       password || null,
     );
 
     if (updated) {
-      // Log activity
       if (req.user && req.user.id) {
         await activityLogDao.createLog(
           req.user.id,
           'UPDATE_USER',
-          `Updated user: ${first_name} ${last_name} (${email}) - Role: ${role}`,
+          `Updated user: ${first_name} ${last_name} (${email})`,
           req.ip || req.connection.remoteAddress,
         );
       }
-
-      res.json({
-        success: true,
-        message: 'User updated successfully',
-      });
+      res.json({ success: true, message: 'User updated successfully' });
     } else {
       res.status(400).json({ message: 'Failed to update user' });
     }
@@ -202,10 +194,50 @@ const deleteUser = async (req, res, next) => {
   }
 };
 
+const updateUserStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status || !['active', 'inactive'].includes(status)) {
+      return res
+        .status(400)
+        .json({ message: 'Status must be active or inactive' });
+    }
+
+    const existingUser = await userManagementDao.findUserById(id);
+    if (!existingUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const updated = await userManagementDao.updateUserStatus(id, status);
+
+    if (updated) {
+      if (req.user && req.user.id) {
+        await activityLogDao.createLog(
+          req.user.id,
+          'UPDATE_USER_STATUS',
+          `${status === 'active' ? 'Activated' : 'Deactivated'} user: ${existingUser.email}`,
+          req.ip || req.connection.remoteAddress,
+        );
+      }
+      res.json({
+        success: true,
+        message: `User ${status === 'active' ? 'activated' : 'deactivated'} successfully`,
+      });
+    } else {
+      res.status(400).json({ message: 'Failed to update user status' });
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUsers,
   getUserById,
   createUser,
   updateUser,
   deleteUser,
+  updateUserStatus,
 };

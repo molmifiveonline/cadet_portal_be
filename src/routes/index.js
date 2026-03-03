@@ -7,7 +7,6 @@ const instituteRoutes = require('./instituteRoutes');
 const activityLogRoutes = require('./activityLogRoutes');
 const userManagementRoutes = require('./userManagementRoutes');
 const rolePermissionRoutes = require('./rolePermissionRoutes');
-const cvFormRoutes = require('./cvFormRoutes');
 const vesselRoutes = require('./vesselRoutes');
 const medicalCenterRoutes = require('./medicalCenterRoutes');
 
@@ -18,7 +17,6 @@ router.use('/activity-logs', activityLogRoutes);
 router.use('/users', userManagementRoutes);
 router.use('/role-permissions', rolePermissionRoutes);
 router.use('/cadets', require('./cadetRoutes'));
-router.use('/cv', cvFormRoutes);
 router.use('/vessels', vesselRoutes);
 router.use('/medical-centers', medicalCenterRoutes);
 
@@ -34,7 +32,6 @@ router.get('/', (req, res) => {
       users: '/api/users',
       rolePermissions: '/api/role-permissions',
       cadets: '/api/cadets',
-      cv: '/api/cv',
     },
   });
 });

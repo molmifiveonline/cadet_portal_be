@@ -21,6 +21,7 @@ const {
 
 const {
   sendInstituteEmail,
+  sendShortlistEmail,
   verifyInstituteToken,
   loginInstitute,
 } = require('../controllers/instituteAuthController');
@@ -98,6 +99,13 @@ router.post(
   requirePermission('institutes', 'create'),
   upload.single('file'),
   sendInstituteEmail,
+);
+
+router.post(
+  '/send-shortlist-email',
+  authMiddleware,
+  requirePermission('institutes', 'create'),
+  sendShortlistEmail,
 );
 router.get(
   '/',
