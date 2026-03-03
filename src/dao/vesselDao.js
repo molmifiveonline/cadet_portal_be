@@ -18,16 +18,51 @@ const createVessel = async (vesselData) => {
   return id;
 };
 
-const getAllVessels = async (limit, offset, searchTerm = '') => {
-  let query = `
-    SELECT * FROM vessels
-    WHERE 1=1
-  `;
+const getAllVessels = async (
+  limit,
+  offset,
+  searchTerm = '',
+  filters = {},
+  sortKey = 'created_at',
+  sortDir = 'DESC',
+) => {
+  // Whitelist allowed sort columns to prevent SQL injection
+  const allowedSortKeys = [
+    'name',
+    'imo_number',
+    'vessel_type',
+    'flag',
+    'status',
+    'created_at',
+  ];
+  const safeSortKey = allowedSortKeys.includes(sortKey)
+    ? sortKey
+    : 'created_at';
+  const safeSortDir = sortDir === 'ASC' ? 'ASC' : 'DESC';
+
+  let whereClause = ' WHERE 1=1';
   const params = [];
 
+  // Individual field filters
+  if (filters.vessel_type && filters.vessel_type.trim() !== '') {
+    whereClause += ' AND vessel_type LIKE ?';
+    params.push(`%${filters.vessel_type}%`);
+  }
+
+  if (filters.flag && filters.flag.trim() !== '') {
+    whereClause += ' AND flag LIKE ?';
+    params.push(`%${filters.flag}%`);
+  }
+
+  if (filters.status && filters.status.trim() !== '') {
+    whereClause += ' AND status = ?';
+    params.push(filters.status);
+  }
+
+  // Global text search across all searchable columns
   if (searchTerm && searchTerm.trim() !== '') {
-    query += ` AND (
-      name LIKE ? 
+    whereClause += ` AND (
+      name LIKE ?
       OR imo_number LIKE ?
       OR vessel_type LIKE ?
       OR flag LIKE ?
@@ -36,33 +71,17 @@ const getAllVessels = async (limit, offset, searchTerm = '') => {
     params.push(searchPattern, searchPattern, searchPattern, searchPattern);
   }
 
-  query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-  params.push(limit, offset);
+  // Data query
+  const dataQuery = `SELECT * FROM vessels${whereClause} ORDER BY ${safeSortKey} ${safeSortDir} LIMIT ? OFFSET ?`;
+  const dataParams = [...params, limit, offset];
+  const [rows] = await db.query(dataQuery, dataParams);
 
-  const [rows] = await db.query(query, params);
-  return rows;
-};
+  // Count query
+  const countQuery = `SELECT COUNT(*) as count FROM vessels${whereClause}`;
+  const [countRows] = await db.query(countQuery, params);
+  const total = countRows[0].count;
 
-const countAllVessels = async (searchTerm = '') => {
-  let query = `
-    SELECT COUNT(*) as count FROM vessels
-    WHERE 1=1
-  `;
-  const params = [];
-
-  if (searchTerm && searchTerm.trim() !== '') {
-    query += ` AND (
-      name LIKE ? 
-      OR imo_number LIKE ?
-      OR vessel_type LIKE ?
-      OR flag LIKE ?
-    )`;
-    const searchPattern = `%${searchTerm}%`;
-    params.push(searchPattern, searchPattern, searchPattern, searchPattern);
-  }
-
-  const [rows] = await db.query(query, params);
-  return rows[0].count;
+  return { data: rows, total };
 };
 
 const getVesselById = async (id) => {
@@ -101,7 +120,6 @@ const deleteVessel = async (id) => {
 module.exports = {
   createVessel,
   getAllVessels,
-  countAllVessels,
   getVesselById,
   updateVessel,
   deleteVessel,

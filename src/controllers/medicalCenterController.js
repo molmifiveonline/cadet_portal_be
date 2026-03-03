@@ -50,16 +50,30 @@ const getAllMedicalCenters = async (req, res, next) => {
     const offset = (page - 1) * limit;
     const search = req.query.search || '';
 
-    const centers = await medicalCenterDao.getAllMedicalCenters(
+    // Individual field filters
+    const filters = {
+      location: req.query.location || '',
+      status: req.query.status || '',
+      contact_person: req.query.contact_person || '',
+      tests_offered: req.query.tests_offered || '',
+    };
+
+    // Sorting
+    const sortKey = req.query.sort_key || 'created_at';
+    const sortDir = req.query.sort_dir === 'asc' ? 'ASC' : 'DESC';
+
+    const { data, total } = await medicalCenterDao.getAllMedicalCenters(
       limit,
       offset,
       search,
+      filters,
+      sortKey,
+      sortDir,
     );
-    const total = await medicalCenterDao.countAllMedicalCenters(search);
 
     res.json({
       success: true,
-      data: centers,
+      data,
       pagination: {
         page,
         limit,

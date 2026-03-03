@@ -7,6 +7,7 @@ const instituteRoutes = require('./instituteRoutes');
 const activityLogRoutes = require('./activityLogRoutes');
 const userManagementRoutes = require('./userManagementRoutes');
 const rolePermissionRoutes = require('./rolePermissionRoutes');
+const cadetRoutes = require('./cadetRoutes');
 const vesselRoutes = require('./vesselRoutes');
 const medicalCenterRoutes = require('./medicalCenterRoutes');
 
@@ -16,7 +17,7 @@ router.use('/institutes', instituteRoutes);
 router.use('/activity-logs', activityLogRoutes);
 router.use('/users', userManagementRoutes);
 router.use('/role-permissions', rolePermissionRoutes);
-router.use('/cadets', require('./cadetRoutes'));
+router.use('/cadets', cadetRoutes);
 router.use('/vessels', vesselRoutes);
 router.use('/medical-centers', medicalCenterRoutes);
 

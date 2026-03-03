@@ -19,51 +19,83 @@ const createMedicalCenter = async (centerData) => {
   return id;
 };
 
-const getAllMedicalCenters = async (limit, offset, searchTerm = '') => {
-  let query = `
-    SELECT * FROM medical_centers
-    WHERE 1=1
-  `;
+const getAllMedicalCenters = async (
+  limit,
+  offset,
+  searchTerm = '',
+  filters = {},
+  sortKey = 'created_at',
+  sortDir = 'DESC',
+) => {
+  // Whitelist allowed sort columns to prevent SQL injection
+  const allowedSortKeys = [
+    'center_name',
+    'location',
+    'email',
+    'contact_person',
+    'tests_offered',
+    'status',
+    'created_at',
+  ];
+  const safeSortKey = allowedSortKeys.includes(sortKey)
+    ? sortKey
+    : 'created_at';
+  const safeSortDir = sortDir === 'ASC' ? 'ASC' : 'DESC';
+
+  let whereClause = ' WHERE 1=1';
   const params = [];
 
+  // Individual field filters
+  if (filters.location && filters.location.trim() !== '') {
+    whereClause += ' AND location LIKE ?';
+    params.push(`%${filters.location}%`);
+  }
+
+  if (filters.status && filters.status.trim() !== '') {
+    whereClause += ' AND status = ?';
+    params.push(filters.status);
+  }
+
+  if (filters.contact_person && filters.contact_person.trim() !== '') {
+    whereClause += ' AND contact_person LIKE ?';
+    params.push(`%${filters.contact_person}%`);
+  }
+
+  if (filters.tests_offered && filters.tests_offered.trim() !== '') {
+    whereClause += ' AND tests_offered LIKE ?';
+    params.push(`%${filters.tests_offered}%`);
+  }
+
+  // Global text search across all searchable columns
   if (searchTerm && searchTerm.trim() !== '') {
-    query += ` AND (
-      center_name LIKE ? 
+    whereClause += ` AND (
+      center_name LIKE ?
       OR location LIKE ?
       OR contact_person LIKE ?
       OR tests_offered LIKE ?
+      OR email LIKE ?
     )`;
     const searchPattern = `%${searchTerm}%`;
-    params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+    params.push(
+      searchPattern,
+      searchPattern,
+      searchPattern,
+      searchPattern,
+      searchPattern,
+    );
   }
 
-  query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-  params.push(limit, offset);
+  // Data query
+  const dataQuery = `SELECT * FROM medical_centers${whereClause} ORDER BY ${safeSortKey} ${safeSortDir} LIMIT ? OFFSET ?`;
+  const dataParams = [...params, limit, offset];
+  const [rows] = await db.query(dataQuery, dataParams);
 
-  const [rows] = await db.query(query, params);
-  return rows;
-};
+  // Count query
+  const countQuery = `SELECT COUNT(*) as count FROM medical_centers${whereClause}`;
+  const [countRows] = await db.query(countQuery, params);
+  const total = countRows[0].count;
 
-const countAllMedicalCenters = async (searchTerm = '') => {
-  let query = `
-    SELECT COUNT(*) as count FROM medical_centers
-    WHERE 1=1
-  `;
-  const params = [];
-
-  if (searchTerm && searchTerm.trim() !== '') {
-    query += ` AND (
-      center_name LIKE ? 
-      OR location LIKE ?
-      OR contact_person LIKE ?
-      OR tests_offered LIKE ?
-    )`;
-    const searchPattern = `%${searchTerm}%`;
-    params.push(searchPattern, searchPattern, searchPattern, searchPattern);
-  }
-
-  const [rows] = await db.query(query, params);
-  return rows[0].count;
+  return { data: rows, total };
 };
 
 const getMedicalCenterById = async (id) => {
@@ -110,7 +142,6 @@ const deleteMedicalCenter = async (id) => {
 module.exports = {
   createMedicalCenter,
   getAllMedicalCenters,
-  countAllMedicalCenters,
   getMedicalCenterById,
   getMedicalCenterByEmail,
   updateMedicalCenter,

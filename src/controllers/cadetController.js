@@ -169,6 +169,15 @@ const getCadetById = async (req, res) => {
       return res.status(404).json({ message: 'Cadet not found' });
     }
 
+    // Security Scoping: Institutes can only see their own cadets
+    if (req.user && req.user.role === ROLES.INSTITUTE && req.user.instituteId) {
+      if (cadet.institute_id !== req.user.instituteId) {
+        return res
+          .status(403)
+          .json({ message: 'Unauthorized access to this cadet data' });
+      }
+    }
+
     res.json({ data: cadet });
   } catch (error) {
     console.error('Get Cadet By ID Error:', error);
@@ -340,6 +349,15 @@ const updateCadet = async (req, res) => {
     const existingCadet = await cadetDao.getCadetById(id);
     if (!existingCadet) {
       return res.status(404).json({ message: 'Cadet not found' });
+    }
+
+    // Security Scoping: Institutes can only edit their own cadets
+    if (req.user && req.user.role === ROLES.INSTITUTE && req.user.instituteId) {
+      if (existingCadet.institute_id !== req.user.instituteId) {
+        return res
+          .status(403)
+          .json({ message: 'Unauthorized access to this cadet data' });
+      }
     }
 
     // Remove joined/readonly properties that shouldn't be updated in the cadets table

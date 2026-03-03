@@ -51,12 +51,29 @@ const getAllVessels = async (req, res, next) => {
     const offset = (page - 1) * limit;
     const search = req.query.search || '';
 
-    const vessels = await vesselDao.getAllVessels(limit, offset, search);
-    const total = await vesselDao.countAllVessels(search);
+    // Individual field filters
+    const filters = {
+      vessel_type: req.query.vessel_type || '',
+      flag: req.query.flag || '',
+      status: req.query.status || '',
+    };
+
+    // Sorting
+    const sortKey = req.query.sort_key || 'created_at';
+    const sortDir = req.query.sort_dir === 'asc' ? 'ASC' : 'DESC';
+
+    const { data, total } = await vesselDao.getAllVessels(
+      limit,
+      offset,
+      search,
+      filters,
+      sortKey,
+      sortDir,
+    );
 
     res.json({
       success: true,
-      data: vessels,
+      data,
       pagination: {
         page,
         limit,
