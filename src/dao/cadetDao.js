@@ -83,7 +83,16 @@ const getCadetById = async (id) => {
     WHERE c.id = ?
   `;
   const [rows] = await db.query(query, [id]);
-  return rows[0];
+  const cadet = rows[0];
+
+  if (cadet) {
+    // Remove binary data to prevent it from being returned in the JSON response
+    delete cadet.photo_data;
+    delete cadet.photo_mime_type;
+    delete cadet.photo_name;
+  }
+
+  return cadet;
 };
 
 const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
@@ -202,38 +211,6 @@ const getShortlistCountByInstitute = async () => {
   }
 };
 
-const updateCVData = async (cadetId, cvData) => {
-  const updateFields = [];
-  const values = [];
-
-  const allowedFields = Object.keys(cvData);
-
-  for (const field of allowedFields) {
-    if (cvData[field] !== undefined) {
-      updateFields.push(`${field} = ?`);
-      values.push(cvData[field]);
-    }
-  }
-
-  if (updateFields.length === 0) {
-    throw new Error('No valid fields to update');
-  }
-
-  updateFields.push('cv_form_status = ?');
-  updateFields.push('cv_form_completed_at = NOW()');
-  values.push('complete');
-
-  values.push(cadetId);
-
-  const query = `
-    UPDATE cadets 
-    SET ${updateFields.join(', ')}
-    WHERE id = ?
-  `;
-
-  await db.query(query, values);
-};
-
 const updateCadet = async (id, cadetData) => {
   const updateFields = [];
   const values = [];
@@ -257,6 +234,10 @@ const updateCadet = async (id, cadetData) => {
   await db.query(query, values);
 };
 
+const deleteCadet = async (id) => {
+  await db.query('DELETE FROM cadets WHERE id = ?', [id]);
+};
+
 const saveCadetPhoto = async (cadetId, photoBuffer, mimeType, photoName) => {
   await db.query(
     'UPDATE cadets SET photo_data = ?, photo_mime_type = ?, photo_name = ? WHERE id = ?',
@@ -273,19 +254,14 @@ const getCadetPhoto = async (cadetId) => {
   return rows[0];
 };
 
-const deleteCadet = async (id) => {
-  await db.query('DELETE FROM cadets WHERE id = ?', [id]);
-};
-
 module.exports = {
   createCadet,
   getAllCadets,
   getCadetById,
   getShortlistedCadets,
   getShortlistCountByInstitute,
-  updateCVData,
   updateCadet,
+  deleteCadet,
   saveCadetPhoto,
   getCadetPhoto,
-  deleteCadet,
 };

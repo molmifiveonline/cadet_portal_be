@@ -26,8 +26,8 @@ const getAllCadets = async (req, res) => {
         ? req.user.instituteId
         : req.query.instituteId;
     const batch = req.query.batch;
-    const batch_year = req.query.batch_year; // Added
-    const course_type = req.query.course_type; // Added
+    const batch_year = req.query.batch_year;
+    const course_type = req.query.course_type;
 
     const offset = (page - 1) * limit;
 
@@ -35,8 +35,8 @@ const getAllCadets = async (req, res) => {
       search,
       instituteId,
       batch,
-      batch_year, // Passed to filters
-      course_type, // Passed to filters
+      batch_year,
+      course_type,
     };
 
     const { data, total } = await cadetDao.getAllCadets(limit, offset, filters);
@@ -74,9 +74,7 @@ const importCadets = async (req, res) => {
 
     const { rawData } = parseExcelFile(file.buffer);
 
-    // Potential header keywords to look for
     const headerKeywords = EXCEL_HEADER_KEYWORDS;
-
     const headerInfo = findHeaderRow(rawData, headerKeywords);
     if (!headerInfo) {
       return res
@@ -86,11 +84,9 @@ const importCadets = async (req, res) => {
 
     const { rowIndex: headerRowIndex, headers } = headerInfo;
 
-    // Process Data
     let importedCount = 0;
     let failedCount = 0;
 
-    // Create a manual submission record
     const timestamp = Date.now();
     const filename = `${instituteId}_${timestamp}_${file.originalname}`;
 
@@ -101,13 +97,11 @@ const importCadets = async (req, res) => {
       file.buffer,
     );
 
-    // Auto-approve/import status since it's an admin import
     await instituteDao.updateSubmissionStatus(
       submissionId,
       SUBMISSION_STATUS.IMPORTED,
     );
 
-    // Create a mock submission object for mapping compatibility
     const mockSubmission = {
       institute_id: instituteId,
       id: submissionId,
@@ -119,11 +113,8 @@ const importCadets = async (req, res) => {
 
       try {
         const cadetData = mapRowToCadetData(rowData, headers, mockSubmission);
-
-        // Override or fill in manual data
         if (batchName) cadetData.batch = batchName;
 
-        // Minimal requirement: Name
         if (cadetData.name_as_in_indos_cert) {
           await cadetDao.createCadet(cadetData);
           importedCount++;
@@ -136,7 +127,6 @@ const importCadets = async (req, res) => {
       }
     }
 
-    // Log Activity
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
         req.user.id,
@@ -169,7 +159,6 @@ const getCadetById = async (req, res) => {
       return res.status(404).json({ message: 'Cadet not found' });
     }
 
-    // Security Scoping: Institutes can only see their own cadets
     if (req.user && req.user.role === ROLES.INSTITUTE && req.user.instituteId) {
       if (cadet.institute_id !== req.user.instituteId) {
         return res
@@ -187,15 +176,11 @@ const getCadetById = async (req, res) => {
   }
 };
 
-/**
- * Get all shortlisted cadets with pagination and filters
- */
 const getShortlistedCadets = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
-    // Force scoping for Institute users
     const instituteId =
       req.user?.role === ROLES.INSTITUTE
         ? req.user.instituteId
@@ -203,14 +188,13 @@ const getShortlistedCadets = async (req, res) => {
 
     const batch_year = req.query.batch_year;
     const course_type = req.query.course_type;
-
     const offset = (page - 1) * limit;
 
     const filters = {
       search,
       instituteId,
-      batch_year, // Passed to filters
-      course_type, // Passed to filters
+      batch_year,
+      course_type,
     };
 
     const { data, total } = await shortlistService.getShortlistedCadets(
@@ -235,9 +219,6 @@ const getShortlistedCadets = async (req, res) => {
   }
 };
 
-/**
- * Get shortlist statistics by institute
- */
 const getShortlistStats = async (req, res) => {
   try {
     const stats = await shortlistService.getShortlistStats();
@@ -251,9 +232,6 @@ const getShortlistStats = async (req, res) => {
   }
 };
 
-/**
- * Get shortlisted cadets for institute users (auto-scoped by instituteId from JWT)
- */
 const getInstituteShortlistedCadets = async (req, res) => {
   try {
     const instituteId = req.user?.instituteId;
@@ -299,13 +277,15 @@ const getInstituteShortlistedCadets = async (req, res) => {
 const createCadet = async (req, res) => {
   try {
     let cadetData = req.body;
-
-    // Default status
     cadetData.status = cadetData.status || 'Assessment';
+    delete cadetData.photo;
+    delete cadetData.photo_data;
+    delete cadetData.photo_mime_type;
+    delete cadetData.photo_name;
+    delete cadetData.created_at;
 
     const newCadetId = await cadetDao.createCadet(cadetData);
 
-    // Handle photo upload — save to database
     if (req.file) {
       await cadetDao.saveCadetPhoto(
         newCadetId,
@@ -318,7 +298,6 @@ const createCadet = async (req, res) => {
       await cadetDao.updateCadet(newCadetId, { photo_path: photoPath });
     }
 
-    // Log Activity
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
         req.user.id,
@@ -343,15 +322,21 @@ const createCadet = async (req, res) => {
 const updateCadet = async (req, res) => {
   try {
     const { id } = req.params;
-    let cadetData = req.body;
+    let cadetData = { ...req.body };
 
-    // Check if cadet exists
+    // Prevent overwriting sensitive or managed fields
+    delete cadetData.id;
+    delete cadetData.photo;
+    delete cadetData.photo_data;
+    delete cadetData.photo_mime_type;
+    delete cadetData.photo_name;
+    delete cadetData.created_at;
+
     const existingCadet = await cadetDao.getCadetById(id);
     if (!existingCadet) {
       return res.status(404).json({ message: 'Cadet not found' });
     }
 
-    // Security Scoping: Institutes can only edit their own cadets
     if (req.user && req.user.role === ROLES.INSTITUTE && req.user.instituteId) {
       if (existingCadet.institute_id !== req.user.instituteId) {
         return res
@@ -360,10 +345,8 @@ const updateCadet = async (req, res) => {
       }
     }
 
-    // Remove joined/readonly properties that shouldn't be updated in the cadets table
     delete cadetData.institute_name;
 
-    // Handle photo upload — save to database
     if (req.file) {
       await cadetDao.saveCadetPhoto(
         id,
@@ -378,7 +361,6 @@ const updateCadet = async (req, res) => {
 
     await cadetDao.updateCadet(id, cadetData);
 
-    // Log Activity
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
         req.user.id,
@@ -406,7 +388,8 @@ const getCadetPhoto = async (req, res) => {
       return res.status(404).json({ message: 'Photo not found' });
     }
 
-    res.set('Content-Type', photo.photo_mime_type);
+    const mimeType = photo.photo_mime_type || 'image/jpeg';
+    res.set('Content-Type', mimeType);
     res.set('Cache-Control', 'public, max-age=86400');
     res.send(photo.photo_data);
   } catch (error) {
@@ -428,12 +411,11 @@ const deleteCadet = async (req, res) => {
 
     await cadetDao.deleteCadet(id);
 
-    // Log Activity
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
         req.user.id,
         'DELETE_CADET',
-        `Deleted cadet ${existingCadet.name}`,
+        `Deleted cadet ${existingCadet.name_as_in_indos_cert || 'Unknown'}`,
         req.ip || req.connection.remoteAddress,
       );
     }

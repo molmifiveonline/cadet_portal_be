@@ -18,7 +18,13 @@ const createLog = async (userId, action, details = '', ipAddress = null) => {
   }
 };
 
-const getLogsLast3Months = async (limit, offset, searchTerm = '') => {
+const getLogsLast3Months = async (
+  limit,
+  offset,
+  searchTerm = '',
+  sortBy = 'created_at',
+  sortOrder = 'DESC',
+) => {
   try {
     let query = `
       SELECT 
@@ -58,7 +64,21 @@ const getLogsLast3Months = async (limit, offset, searchTerm = '') => {
       );
     }
 
-    query += ` ORDER BY al.created_at DESC`;
+    // Define allowed sorting columns to prevent SQL injection
+    const allowedSortColumns = {
+      id: 'al.id',
+      user_name: 'user_name',
+      action: 'al.action',
+      details: 'al.details',
+      created_at: 'al.created_at',
+      ip_address: 'al.ip_address',
+    };
+
+    const sortColumn = allowedSortColumns[sortBy] || 'al.created_at';
+    const order =
+      sortOrder && sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    query += ` ORDER BY ${sortColumn} ${order}`;
     query += ` LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 

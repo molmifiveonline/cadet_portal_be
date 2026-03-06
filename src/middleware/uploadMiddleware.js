@@ -1,6 +1,6 @@
 const multer = require('multer');
 
-// Configure storage — keep in memory for saving to database
+// Configure memory storage for database storage
 const storage = multer.memoryStorage();
 
 // Create upload middleware
