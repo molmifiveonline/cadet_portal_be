@@ -46,10 +46,24 @@ const authMiddleware = async (req, res, next) => {
     req.user = decoded;
     next();
   } catch (error) {
-    // For debugging:
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        message: 'Token expired. Please login again.',
+        code: 'TokenExpiredError',
+      });
+    }
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        message: 'Invalid token. Please login again.',
+        code: 'JsonWebTokenError',
+      });
+    }
+
+    // For other unexpected errors during auth
     console.error('JWT Verification Error:', error.name, error.message);
     res.status(401).json({
-      message: 'Invalid token',
+      message: 'Authentication failed',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
       code: error.name,
     });

@@ -5,27 +5,25 @@ const bcrypt = require('bcryptjs');
 const createInstitute = async (instituteData) => {
   const {
     institute_name,
-    institute_email,
-    mobile_number,
     address,
     location,
-    contact_person,
     institute_type,
+    contact_emails,
+    status = 'active',
   } = instituteData;
   const id = uuidv4();
 
   await db.query(
-    `INSERT INTO institutes (id, institute_name, institute_email, mobile_number, address, location, contact_person, institute_type) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO institutes (id, institute_name, address, location, institute_type, contact_emails, status) 
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       institute_name,
-      institute_email,
-      mobile_number,
       address,
       location,
-      contact_person || null,
       institute_type || null,
+      contact_emails ? JSON.stringify(contact_emails) : null,
+      status,
     ],
   );
   return id;
@@ -55,19 +53,15 @@ const getAllInstitutes = async (
 
     const whereClause = ` WHERE (
       i.institute_name LIKE ? OR 
-      i.institute_email LIKE ? OR 
-      i.mobile_number LIKE ? OR 
       i.address LIKE ? OR 
       i.location LIKE ? OR
-      i.contact_person LIKE ? OR
-      i.institute_type LIKE ?
+      i.institute_type LIKE ? OR
+      i.contact_emails LIKE ?
     )`;
 
     query += whereClause;
     countQuery += whereClause;
     const searchParams = [
-      searchPattern,
-      searchPattern,
       searchPattern,
       searchPattern,
       searchPattern,
@@ -100,26 +94,24 @@ const getInstituteById = async (id) => {
 const updateInstitute = async (id, instituteData) => {
   const {
     institute_name,
-    institute_email,
-    mobile_number,
     address,
     location,
-    contact_person,
     institute_type,
+    contact_emails,
+    status,
   } = instituteData;
 
   const [result] = await db.query(
     `UPDATE institutes 
-     SET institute_name = ?, institute_email = ?, mobile_number = ?, address = ?, location = ?, contact_person = ?, institute_type = ?
+     SET institute_name = ?, address = ?, location = ?, institute_type = ?, contact_emails = ?, status = COALESCE(?, status)
      WHERE id = ?`,
     [
       institute_name,
-      institute_email,
-      mobile_number,
       address,
       location,
-      contact_person || null,
       institute_type || null,
+      contact_emails ? JSON.stringify(contact_emails) : null,
+      status || null,
       id,
     ],
   );
@@ -278,8 +270,8 @@ const getInstituteByTempUsername = async (username) => {
 
 const getInstituteByEmail = async (email) => {
   const [rows] = await db.query(
-    'SELECT * FROM institutes WHERE institute_email = ?',
-    [email],
+    'SELECT * FROM institutes WHERE contact_emails LIKE ?',
+    [`%"email":"${email}"%`],
   );
   return rows[0];
 };

@@ -92,10 +92,25 @@ const sendInstituteEmail = async (req, res) => {
         batch_year: batch_year || new Date().getFullYear(),
       });
 
+      // Determine target Email
+      let targetEmail = '';
+      if (typeof institute.contact_emails === 'string') {
+        try { institute.contact_emails = JSON.parse(institute.contact_emails); } catch(e){}
+      }
+      if (institute.contact_emails && Array.isArray(institute.contact_emails)) {
+        const defaultContact = institute.contact_emails.find(c => c.isDefault) || institute.contact_emails[0];
+        targetEmail = defaultContact ? defaultContact.email : '';
+      }
+
+      if (!targetEmail) {
+        results.push({ id, status: 'failed', reason: 'No contact email found' });
+        continue;
+      }
+
       // Send Email
       try {
         await sendEmail({
-          to: institute.institute_email, // Auto-filled institute email
+          to: targetEmail,
           subject: emailContent.subject,
           html: emailContent.html,
           attachments: [
@@ -108,7 +123,7 @@ const sendInstituteEmail = async (req, res) => {
         results.push({
           id,
           status: 'success',
-          email: institute.institute_email,
+          email: targetEmail,
         });
       } catch (err) {
         console.error(`Failed to send email to institute ${id}:`, err);
@@ -224,17 +239,32 @@ const sendShortlistEmail = async (req, res) => {
         tempPassword,
       });
 
+      // Determine target Email
+      let targetEmail = '';
+      if (typeof institute.contact_emails === 'string') {
+        try { institute.contact_emails = JSON.parse(institute.contact_emails); } catch(e){}
+      }
+      if (institute.contact_emails && Array.isArray(institute.contact_emails)) {
+        const defaultContact = institute.contact_emails.find(c => c.isDefault) || institute.contact_emails[0];
+        targetEmail = defaultContact ? defaultContact.email : '';
+      }
+
+      if (!targetEmail) {
+        results.push({ id, status: 'failed', reason: 'No contact email found' });
+        continue;
+      }
+
       // Send Email
       try {
         await sendEmail({
-          to: institute.institute_email,
+          to: targetEmail,
           subject: emailContent.subject,
           html: emailContent.html,
         });
         results.push({
           id,
           status: 'success',
-          email: institute.institute_email,
+          email: targetEmail,
           cadetCount,
         });
       } catch (err) {

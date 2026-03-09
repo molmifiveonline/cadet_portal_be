@@ -29,7 +29,7 @@ const getLogsLast3Months = async (
     let query = `
       SELECT 
         al.*,
-        COALESCE(u.email, i.institute_email) as user_email,
+        COALESCE(u.email, JSON_UNQUOTE(JSON_EXTRACT(i.contact_emails, '$[0].email'))) as user_email,
         u.first_name,
         u.last_name,
         COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), i.institute_name, 'Unknown') as user_name
@@ -45,7 +45,7 @@ const getLogsLast3Months = async (
     if (searchTerm && searchTerm.trim() !== '') {
       query += ` AND (
         u.email LIKE ? 
-        OR i.institute_email LIKE ?
+        OR i.contact_emails LIKE ?
         OR u.first_name LIKE ? 
         OR u.last_name LIKE ?
         OR i.institute_name LIKE ?
@@ -106,7 +106,7 @@ const countLogsLast3Months = async (searchTerm = '') => {
     if (searchTerm && searchTerm.trim() !== '') {
       query += ` AND (
         u.email LIKE ? 
-        OR i.institute_email LIKE ?
+        OR i.contact_emails LIKE ?
         OR u.first_name LIKE ? 
         OR u.last_name LIKE ?
         OR i.institute_name LIKE ?

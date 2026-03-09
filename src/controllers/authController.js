@@ -64,9 +64,18 @@ const login = async (req, res) => {
         // Assign intent based on the matched prefix
         const intent = INSTITUTE_PREFIX_INTENTS[matchedPrefix];
 
+        let targetEmail = '';
+        if (typeof institute.contact_emails === 'string') {
+          try { institute.contact_emails = JSON.parse(institute.contact_emails); } catch (e) {}
+        }
+        if (institute.contact_emails && Array.isArray(institute.contact_emails)) {
+          const defaultContact = institute.contact_emails.find((c) => c.isDefault) || institute.contact_emails[0];
+          targetEmail = defaultContact ? defaultContact.email : '';
+        }
+
         user = {
           id: institute.id, // Using institute ID as user ID for consistent token schema
-          email: institute.institute_email,
+          email: targetEmail,
           first_name: institute.institute_name,
           last_name: '',
           intent,
