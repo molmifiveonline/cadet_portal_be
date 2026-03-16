@@ -1,26 +1,31 @@
 const assessmentDao = require('../dao/assessmentDao');
 const activityLogDao = require('../dao/activityLogDao');
+const cadetDao = require('../dao/cadetDao');
 
 const saveAssessment = async (req, res) => {
   try {
     const { cadet_id } = req.params;
     const {
       ces_test,
+      ces_test_2,
       qa_test,
       english_test,
       essay_writing_mark,
       remarks,
       status,
+      mark_for_interview,
     } = req.body;
 
     const assessmentData = {
       cadet_id,
       ces_test,
+      ces_test_2,
       qa_test,
       english_test,
       essay_writing_mark,
       remarks,
       status,
+      mark_for_interview: mark_for_interview === 'true' || mark_for_interview === true || mark_for_interview === 1,
     };
 
     // Handle essay upload if file is provided
@@ -31,6 +36,13 @@ const saveAssessment = async (req, res) => {
     }
 
     const id = await assessmentDao.createOrUpdateAssessment(assessmentData);
+
+    // Workflow: Update cadet status if marked for interview or failed
+    if (status === 'fail') {
+      await cadetDao.updateCadet(cadet_id, { status: 'Assessment Failed' });
+    } else if (status === 'pass' && assessmentData.mark_for_interview) {
+      await cadetDao.updateCadet(cadet_id, { status: 'Interview' });
+    }
 
     // Add activity log
     await activityLogDao.createLog(

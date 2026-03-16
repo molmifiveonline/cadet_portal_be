@@ -11,6 +11,8 @@ const cadetRoutes = require('./cadetRoutes');
 const vesselRoutes = require('./vesselRoutes');
 const medicalCenterRoutes = require('./medicalCenterRoutes');
 const assessmentRoutes = require('./assessmentRoutes');
+const interviewRoutes = require('./interviewRoutes');
+const medicalRoutes = require('./medicalRoutes');
 
 // Use routes
 router.use('/auth', authRoutes);
@@ -22,6 +24,8 @@ router.use('/cadets', cadetRoutes);
 router.use('/vessels', vesselRoutes);
 router.use('/medical-centers', medicalCenterRoutes);
 router.use('/assessments', assessmentRoutes);
+router.use('/interviews', interviewRoutes);
+router.use('/medical-results', medicalRoutes);
 
 // API info
 router.get('/', (req, res) => {

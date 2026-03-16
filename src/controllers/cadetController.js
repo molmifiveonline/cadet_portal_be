@@ -283,6 +283,8 @@ const createCadet = async (req, res) => {
     delete cadetData.photo_mime_type;
     delete cadetData.photo_name;
     delete cadetData.created_at;
+    delete cadetData.is_shortlisted;
+    delete cadetData.declaration_accepted;
 
     const newCadetId = await cadetDao.createCadet(cadetData);
 
@@ -331,6 +333,8 @@ const updateCadet = async (req, res) => {
     delete cadetData.photo_mime_type;
     delete cadetData.photo_name;
     delete cadetData.created_at;
+    delete cadetData.is_shortlisted;
+    delete cadetData.declaration_accepted;
 
     const existingCadet = await cadetDao.getCadetById(id);
     if (!existingCadet) {

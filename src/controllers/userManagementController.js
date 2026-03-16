@@ -50,7 +50,7 @@ const getUserById = async (req, res, next) => {
 
 const createUser = async (req, res, next) => {
   try {
-    const { email, password, first_name, last_name } = req.body;
+    const { email, password, first_name, last_name, role } = req.body;
 
     if (!email || !password) {
       return res
@@ -74,6 +74,7 @@ const createUser = async (req, res, next) => {
       password,
       first_name,
       last_name,
+      role,
     );
 
     // Log activity
@@ -99,7 +100,7 @@ const createUser = async (req, res, next) => {
 const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { email, first_name, last_name, status, password } = req.body;
+    const { email, first_name, last_name, status, role, password } = req.body;
 
     if (!email || !first_name || !last_name) {
       return res.status(400).json({
@@ -127,6 +128,7 @@ const updateUser = async (req, res, next) => {
       first_name,
       last_name,
       status || existingUser.status || 'active',
+      role || existingUser.role || 'Admin',
       password || null,
     );
 

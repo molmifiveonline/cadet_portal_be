@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 
 const getUsers = async (limit, offset, search = '') => {
   let query =
-    'SELECT id, email, first_name, last_name, status, created_at FROM users';
+    'SELECT id, email, first_name, last_name, role, status, created_at FROM users';
   let params = [];
 
   if (search) {
@@ -36,7 +36,7 @@ const countUsers = async (search = '') => {
   return rows[0].count;
 };
 
-const createUser = async (email, password, first_name, last_name) => {
+const createUser = async (email, password, first_name, last_name, role) => {
   const hashedPassword = await bcrypt.hash(password, 10);
   const id = uuidv4();
 
@@ -46,12 +46,12 @@ const createUser = async (email, password, first_name, last_name) => {
       id,
       email,
       hashedPassword,
-      'SuperAdmin',
+      role || 'SuperAdmin',
       first_name || '',
       last_name || '',
     ],
   );
-  return { id, email, role: 'SuperAdmin', first_name, last_name };
+  return { id, email, role: role || 'SuperAdmin', first_name, last_name };
 };
 
 const findUserByEmail = async (email) => {
@@ -70,6 +70,7 @@ const updateUser = async (
   first_name,
   last_name,
   status,
+  role,
   password = null,
 ) => {
   let query;
@@ -78,19 +79,20 @@ const updateUser = async (
   if (password) {
     const hashedPassword = await bcrypt.hash(password, 10);
     query =
-      'UPDATE users SET email = ?, first_name = ?, last_name = ?, status = ?, password = ? WHERE id = ?';
+      'UPDATE users SET email = ?, first_name = ?, last_name = ?, status = ?, role = ?, password = ? WHERE id = ?';
     params = [
       email,
       first_name || '',
       last_name || '',
       status,
+      role,
       hashedPassword,
       id,
     ];
   } else {
     query =
-      'UPDATE users SET email = ?, first_name = ?, last_name = ?, status = ? WHERE id = ?';
-    params = [email, first_name || '', last_name || '', status, id];
+      'UPDATE users SET email = ?, first_name = ?, last_name = ?, status = ?, role = ? WHERE id = ?';
+    params = [email, first_name || '', last_name || '', status, role, id];
   }
 
   const [result] = await db.query(query, params);

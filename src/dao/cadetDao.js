@@ -1,13 +1,29 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
-const createCadet = async (cadetData) => {
-  const allowedFields = Object.keys(cadetData);
-  const id = uuidv4();
+const generateUniqueCadetId = async () => {
+  const currentYear = new Date().getFullYear();
+  const query = 'SELECT MAX(SUBSTRING_INDEX(cadet_unique_id, "-", -1)) as lastNum FROM cadets WHERE cadet_unique_id LIKE ?';
+  const [rows] = await db.query(query, [`${currentYear}-%`]);
+  
+  const lastNum = rows[0].lastNum ? parseInt(rows[0].lastNum) : 0;
+  const nextNum = String(lastNum + 1).padStart(4, '0');
+  return `${currentYear}-${nextNum}`;
+};
 
-  const fields = ['id', ...allowedFields];
+const createCadet = async (cadetData) => {
+  const id = uuidv4();
+  const cadetUniqueId = await generateUniqueCadetId();
+  
+  const finalData = {
+    ...cadetData,
+    id,
+    cadet_unique_id: cadetUniqueId
+  };
+
+  const fields = Object.keys(finalData);
   const placeholders = fields.map(() => '?').join(', ');
-  const values = [id, ...allowedFields.map((f) => cadetData[f])];
+  const values = fields.map((f) => finalData[f]);
 
   await db.query(
     `INSERT INTO cadets (${fields.join(', ')}) VALUES (${placeholders})`,
@@ -43,6 +59,11 @@ const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
   if (filters.batch) {
     whereClauses.push('c.batch LIKE ?');
     queryParams.push(`%${filters.batch}%`);
+  }
+
+  if (filters.status && filters.status !== 'all') {
+    whereClauses.push('c.status = ?');
+    queryParams.push(filters.status);
   }
 
   if (filters.search) {

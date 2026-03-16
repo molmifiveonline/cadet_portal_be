@@ -5,6 +5,7 @@ const createOrUpdateAssessment = async (assessmentData) => {
   const {
     cadet_id,
     ces_test,
+    ces_test_2,
     qa_test,
     english_test,
     essay_writing_mark,
@@ -13,7 +14,19 @@ const createOrUpdateAssessment = async (assessmentData) => {
     essay_name,
     remarks,
     status,
+    mark_for_interview,
   } = assessmentData;
+
+  // Calculate score logic: CES (highest of two attempts) + English + Essay
+  let ces_score = 0;
+  const ces1 = parseFloat(ces_test) || 0;
+  const ces2 = parseFloat(ces_test_2) || 0;
+  ces_score = Math.max(ces1, ces2);
+
+  const eng = parseFloat(english_test) || 0;
+  const essay = parseFloat(essay_writing_mark) || 0;
+  
+  const calculated_score = ces_score + eng + essay;
 
   // Verify that the cadet exists
   const [cadetExists] = await db.query('SELECT id FROM cadets WHERE id = ?', [
@@ -36,9 +49,9 @@ const createOrUpdateAssessment = async (assessmentData) => {
   if (existing.length > 0) {
     const updateFields = [];
     const values = [];
-
     const fields = {
       ces_test,
+      ces_test_2,
       qa_test,
       english_test,
       essay_writing_mark,
@@ -47,6 +60,8 @@ const createOrUpdateAssessment = async (assessmentData) => {
       essay_name,
       remarks,
       status,
+      mark_for_interview,
+      calculated_score,
     };
 
     for (const [key, value] of Object.entries(fields)) {
@@ -68,9 +83,9 @@ const createOrUpdateAssessment = async (assessmentData) => {
     const fields = ['id', 'cadet_id'];
     const placeholders = ['?', '?'];
     const values = [id, cadet_id];
-
     const optionalFields = {
       ces_test,
+      ces_test_2,
       qa_test,
       english_test,
       essay_writing_mark,
@@ -79,6 +94,8 @@ const createOrUpdateAssessment = async (assessmentData) => {
       essay_name,
       remarks,
       status,
+      mark_for_interview,
+      calculated_score,
     };
 
     for (const [key, value] of Object.entries(optionalFields)) {

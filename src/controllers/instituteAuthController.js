@@ -100,15 +100,23 @@ const sendInstituteEmail = async (req, res) => {
       // Determine target Email
       let targetEmail = '';
       if (typeof institute.contact_emails === 'string') {
-        try { institute.contact_emails = JSON.parse(institute.contact_emails); } catch(e){}
+        try {
+          institute.contact_emails = JSON.parse(institute.contact_emails);
+        } catch (e) {}
       }
       if (institute.contact_emails && Array.isArray(institute.contact_emails)) {
-        const defaultContact = institute.contact_emails.find(c => c.isDefault) || institute.contact_emails[0];
+        const defaultContact =
+          institute.contact_emails.find((c) => c.isDefault) ||
+          institute.contact_emails[0];
         targetEmail = defaultContact ? defaultContact.email : '';
       }
 
       if (!targetEmail) {
-        results.push({ id, status: 'failed', reason: 'No contact email found' });
+        results.push({
+          id,
+          status: 'failed',
+          reason: 'No contact email found',
+        });
         continue;
       }
 
@@ -252,15 +260,23 @@ const sendShortlistEmail = async (req, res) => {
       // Determine target Email
       let targetEmail = '';
       if (typeof institute.contact_emails === 'string') {
-        try { institute.contact_emails = JSON.parse(institute.contact_emails); } catch(e){}
+        try {
+          institute.contact_emails = JSON.parse(institute.contact_emails);
+        } catch (e) {}
       }
       if (institute.contact_emails && Array.isArray(institute.contact_emails)) {
-        const defaultContact = institute.contact_emails.find(c => c.isDefault) || institute.contact_emails[0];
+        const defaultContact =
+          institute.contact_emails.find((c) => c.isDefault) ||
+          institute.contact_emails[0];
         targetEmail = defaultContact ? defaultContact.email : '';
       }
 
       if (!targetEmail) {
-        results.push({ id, status: 'failed', reason: 'No contact email found' });
+        results.push({
+          id,
+          status: 'failed',
+          reason: 'No contact email found',
+        });
         continue;
       }
 
@@ -302,12 +318,10 @@ const sendShortlistEmail = async (req, res) => {
     });
   } catch (error) {
     console.error('Send Shortlist Email Error:', error);
-    res
-      .status(500)
-      .json({
-        message: 'Error sending shortlist emails',
-        error: error.message,
-      });
+    res.status(500).json({
+      message: 'Error sending shortlist emails',
+      error: error.message,
+    });
   }
 };
 
@@ -390,7 +404,9 @@ const verifyInstituteToken = async (req, res) => {
       }
 
       if (institute.status !== 'active') {
-        return res.status(403).json({ message: 'Institute account is inactive' });
+        return res
+          .status(403)
+          .json({ message: 'Institute account is inactive' });
       }
 
       res.json({
