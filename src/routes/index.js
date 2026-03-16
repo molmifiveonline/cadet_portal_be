@@ -10,6 +10,7 @@ const rolePermissionRoutes = require('./rolePermissionRoutes');
 const cadetRoutes = require('./cadetRoutes');
 const vesselRoutes = require('./vesselRoutes');
 const medicalCenterRoutes = require('./medicalCenterRoutes');
+const assessmentRoutes = require('./assessmentRoutes');
 
 // Use routes
 router.use('/auth', authRoutes);
@@ -20,6 +21,7 @@ router.use('/role-permissions', rolePermissionRoutes);
 router.use('/cadets', cadetRoutes);
 router.use('/vessels', vesselRoutes);
 router.use('/medical-centers', medicalCenterRoutes);
+router.use('/assessments', assessmentRoutes);
 
 // API info
 router.get('/', (req, res) => {
@@ -33,6 +35,7 @@ router.get('/', (req, res) => {
       users: '/api/users',
       rolePermissions: '/api/role-permissions',
       cadets: '/api/cadets',
+      assessments: '/api/assessments',
     },
   });
 });

@@ -64,6 +64,11 @@ const sendInstituteEmail = async (req, res) => {
         continue;
       }
 
+      if (institute.status !== 'active') {
+        results.push({ id, status: 'failed', reason: 'Institute is inactive' });
+        continue;
+      }
+
       // Generate Temp Credentials
       const tempUsername = `SUB-${Math.floor(100000 + Math.random() * 900000)}`;
       const tempPassword = crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -202,6 +207,11 @@ const sendShortlistEmail = async (req, res) => {
         continue;
       }
 
+      if (institute.status !== 'active') {
+        results.push({ id, status: 'failed', reason: 'Institute is inactive' });
+        continue;
+      }
+
       const cadetCount = countMap[id] || 0;
       if (cadetCount === 0) {
         results.push({
@@ -317,6 +327,10 @@ const loginInstitute = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    if (institute.status !== 'active') {
+      return res.status(403).json({ message: 'Institute account is inactive' });
+    }
+
     // Check expiry
     if (new Date() > new Date(institute.temp_expiry)) {
       return res.status(401).json({ message: 'Credentials have expired' });
@@ -373,6 +387,10 @@ const verifyInstituteToken = async (req, res) => {
 
       if (!institute) {
         return res.status(404).json({ message: 'Institute not found' });
+      }
+
+      if (institute.status !== 'active') {
+        return res.status(403).json({ message: 'Institute account is inactive' });
       }
 
       res.json({

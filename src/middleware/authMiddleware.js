@@ -25,6 +25,10 @@ const authMiddleware = async (req, res, next) => {
       if (!institute) {
         return res.status(403).json({ message: 'Institute account not found' });
       }
+
+      if (institute.status !== 'active') {
+        return res.status(403).json({ message: 'Institute account is inactive' });
+      }
       // Check for expiry again
       if (new Date() > new Date(institute.temp_expiry)) {
         return res
