@@ -9,6 +9,10 @@ const createOrUpdateInterview = async (interviewData) => {
     evaluation_score,
     remarks,
     final_decision,
+    interview_sheet_data,
+    interview_sheet_name,
+    interview_sheet_mime_type,
+    total_score,
   } = interviewData;
 
   const [existing] = await db.query(
@@ -16,6 +20,7 @@ const createOrUpdateInterview = async (interviewData) => {
     [cadet_id],
   );
 
+  let interviewId;
   if (existing.length > 0) {
     const updateFields = [];
     const values = [];
@@ -26,6 +31,10 @@ const createOrUpdateInterview = async (interviewData) => {
       evaluation_score,
       remarks,
       final_decision,
+      interview_sheet_data,
+      interview_sheet_name,
+      interview_sheet_mime_type,
+      total_score,
     };
 
     for (const [key, value] of Object.entries(fields)) {
@@ -42,7 +51,7 @@ const createOrUpdateInterview = async (interviewData) => {
         values,
       );
     }
-    return existing[0].id;
+    interviewId = existing[0].id;
   } else {
     const id = uuidv4();
     const fields = ['id', 'cadet_id'];
@@ -55,6 +64,10 @@ const createOrUpdateInterview = async (interviewData) => {
       evaluation_score,
       remarks,
       final_decision,
+      interview_sheet_data,
+      interview_sheet_name,
+      interview_sheet_mime_type,
+      total_score,
     };
 
     for (const [key, value] of Object.entries(optionalFields)) {
@@ -69,8 +82,17 @@ const createOrUpdateInterview = async (interviewData) => {
       `INSERT INTO interviews (${fields.join(', ')}) VALUES (${placeholders.join(', ')})`,
       values,
     );
-    return id;
+    interviewId = id;
   }
+
+  // Update cadet status based on final decision
+  if (final_decision === 'rejected') {
+    await db.query('UPDATE cadets SET status = ? WHERE id = ?', ['Interview Failed', cadet_id]);
+  } else if (final_decision === 'selected') {
+    await db.query('UPDATE cadets SET status = ? WHERE id = ?', ['Eligible for Medical', cadet_id]);
+  }
+
+  return interviewId;
 };
 
 const getInterviewByCadetId = async (cadetId) => {

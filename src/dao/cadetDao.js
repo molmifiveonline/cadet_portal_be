@@ -34,9 +34,16 @@ const createCadet = async (cadetData) => {
 
 const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
   let query = `
-    SELECT c.*, i.institute_name
+    SELECT c.*, i.institute_name,
+           a.ces_test, a.ces_test_2, a.qa_test, a.english_test, a.essay_writing_mark, a.calculated_score, a.remarks as assessment_remarks, a.mark_for_interview,
+           iv.interview_date, iv.panel_members, iv.evaluation_score, iv.total_score, iv.final_decision, iv.remarks as interview_remarks,
+           mr.appointment_date as medical_date, mr.appointment_time as medical_time, mr.status as fit_status, mr.remarks as medical_remarks, mc.center_name as medical_center_name
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
+    LEFT JOIN assessments a ON c.id = a.cadet_id
+    LEFT JOIN interviews iv ON c.id = iv.cadet_id
+    LEFT JOIN cadet_medical_results mr ON c.id = mr.cadet_id
+    LEFT JOIN medical_centers mc ON mr.medical_center_id = mc.id
   `;
   let queryParams = [];
   let whereClauses = [];
@@ -49,6 +56,11 @@ const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
   if (filters.instituteId) {
     whereClauses.push('c.institute_id = ?');
     queryParams.push(filters.instituteId);
+  }
+
+  if (filters.drive_id) {
+    whereClauses.push('c.drive_id = ?');
+    queryParams.push(filters.drive_id);
   }
 
   if (filters.course_type && filters.course_type !== 'all') {
@@ -83,7 +95,7 @@ const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
 
   const [rows] = await db.query(query, queryParams);
 
-  let countQuery = 'SELECT COUNT(*) as total FROM cadets c';
+  let countQuery = 'SELECT COUNT(*) as total FROM cadets c LEFT JOIN institutes i ON c.institute_id = i.id LEFT JOIN assessments a ON c.id = a.cadet_id LEFT JOIN interviews iv ON c.id = iv.cadet_id LEFT JOIN cadet_medical_results mr ON c.id = mr.cadet_id LEFT JOIN medical_centers mc ON mr.medical_center_id = mc.id';
   let countParams = [];
 
   if (whereClauses.length > 0) {
@@ -145,6 +157,11 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
   if (filters.instituteId) {
     additionalClauses.push('c.institute_id = ?');
     queryParams.push(filters.instituteId);
+  }
+
+  if (filters.drive_id && filters.drive_id !== 'all') {
+    additionalClauses.push('c.drive_id = ?');
+    queryParams.push(filters.drive_id);
   }
 
   if (filters.course_type && filters.course_type !== 'all') {

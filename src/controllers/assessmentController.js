@@ -40,8 +40,12 @@ const saveAssessment = async (req, res) => {
     // Workflow: Update cadet status if marked for interview or failed
     if (status === 'fail') {
       await cadetDao.updateCadet(cadet_id, { status: 'Assessment Failed' });
-    } else if (status === 'pass' && assessmentData.mark_for_interview) {
-      await cadetDao.updateCadet(cadet_id, { status: 'Interview' });
+    } else if (status === 'pass') {
+      if (assessmentData.mark_for_interview) {
+        await cadetDao.updateCadet(cadet_id, { status: 'Eligible for Interview' });
+      } else {
+        await cadetDao.updateCadet(cadet_id, { status: 'Assessment Passed' });
+      }
     }
 
     // Add activity log

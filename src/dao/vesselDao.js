@@ -4,8 +4,8 @@ const { v4: uuidv4 } = require('uuid');
 const createVessel = async (vesselData) => {
   const id = uuidv4();
   const query = `
-    INSERT INTO vessels (id, name, imo_number, vessel_type, flag, status)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO vessels (id, name, imo_number, vessel_type, flag, status, location, total_seats, voyage_ref, reporting_port, joining_date, communication_details)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   await db.query(query, [
     id,
@@ -14,6 +14,12 @@ const createVessel = async (vesselData) => {
     vesselData.vessel_type || null,
     vesselData.flag || null,
     vesselData.status || 'Active',
+    vesselData.location || null,
+    vesselData.total_seats || 0,
+    vesselData.voyage_ref || null,
+    vesselData.reporting_port || null,
+    vesselData.joining_date || null,
+    vesselData.communication_details || null,
   ]);
   return id;
 };
@@ -34,6 +40,11 @@ const getAllVessels = async (
     'flag',
     'status',
     'created_at',
+    'location',
+    'total_seats',
+    'voyage_ref',
+    'reporting_port',
+    'joining_date',
   ];
   const safeSortKey = allowedSortKeys.includes(sortKey)
     ? sortKey
@@ -97,7 +108,13 @@ const updateVessel = async (id, vesselData) => {
         imo_number = COALESCE(?, imo_number),
         vessel_type = COALESCE(?, vessel_type),
         flag = COALESCE(?, flag),
-        status = COALESCE(?, status)
+        status = COALESCE(?, status),
+        location = COALESCE(?, location),
+        total_seats = COALESCE(?, total_seats),
+        voyage_ref = COALESCE(?, voyage_ref),
+        reporting_port = COALESCE(?, reporting_port),
+        joining_date = COALESCE(?, joining_date),
+        communication_details = COALESCE(?, communication_details)
     WHERE id = ?
   `;
   const [result] = await db.query(query, [
@@ -106,6 +123,12 @@ const updateVessel = async (id, vesselData) => {
     vesselData.vessel_type !== undefined ? vesselData.vessel_type : null,
     vesselData.flag !== undefined ? vesselData.flag : null,
     vesselData.status !== undefined ? vesselData.status : null,
+    vesselData.location !== undefined ? vesselData.location : null,
+    vesselData.total_seats !== undefined ? vesselData.total_seats : null,
+    vesselData.voyage_ref !== undefined ? vesselData.voyage_ref : null,
+    vesselData.reporting_port !== undefined ? vesselData.reporting_port : null,
+    vesselData.joining_date !== undefined ? vesselData.joining_date : null,
+    vesselData.communication_details !== undefined ? vesselData.communication_details : null,
     id,
   ]);
   return result.affectedRows > 0;

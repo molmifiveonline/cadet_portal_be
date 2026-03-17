@@ -28,6 +28,8 @@ const getAllCadets = async (req, res) => {
     const batch = req.query.batch;
     const batch_year = req.query.batch_year;
     const course_type = req.query.course_type;
+    const drive_id = req.query.drive_id;
+    const status = req.query.status;
 
     const offset = (page - 1) * limit;
 
@@ -37,6 +39,8 @@ const getAllCadets = async (req, res) => {
       batch,
       batch_year,
       course_type,
+      drive_id,
+      status,
     };
 
     const { data, total } = await cadetDao.getAllCadets(limit, offset, filters);
@@ -154,10 +158,13 @@ const getCadetById = async (req, res) => {
   try {
     const { id } = req.params;
     const cadet = await cadetDao.getCadetById(id);
-
+    
     if (!cadet) {
       return res.status(404).json({ message: 'Cadet not found' });
     }
+
+    // Dynamic shortlisting check
+    cadet.is_shortlisted = shortlistService.checkShortlistCriteria(cadet);
 
     if (req.user && req.user.role === ROLES.INSTITUTE && req.user.instituteId) {
       if (cadet.institute_id !== req.user.instituteId) {
@@ -188,6 +195,7 @@ const getShortlistedCadets = async (req, res) => {
 
     const batch_year = req.query.batch_year;
     const course_type = req.query.course_type;
+    const drive_id = req.query.drive_id;
     const offset = (page - 1) * limit;
 
     const filters = {
@@ -195,6 +203,7 @@ const getShortlistedCadets = async (req, res) => {
       instituteId,
       batch_year,
       course_type,
+      drive_id,
     };
 
     const { data, total } = await shortlistService.getShortlistedCadets(

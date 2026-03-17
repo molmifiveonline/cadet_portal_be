@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 
 // Import route modules
@@ -13,6 +13,7 @@ const medicalCenterRoutes = require('./medicalCenterRoutes');
 const assessmentRoutes = require('./assessmentRoutes');
 const interviewRoutes = require('./interviewRoutes');
 const medicalRoutes = require('./medicalRoutes');
+const recruitmentDriveRoutes = require('./recruitmentDriveRoutes');
 
 // Use routes
 router.use('/auth', authRoutes);
@@ -26,6 +27,7 @@ router.use('/medical-centers', medicalCenterRoutes);
 router.use('/assessments', assessmentRoutes);
 router.use('/interviews', interviewRoutes);
 router.use('/medical-results', medicalRoutes);
+router.use('/recruitment-drives', recruitmentDriveRoutes);
 
 // API info
 router.get('/', (req, res) => {
@@ -40,6 +42,7 @@ router.get('/', (req, res) => {
       rolePermissions: '/api/role-permissions',
       cadets: '/api/cadets',
       assessments: '/api/assessments',
+      recruitmentDrives: '/api/recruitment-drives',
     },
   });
 });

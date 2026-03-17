@@ -17,11 +17,10 @@ const createOrUpdateAssessment = async (assessmentData) => {
     mark_for_interview,
   } = assessmentData;
 
-  // Calculate score logic: CES (highest of two attempts) + English + Essay
+  // Calculate score logic: CES (1st attempt only) + English + Essay
   let ces_score = 0;
   const ces1 = parseFloat(ces_test) || 0;
-  const ces2 = parseFloat(ces_test_2) || 0;
-  ces_score = Math.max(ces1, ces2);
+  ces_score = ces1;
 
   const eng = parseFloat(english_test) || 0;
   const essay = parseFloat(essay_writing_mark) || 0;
@@ -46,6 +45,7 @@ const createOrUpdateAssessment = async (assessmentData) => {
     [cadet_id],
   );
 
+  let assessmentId;
   if (existing.length > 0) {
     const updateFields = [];
     const values = [];
@@ -78,7 +78,7 @@ const createOrUpdateAssessment = async (assessmentData) => {
         values,
       );
     }
-    return existing[0].id;
+    assessmentId = existing[0].id;
   } else {
     const fields = ['id', 'cadet_id'];
     const placeholders = ['?', '?'];
@@ -110,8 +110,15 @@ const createOrUpdateAssessment = async (assessmentData) => {
       `INSERT INTO assessments (${fields.join(', ')}) VALUES (${placeholders.join(', ')})`,
       values,
     );
-    return id;
+    assessmentId = id;
   }
+
+  // Update cadet status if not marked for interview
+  if (mark_for_interview === 0 || mark_for_interview === false) {
+    await db.query('UPDATE cadets SET status = ? WHERE id = ?', ['Assessment Failed', cadet_id]);
+  }
+
+  return assessmentId;
 };
 
 const getAssessmentByCadetId = async (cadetId) => {

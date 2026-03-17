@@ -5,9 +5,13 @@ const createOrUpdateMedicalResult = async (medicalData) => {
   const {
     cadet_id,
     medical_date,
-    medical_center,
+    medical_center_id,
     fit_status,
     remarks,
+    medical_time,
+    report_data,
+    report_name,
+    report_mime_type,
   } = medicalData;
 
   const [existing] = await db.query(
@@ -21,9 +25,13 @@ const createOrUpdateMedicalResult = async (medicalData) => {
 
     const fields = {
       medical_date,
-      medical_center,
+      medical_center_id,
       fit_status,
       remarks,
+      medical_time,
+      report_data,
+      report_name,
+      report_mime_type,
     };
 
     for (const [key, value] of Object.entries(fields)) {
@@ -49,9 +57,13 @@ const createOrUpdateMedicalResult = async (medicalData) => {
 
     const optionalFields = {
       medical_date,
-      medical_center,
+      medical_center_id,
       fit_status,
       remarks,
+      medical_time,
+      report_data,
+      report_name,
+      report_mime_type,
     };
 
     for (const [key, value] of Object.entries(optionalFields)) {

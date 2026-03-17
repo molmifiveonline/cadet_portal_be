@@ -11,6 +11,7 @@ const saveInterview = async (req, res) => {
       evaluation_score,
       remarks,
       final_decision,
+      total_score,
     } = req.body;
 
     const interviewData = {
@@ -20,15 +21,19 @@ const saveInterview = async (req, res) => {
       evaluation_score,
       remarks,
       final_decision,
+      total_score,
+      interview_sheet_data: req.file?.buffer,
+      interview_sheet_name: req.file?.originalname,
+      interview_sheet_mime_type: req.file?.mimetype,
     };
 
     const id = await interviewDao.createOrUpdateInterview(interviewData);
 
     // Workflow: Advance to Medical stage if selected
     if (final_decision === 'selected') {
-      await cadetDao.updateCadet(cadet_id, { status: 'Medical' });
+      await cadetDao.updateCadet(cadet_id, { status: 'Eligible for Medical' });
     } else if (final_decision === 'rejected') {
-      await cadetDao.updateCadet(cadet_id, { status: 'Rejected' });
+      await cadetDao.updateCadet(cadet_id, { status: 'Interview Failed' });
     }
 
     await activityLogDao.createLog(
