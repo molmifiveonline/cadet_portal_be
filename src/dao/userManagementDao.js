@@ -2,7 +2,28 @@ const db = require('../config/database');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 
-const getUsers = async (limit, offset, search = '') => {
+const getUsers = async (
+  limit,
+  offset,
+  search = '',
+  sortBy = 'created_at',
+  sortOrder = 'DESC',
+) => {
+  // Whitelist columns for sorting to prevent SQL injection
+  const allowedColumns = [
+    'email',
+    'first_name',
+    'last_name',
+    'role',
+    'status',
+    'created_at',
+  ];
+  const validatedSortBy = allowedColumns.includes(sortBy)
+    ? sortBy
+    : 'created_at';
+  const validatedSortOrder =
+    sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
   let query =
     'SELECT id, email, first_name, last_name, role, status, created_at FROM users';
   let params = [];
@@ -14,6 +35,7 @@ const getUsers = async (limit, offset, search = '') => {
     params = [searchTerm, searchTerm, searchTerm, searchTerm];
   }
 
+  query += ` ORDER BY ${validatedSortBy} ${validatedSortOrder}`;
   query += ' LIMIT ? OFFSET ?';
   params.push(limit, offset);
 

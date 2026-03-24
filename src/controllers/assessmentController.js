@@ -25,7 +25,7 @@ const saveAssessment = async (req, res) => {
       essay_writing_mark,
       remarks,
       status,
-      mark_for_interview: mark_for_interview === 'true' || mark_for_interview === true || mark_for_interview === 1,
+      mark_for_interview: mark_for_interview == 1,
     };
 
     // Handle essay upload if file is provided
@@ -53,6 +53,7 @@ const saveAssessment = async (req, res) => {
       req.user.id,
       'Assessment Saved',
       `Assessment for cadet ID ${cadet_id} has been saved.`,
+      req.ip || req.connection.remoteAddress,
     );
 
     res.status(200).json({
@@ -133,6 +134,7 @@ const deleteAssessment = async (req, res) => {
       req.user.id,
       'Assessment Deleted',
       `Assessment for cadet ID ${cadet_id} has been deleted.`,
+      req.ip || req.connection.remoteAddress,
     );
 
     res.status(200).json({

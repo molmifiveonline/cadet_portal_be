@@ -30,7 +30,7 @@ const createMedicalCenter = async (req, res, next) => {
       req.user.id,
       'CREATE_MEDICAL_CENTER',
       `Created new Medical Center: ${center_name}`,
-      req.ip,
+      req.ip || req.connection.remoteAddress,
     );
 
     res.status(201).json({
@@ -142,7 +142,7 @@ const updateMedicalCenter = async (req, res, next) => {
       req.user.id,
       'UPDATE_MEDICAL_CENTER',
       `Updated Medical Center: ${center_name}`,
-      req.ip,
+      req.ip || req.connection.remoteAddress,
     );
 
     res.json({
@@ -171,7 +171,7 @@ const deleteMedicalCenter = async (req, res, next) => {
       req.user.id,
       'DELETE_MEDICAL_CENTER',
       `Deleted Medical Center: ${center.center_name}`,
-      req.ip,
+      req.ip || req.connection.remoteAddress,
     );
 
     res.json({

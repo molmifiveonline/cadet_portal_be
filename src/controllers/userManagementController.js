@@ -7,9 +7,17 @@ const getUsers = async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = req.query.sortOrder || 'DESC';
     const offset = (page - 1) * limit;
 
-    const users = await userManagementDao.getUsers(limit, offset, search);
+    const users = await userManagementDao.getUsers(
+      limit,
+      offset,
+      search,
+      sortBy,
+      sortOrder,
+    );
     const total = await userManagementDao.countUsers(search);
 
     res.json({

@@ -112,12 +112,6 @@ const createOrUpdateAssessment = async (assessmentData) => {
     );
     assessmentId = id;
   }
-
-  // Update cadet status if not marked for interview
-  if (mark_for_interview === 0 || mark_for_interview === false) {
-    await db.query('UPDATE cadets SET status = ? WHERE id = ?', ['Assessment Failed', cadet_id]);
-  }
-
   return assessmentId;
 };
 

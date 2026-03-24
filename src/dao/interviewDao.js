@@ -86,9 +86,10 @@ const createOrUpdateInterview = async (interviewData) => {
   }
 
   // Update cadet status based on final decision
-  if (final_decision === 'rejected') {
+  const normalizedDecision = final_decision ? final_decision.toLowerCase() : '';
+  if (normalizedDecision === 'rejected') {
     await db.query('UPDATE cadets SET status = ? WHERE id = ?', ['Interview Failed', cadet_id]);
-  } else if (final_decision === 'selected') {
+  } else if (normalizedDecision === 'selected') {
     await db.query('UPDATE cadets SET status = ? WHERE id = ?', ['Eligible for Medical', cadet_id]);
   }
 

@@ -38,6 +38,7 @@ const saveMedicalResult = async (req, res) => {
       req.user.id,
       'Medical Result Saved',
       `Medical result for cadet ID ${cadet_id} has been saved.`,
+      req.ip || req.connection.remoteAddress
     );
 
     res.status(200).json({

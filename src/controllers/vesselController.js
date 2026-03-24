@@ -25,7 +25,7 @@ const createVessel = async (req, res, next) => {
       req.user.id,
       'CREATE_VESSEL',
       `Created new vessel: ${name} (IMO: ${imo_number})`,
-      req.ip,
+      req.ip || req.connection.remoteAddress,
     );
 
     res.status(201).json({
@@ -125,7 +125,7 @@ const updateVessel = async (req, res, next) => {
       req.user.id,
       'UPDATE_VESSEL',
       `Updated vessel: ${vesselData.name || existingVessel.name}`,
-      req.ip,
+      req.ip || req.connection.remoteAddress,
     );
 
     res.json({
@@ -161,7 +161,7 @@ const deleteVessel = async (req, res, next) => {
       req.user.id,
       'DELETE_VESSEL',
       `Deleted vessel: ${vessel.name}`,
-      req.ip,
+      req.ip || req.connection.remoteAddress,
     );
 
     res.json({

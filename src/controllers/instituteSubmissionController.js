@@ -67,6 +67,16 @@ const submitInstituteExcel = async (req, res) => {
         batch_year,
       );
 
+      // Log activity
+      if (req.user && req.user.id) {
+        await activityLogDao.createLog(
+          req.user.id,
+          'SUBMIT_EXCEL',
+          `Submitted excel file: ${file.originalname}`,
+          req.ip || req.connection.remoteAddress
+        );
+      }
+
       res.json({
         success: true,
         message: 'File submitted successfully',

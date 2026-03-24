@@ -40,6 +40,7 @@ const saveInterview = async (req, res) => {
       req.user.id,
       'Interview Saved',
       `Interview for cadet ID ${cadet_id} has been saved.`,
+      req.ip || req.connection.remoteAddress
     );
 
     res.status(200).json({
@@ -83,7 +84,33 @@ const getInterview = async (req, res) => {
   }
 };
 
+const getInterviewSheet = async (req, res) => {
+  try {
+    const { cadet_id } = req.params;
+    const interview = await interviewDao.getInterviewByCadetId(cadet_id);
+
+    if (!interview || !interview.interview_sheet_data) {
+      return res.status(404).json({
+        success: false,
+        message: 'Interview sheet not found',
+      });
+    }
+
+    res.set('Content-Type', interview.interview_sheet_mime_type || 'application/octet-stream');
+    res.set('Content-Disposition', `inline; filename="${interview.interview_sheet_name || 'interview_sheet'}"`);
+    res.send(interview.interview_sheet_data);
+  } catch (error) {
+    console.error('Error in getInterviewSheet:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   saveInterview,
   getInterview,
+  getInterviewSheet,
 };
