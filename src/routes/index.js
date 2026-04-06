@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 
 // Import route modules
@@ -14,6 +14,7 @@ const assessmentRoutes = require('./assessmentRoutes');
 const interviewRoutes = require('./interviewRoutes');
 const medicalRoutes = require('./medicalRoutes');
 const recruitmentDriveRoutes = require('./recruitmentDriveRoutes');
+const dashboardRoutes = require('./dashboardRoutes');
 
 // Use routes
 router.use('/auth', authRoutes);
@@ -28,6 +29,7 @@ router.use('/assessments', assessmentRoutes);
 router.use('/interviews', interviewRoutes);
 router.use('/medical-results', medicalRoutes);
 router.use('/recruitment-drives', recruitmentDriveRoutes);
+router.use('/dashboard', dashboardRoutes);
 
 // API info
 router.get('/', (req, res) => {
