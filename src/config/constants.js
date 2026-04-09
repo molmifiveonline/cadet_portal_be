@@ -134,4 +134,17 @@ module.exports = {
     INTERVIEW_PASSING_PERCENTAGE: 60,
     FINAL_SELECTION_PERCENTAGE: 65,
   },
+
+  // Drive Status
+  DRIVE_STATUS: {
+    DRAFT: 'Draft',
+    REQUESTED: 'Requested',
+    RECEIVED: 'Received',
+    SUBMITTED: 'Submitted',
+    SHORTLISTED: 'Shortlisted',
+    ASSESSMENT_COMPLETED: 'Assessment Completed',
+    INTERVIEW_COMPLETED: 'Interview Completed',
+    MEDICAL_COMPLETED: 'Medical Completed',
+    CLOSED: 'Closed',
+  },
 };

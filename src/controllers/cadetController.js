@@ -2,6 +2,7 @@ const cadetDao = require('../dao/cadetDao');
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const shortlistService = require('../services/shortlistService');
+const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const {
   DEFAULT_PAGE_SIZE,
   ROLES,
@@ -294,6 +295,13 @@ const createCadet = async (req, res) => {
     delete cadetData.created_at;
     delete cadetData.is_shortlisted;
     delete cadetData.declaration_accepted;
+
+    if (cadetData.institute_id && cadetData.batch_year && cadetData.course) {
+      const drive = await recruitmentDriveDao.getDriveByContext(cadetData.institute_id, cadetData.batch_year, cadetData.course);
+      if (drive) {
+        cadetData.drive_id = drive.id;
+      }
+    }
 
     const newCadetId = await cadetDao.createCadet(cadetData);
 

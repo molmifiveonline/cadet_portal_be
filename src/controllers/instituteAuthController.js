@@ -7,13 +7,25 @@ const jwt = require('jsonwebtoken');
 const {
   JWT_SECRET,
   INSTITUTE_CREDENTIAL_EXPIRY_DAYS,
+  DRIVE_STATUS,
 } = require('../config/constants');
+const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const shortlistService = require('../services/shortlistService');
+
+const normalizeCourseType = (value) => {
+  if (!value) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'deck') return 'Deck';
+  if (normalized === 'engine') return 'Engine';
+  return null;
+};
 
 const sendInstituteEmail = async (req, res) => {
   try {
-    const { instituteIds, subject, description, batch_year } = req.body;
+    const { instituteIds, subject, description, batch_year, course_type } =
+      req.body;
     const file = req.file;
+    const resolvedCourseType = normalizeCourseType(course_type);
 
     if (!instituteIds || !subject || !description) {
       return res.status(400).json({
@@ -23,6 +35,12 @@ const sendInstituteEmail = async (req, res) => {
 
     if (!file) {
       return res.status(400).json({ message: 'Excel format file is required' });
+    }
+
+    if (!resolvedCourseType) {
+      return res.status(400).json({
+        message: 'Course type is required and must be Deck or Engine',
+      });
     }
 
     // Parse instituteIds if it's a string (from FormData)
@@ -80,6 +98,7 @@ const sendInstituteEmail = async (req, res) => {
         tempPassword,
         mysqlExpiryDate,
         batch_year || new Date().getFullYear(),
+        resolvedCourseType,
       );
 
       // Generate Link (No token needed now)
@@ -95,6 +114,7 @@ const sendInstituteEmail = async (req, res) => {
         tempUsername,
         tempPassword,
         batch_year: batch_year || new Date().getFullYear(),
+        course_type: resolvedCourseType,
       });
 
       // Determine target Email
@@ -138,6 +158,22 @@ const sendInstituteEmail = async (req, res) => {
           status: 'success',
           email: targetEmail,
         });
+
+        // Automatically update Recruitment Drive status to 'Requested' if matching drive exists
+        try {
+          const drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
+            id,
+            batch_year || new Date().getFullYear(),
+            resolvedCourseType
+          );
+          if (drive && drive.status === DRIVE_STATUS.DRAFT) {
+            await recruitmentDriveDao.updateRecruitmentDrive(drive.id, {
+              status: DRIVE_STATUS.REQUESTED
+            });
+          }
+        } catch (driveErr) {
+          console.error('Error updating drive status after sending email:', driveErr);
+        }
       } catch (err) {
         console.error(`Failed to send email to institute ${id}:`, err);
         results.push({ id, status: 'failed', reason: err.message });
@@ -416,8 +452,8 @@ const verifyInstituteToken = async (req, res) => {
       });
     } catch (err) {
       return res
-        .status(401)
-        .json({ message: 'Invalid or expired token', error: err.message });
+          .status(401)
+          .json({ message: 'Invalid or expired token', error: err.message });
     }
   } catch (error) {
     console.error('Verify Token Error:', error);

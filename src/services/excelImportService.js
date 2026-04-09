@@ -117,7 +117,8 @@ const mapRowToCadetData = (rowData, headers, submission) => {
     institute_id: submission.institute_id,
     submission_id: submission.id,
     batch_year: submission.batch_year,
-    status: 'active',
+    // Imported cadets should enter the pipeline at Uploaded/Assessment-eligible stage.
+    status: 'Eligible for Assessment',
 
     // Core mapped fields based on user exact excel layout
     course: getValue(['Deck/ Engine', 'Course', 'Stream']) || 'General',

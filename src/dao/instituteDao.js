@@ -129,11 +129,20 @@ const createSubmission = async (
   originalName,
   fileData,
   batch_year,
+  course_type,
 ) => {
   const id = uuidv4();
   await db.query(
-    'INSERT INTO institute_submissions (id, institute_id, file_name, original_name, file_data, batch_year) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, instituteId, fileName, originalName, fileData, batch_year],
+    'INSERT INTO institute_submissions (id, institute_id, file_name, original_name, file_data, batch_year, course_type) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [
+      id,
+      instituteId,
+      fileName,
+      originalName,
+      fileData,
+      batch_year,
+      course_type,
+    ],
   );
   return id;
 };
@@ -143,10 +152,13 @@ const getAllSubmissions = async (
   offset = 0,
   status = 'all',
   search = '',
+  instituteId = '',
+  batchYear = '',
+  courseType = '',
 ) => {
   // Exclude file_data from this query for performance
   let query = `
-    SELECT isub.id, isub.institute_id, isub.file_name, isub.original_name, isub.status, isub.created_at, isub.batch_year, i.institute_name 
+    SELECT isub.id, isub.institute_id, isub.file_name, isub.original_name, isub.status, isub.created_at, isub.batch_year, isub.course_type, i.institute_name 
     FROM institute_submissions isub
     LEFT JOIN institutes i ON isub.institute_id = i.id
   `;
@@ -156,6 +168,21 @@ const getAllSubmissions = async (
   if (status !== 'all') {
     whereClauses.push('isub.status = ?');
     queryParams.push(status);
+  }
+
+  if (instituteId) {
+    whereClauses.push('isub.institute_id = ?');
+    queryParams.push(instituteId);
+  }
+
+  if (batchYear) {
+    whereClauses.push('isub.batch_year = ?');
+    queryParams.push(batchYear);
+  }
+
+  if (courseType && courseType !== 'all') {
+    whereClauses.push('isub.course_type = ?');
+    queryParams.push(courseType);
   }
 
   if (search) {
@@ -212,7 +239,7 @@ const deleteSubmissions = async (ids) => {
 
 const getSubmissionById = async (id) => {
   const [rows] = await db.query(
-    'SELECT id, institute_id, file_name, original_name, status, created_at, batch_year FROM institute_submissions WHERE id = ?',
+    'SELECT id, institute_id, file_name, original_name, status, created_at, batch_year, course_type FROM institute_submissions WHERE id = ?',
     [id],
   );
   return rows[0];
@@ -241,13 +268,21 @@ const updateInstituteCredentials = async (
   tempPassword,
   tempExpiry,
   batch_year,
+  submission_course_type = null,
 ) => {
   const hashedPassword = await bcrypt.hash(tempPassword, 10);
   const [result] = await db.query(
     `UPDATE institutes 
-     SET temp_username = ?, temp_password = ?, temp_expiry = ?, batch_year = ?
+     SET temp_username = ?, temp_password = ?, temp_expiry = ?, batch_year = ?, submission_course_type = ?
      WHERE id = ?`,
-    [tempUsername, hashedPassword, tempExpiry, batch_year, id],
+    [
+      tempUsername,
+      hashedPassword,
+      tempExpiry,
+      batch_year,
+      submission_course_type,
+      id,
+    ],
   );
   return result.affectedRows > 0;
 };

@@ -32,6 +32,53 @@ const createCadet = async (cadetData) => {
   return id;
 };
 
+const findDuplicateCadet = async (cadetData = {}) => {
+  const instituteId = cadetData.institute_id;
+  const batchYear = cadetData.batch_year;
+  const name = cadetData.name_as_in_indos_cert;
+  const course = cadetData.course;
+
+  if (!instituteId || !batchYear || !name || !course) {
+    return null;
+  }
+
+  let query = `
+    SELECT id
+    FROM cadets
+    WHERE institute_id = ?
+      AND batch_year = ?
+      AND LOWER(TRIM(name_as_in_indos_cert)) = LOWER(TRIM(?))
+      AND LOWER(TRIM(course)) = LOWER(TRIM(?))
+  `;
+  const params = [instituteId, batchYear, name, course];
+  const identityClauses = [];
+
+  if (cadetData.date_of_birth) {
+    identityClauses.push('date_of_birth = ?');
+    params.push(cadetData.date_of_birth);
+  }
+
+  if (cadetData.email_id) {
+    identityClauses.push('LOWER(TRIM(email_id)) = LOWER(TRIM(?))');
+    params.push(cadetData.email_id);
+  }
+
+  if (cadetData.contact_number) {
+    identityClauses.push(
+      "REPLACE(REPLACE(TRIM(contact_number), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(?), ' ', ''), '-', '')",
+    );
+    params.push(cadetData.contact_number);
+  }
+
+  if (identityClauses.length > 0) {
+    query += ` AND (${identityClauses.join(' OR ')})`;
+  }
+
+  query += ' LIMIT 1';
+  const [rows] = await db.query(query, params);
+  return rows[0] || null;
+};
+
 const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
   let query = `
     SELECT c.*, i.institute_name,
@@ -74,8 +121,12 @@ const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
   }
 
   if (filters.status && filters.status !== 'all') {
-    whereClauses.push('c.status = ?');
-    queryParams.push(filters.status);
+    if (filters.status === 'Eligible for Assessment') {
+      whereClauses.push("c.status IN ('Eligible for Assessment', 'active')");
+    } else {
+      whereClauses.push('c.status = ?');
+      queryParams.push(filters.status);
+    }
   }
 
   if (filters.search) {
@@ -294,6 +345,7 @@ const getCadetPhoto = async (cadetId) => {
 
 module.exports = {
   createCadet,
+  findDuplicateCadet,
   getAllCadets,
   getCadetById,
   getShortlistedCadets,

@@ -6,6 +6,7 @@ const createRecruitmentDrive = async (driveData) => {
     drive_name,
     institute_id,
     course_type,
+    year,
     intake_capacity = 0,
     eligibility_criteria,
     status = 'Draft'
@@ -14,9 +15,9 @@ const createRecruitmentDrive = async (driveData) => {
   const id = uuidv4();
 
   await db.query(
-    `INSERT INTO recruitment_drives (id, drive_name, institute_id, course_type, intake_capacity, eligibility_criteria, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, drive_name, institute_id, course_type, intake_capacity, eligibility_criteria, status]
+    `INSERT INTO recruitment_drives (id, drive_name, institute_id, course_type, year, intake_capacity, eligibility_criteria, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, drive_name, institute_id, course_type, year, intake_capacity, eligibility_criteria, status]
   );
 
   return id;
@@ -25,8 +26,45 @@ const createRecruitmentDrive = async (driveData) => {
 const getAllRecruitmentDrives = async (limit = 10, offset = 0, filters = {}) => {
   let query = `
     SELECT rd.*, i.institute_name,
-      (SELECT COUNT(*) FROM cadets c WHERE c.institute_id = rd.institute_id AND c.course LIKE CONCAT('%', rd.course_type, '%')) as total_cadets,
-      (SELECT COUNT(*) FROM cadets c WHERE c.institute_id = rd.institute_id AND c.course LIKE CONCAT('%', rd.course_type, '%') AND c.status = 'Onboarded') as onboarded
+      (SELECT COUNT(*)
+       FROM cadets c
+       WHERE c.drive_id = rd.id
+      ) as total_cadets,
+      (SELECT COUNT(*)
+       FROM cadets c
+       WHERE c.drive_id = rd.id
+         AND c.status IN ('Eligible for Assessment', 'active')
+      ) as uploaded_count,
+      (SELECT COUNT(*)
+       FROM cadets c
+       WHERE c.drive_id = rd.id
+         AND c.status = 'Assessment Completed'
+      ) as assessment_completed_count,
+      (SELECT COUNT(*)
+       FROM cadets c
+       WHERE c.drive_id = rd.id
+         AND c.status IN ('Eligible for Interview', 'Interview Selected')
+      ) as interview_ready_count,
+      (SELECT COUNT(*)
+       FROM cadets c
+       WHERE c.drive_id = rd.id
+         AND c.status = 'Eligible for Medical'
+      ) as medical_ready_count,
+      (SELECT COUNT(*)
+       FROM cadets c
+       WHERE c.drive_id = rd.id
+         AND c.status = 'Medical Completed'
+      ) as medical_completed_count,
+      (SELECT COUNT(*)
+       FROM cadets c
+       WHERE c.drive_id = rd.id
+         AND c.status = 'CTV Assigned'
+      ) as ctv_assigned_count,
+      (SELECT COUNT(*)
+       FROM cadets c
+       WHERE c.drive_id = rd.id
+         AND c.status = 'Onboarded'
+      ) as onboarded_count
     FROM recruitment_drives rd
     LEFT JOIN institutes i ON rd.institute_id = i.id
   `;
@@ -77,7 +115,26 @@ const getAllRecruitmentDrives = async (limit = 10, offset = 0, filters = {}) => 
 
 const getRecruitmentDriveById = async (id) => {
   const [rows] = await db.query(
-    `SELECT rd.*, i.institute_name
+    `SELECT
+      rd.*,
+      i.institute_name,
+      CASE
+        WHEN i.temp_expiry IS NOT NULL
+         AND i.batch_year = COALESCE(rd.year, YEAR(rd.created_at))
+        THEN 1
+        ELSE 0
+      END AS institute_email_sent,
+      CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM institute_submissions isub
+          WHERE isub.institute_id = rd.institute_id
+            AND isub.batch_year = COALESCE(rd.year, YEAR(rd.created_at))
+            AND isub.course_type = rd.course_type
+        )
+        THEN 1
+        ELSE 0
+      END AS institute_reverted_excel
      FROM recruitment_drives rd
      LEFT JOIN institutes i ON rd.institute_id = i.id
      WHERE rd.id = ?`,
@@ -86,11 +143,65 @@ const getRecruitmentDriveById = async (id) => {
   return rows[0];
 };
 
+const getDriveByContext = async (instituteId, year, courseType) => {
+  const [rows] = await db.query(
+    `SELECT id 
+     FROM recruitment_drives 
+     WHERE institute_id = ? 
+       AND year = ? 
+       AND ? LIKE CONCAT('%', course_type, '%')
+     ORDER BY created_at DESC LIMIT 1`,
+    [instituteId, year, courseType]
+  );
+  return rows[0] || null;
+};
+
+const getDriveByName = async (driveName, excludeId = null) => {
+  let query = `
+    SELECT id, drive_name
+    FROM recruitment_drives
+    WHERE LOWER(TRIM(drive_name)) = LOWER(TRIM(?))
+  `;
+  const params = [driveName];
+
+  if (excludeId) {
+    query += ' AND id <> ?';
+    params.push(excludeId);
+  }
+
+  query += ' LIMIT 1';
+
+  const [rows] = await db.query(query, params);
+  return rows[0] || null;
+};
+
+const getDriveByInstituteYearCourseType = async (instituteId, year, courseType, excludeId = null) => {
+  let query = `
+    SELECT id, drive_name
+    FROM recruitment_drives
+    WHERE institute_id = ?
+      AND year = ?
+      AND course_type = ?
+  `;
+  const params = [instituteId, year, courseType];
+
+  if (excludeId) {
+    query += ' AND id <> ?';
+    params.push(excludeId);
+  }
+
+  query += ' LIMIT 1';
+
+  const [rows] = await db.query(query, params);
+  return rows[0] || null;
+};
+
 const updateRecruitmentDrive = async (id, driveData) => {
   const {
     drive_name,
     institute_id,
     course_type,
+    year,
     intake_capacity,
     eligibility_criteria,
     status
@@ -101,12 +212,13 @@ const updateRecruitmentDrive = async (id, driveData) => {
      SET drive_name = COALESCE(?, drive_name),
          institute_id = COALESCE(?, institute_id),
          course_type = COALESCE(?, course_type),
+         year = COALESCE(?, year),
          intake_capacity = COALESCE(?, intake_capacity),
          eligibility_criteria = COALESCE(?, eligibility_criteria),
          status = COALESCE(?, status),
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
-    [drive_name, institute_id, course_type, intake_capacity, eligibility_criteria, status, id]
+    [drive_name, institute_id, course_type, year, intake_capacity, eligibility_criteria, status, id]
   );
 
   return result.affectedRows > 0;
@@ -118,28 +230,20 @@ const deleteRecruitmentDrive = async (id) => {
 };
 
 const getRecruitmentDriveStats = async (driveId) => {
-  // First get the drive info to know the institute and course
-  const [driveRows] = await db.query(
-    'SELECT institute_id, course_type FROM recruitment_drives WHERE id = ?',
-    [driveId]
-  );
-  
-  if (driveRows.length === 0) return null;
-  const { institute_id, course_type } = driveRows[0];
-
-  // Get pipeline counts for the drive matches (Institute + Course)
+  // Get pipeline counts strictly linked to this drive
   const [rows] = await db.query(`
     SELECT
       COUNT(*) as total_cadets,
-      SUM(CASE WHEN status = 'Eligible for Assessment' THEN 1 ELSE 0 END) as uploaded,
+      SUM(CASE WHEN status IN ('Eligible for Assessment', 'active') THEN 1 ELSE 0 END) as uploaded,
       SUM(CASE WHEN status = 'Assessment Completed' THEN 1 ELSE 0 END) as assessment_passed,
-      SUM(CASE WHEN status = 'Eligible for Interview' OR status = 'Interview Selected' THEN 1 ELSE 0 END) as interview_selected,
+      SUM(CASE WHEN status = 'Eligible for Interview' OR status = 'Interview Selected' THEN 1 ELSE 0 END) as interview_ready,
+      SUM(CASE WHEN status = 'Eligible for Medical' THEN 1 ELSE 0 END) as medical_ready,
       SUM(CASE WHEN status = 'Medical Completed' THEN 1 ELSE 0 END) as medical_completed,
       SUM(CASE WHEN status = 'CTV Assigned' THEN 1 ELSE 0 END) as ctv_assigned,
       SUM(CASE WHEN status = 'Onboarded' THEN 1 ELSE 0 END) as onboarded
     FROM cadets
-    WHERE institute_id = ? AND course LIKE ?
-  `, [institute_id, `%${course_type}%`]);
+    WHERE drive_id = ?
+  `, [driveId]);
 
   return rows[0];
 };
@@ -148,6 +252,9 @@ module.exports = {
   createRecruitmentDrive,
   getAllRecruitmentDrives,
   getRecruitmentDriveById,
+  getDriveByContext,
+  getDriveByName,
+  getDriveByInstituteYearCourseType,
   updateRecruitmentDrive,
   deleteRecruitmentDrive,
   getRecruitmentDriveStats

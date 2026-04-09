@@ -5,13 +5,23 @@ const {
   DEFAULT_PAGE_SIZE,
   EXCEL_HEADER_KEYWORDS,
   SUBMISSION_STATUS,
+  DRIVE_STATUS,
 } = require('../config/constants');
+const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const {
   parseExcelFile,
   findHeaderRow,
   mapRowToCadetData,
   isRowEmpty,
 } = require('../services/excelImportService');
+
+const normalizeCourseType = (value) => {
+  if (!value) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'deck') return 'Deck';
+  if (normalized === 'engine') return 'Engine';
+  return null;
+};
 
 const submitInstituteExcel = async (req, res) => {
   try {
@@ -53,6 +63,24 @@ const submitInstituteExcel = async (req, res) => {
         isAdmin && req.body.batch_year
           ? req.body.batch_year
           : institute.batch_year;
+      const requestedCourseType = isAdmin
+        ? req.body.course_type
+        : institute.submission_course_type || req.body.course_type;
+      const course_type = normalizeCourseType(requestedCourseType);
+
+      if (!batch_year) {
+        return res.status(400).json({
+          message:
+            'Batch year is missing for this submission. Please resend request email.',
+        });
+      }
+
+      if (!course_type) {
+        return res.status(400).json({
+          message:
+            'Course type is missing or invalid for this submission. Please resend request email with Deck/Engine.',
+        });
+      }
 
       // Generate filename for DB record
       const timestamp = Date.now();
@@ -65,6 +93,7 @@ const submitInstituteExcel = async (req, res) => {
         file.originalname,
         file.buffer,
         batch_year,
+        course_type,
       );
 
       // Log activity
@@ -75,6 +104,23 @@ const submitInstituteExcel = async (req, res) => {
           `Submitted excel file: ${file.originalname}`,
           req.ip || req.connection.remoteAddress
         );
+      }
+
+      // Automatically update Recruitment Drive status to 'Received' if matching drive exists
+      try {
+        const drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
+          instituteId,
+          batch_year,
+          course_type
+        );
+        if (drive && (drive.status === DRIVE_STATUS.REQUESTED || drive.status === DRIVE_STATUS.DRAFT)) {
+          await recruitmentDriveDao.updateRecruitmentDrive(drive.id, {
+            status: DRIVE_STATUS.RECEIVED
+          });
+        }
+      } catch (driveErr) {
+        console.error('Error updating drive status after submission:', driveErr);
+        // Don't fail the submission if drive status update fails
       }
 
       res.json({
@@ -101,6 +147,9 @@ const getAllSubmissions = async (req, res) => {
     const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const status = req.query.status || 'all';
     const search = req.query.search || '';
+    const instituteId = req.query.instituteId || '';
+    const batchYear = req.query.batchYear || '';
+    const courseType = normalizeCourseType(req.query.courseType) || '';
 
     const offset = (page - 1) * limit;
 
@@ -109,6 +158,9 @@ const getAllSubmissions = async (req, res) => {
       offset,
       status,
       search,
+      instituteId,
+      batchYear,
+      courseType,
     );
 
     res.json({
@@ -126,7 +178,7 @@ const getAllSubmissions = async (req, res) => {
 };
 
 // Helper function for import logic
-const processImport = async (id, userId, clientIp) => {
+const processImport = async (id, userId, clientIp, driveId = null) => {
   const submission = await instituteDao.getSubmissionById(id);
   if (!submission) throw new Error('Submission not found');
   if (submission.status === SUBMISSION_STATUS.IMPORTED)
@@ -151,6 +203,8 @@ const processImport = async (id, userId, clientIp) => {
     if (isRowEmpty(rowData)) continue;
     try {
       const cadetData = mapRowToCadetData(rowData, headers, submission);
+      if (driveId) cadetData.drive_id = driveId;
+
       if (cadetData.name_as_in_indos_cert) {
         await cadetDao.createCadet(cadetData);
         successCount++;
@@ -169,7 +223,7 @@ const processImport = async (id, userId, clientIp) => {
     await activityLogDao.createLog(
       userId,
       'IMPORT_SUBMISSION',
-      `Imported ${successCount} cadets from submission ${id}`,
+      `Imported ${successCount} cadets from submission ${id}${driveId ? ` for drive ${driveId}` : ''}`,
       clientIp,
     );
   }
@@ -325,4 +379,5 @@ module.exports = {
   deleteSubmission,
   bulkDeleteSubmissions,
   bulkImportSubmissions,
+  processImport, // Export this for other controllers
 };
