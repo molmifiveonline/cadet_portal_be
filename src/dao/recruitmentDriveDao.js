@@ -33,7 +33,7 @@ const getAllRecruitmentDrives = async (limit = 10, offset = 0, filters = {}) => 
       (SELECT COUNT(*)
        FROM cadets c
        WHERE c.drive_id = rd.id
-         AND c.status IN ('Eligible for Assessment', 'active')
+         AND c.status IN ('Eligible for Assessment', 'active', 'Imported')
       ) as uploaded_count,
       (SELECT COUNT(*)
        FROM cadets c
@@ -234,7 +234,8 @@ const getRecruitmentDriveStats = async (driveId) => {
   const [rows] = await db.query(`
     SELECT
       COUNT(*) as total_cadets,
-      SUM(CASE WHEN status IN ('Eligible for Assessment', 'active') THEN 1 ELSE 0 END) as uploaded,
+      SUM(CASE WHEN status IN ('Eligible for Assessment', 'active', 'Imported') THEN 1 ELSE 0 END) as uploaded,
+      SUM(CASE WHEN status IN ('Eligible for Assessment', 'active') THEN 1 ELSE 0 END) as shortlisted_cadets,
       SUM(CASE WHEN status = 'Assessment Completed' THEN 1 ELSE 0 END) as assessment_passed,
       SUM(CASE WHEN status = 'Eligible for Interview' OR status = 'Interview Selected' THEN 1 ELSE 0 END) as interview_ready,
       SUM(CASE WHEN status = 'Eligible for Medical' THEN 1 ELSE 0 END) as medical_ready,

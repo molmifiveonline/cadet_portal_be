@@ -47,6 +47,7 @@ module.exports = {
   // Submission Status
   SUBMISSION_STATUS: {
     PENDING: 'pending',
+    UPLOADED: 'pending',
     IMPORTED: 'imported',
     REJECTED: 'rejected',
   },

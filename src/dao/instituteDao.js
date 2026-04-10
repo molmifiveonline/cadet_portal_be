@@ -259,7 +259,6 @@ const updateSubmissionStatus = async (id, status) => {
     [status, id],
   );
   return result.affectedRows > 0;
-  return result.affectedRows > 0;
 };
 
 const updateInstituteCredentials = async (

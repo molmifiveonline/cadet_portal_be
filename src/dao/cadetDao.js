@@ -121,7 +121,9 @@ const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
   }
 
   if (filters.status && filters.status !== 'all') {
-    if (filters.status === 'Eligible for Assessment') {
+    if (filters.status === 'Imported') {
+      whereClauses.push("c.status IN ('Imported', 'Eligible for Assessment', 'active')");
+    } else if (filters.status === 'Eligible for Assessment') {
       whereClauses.push("c.status IN ('Eligible for Assessment', 'active')");
     } else {
       whereClauses.push('c.status = ?');

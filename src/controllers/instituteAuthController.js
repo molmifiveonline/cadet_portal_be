@@ -204,7 +204,7 @@ const sendInstituteEmail = async (req, res) => {
 
 const sendShortlistEmail = async (req, res) => {
   try {
-    const { instituteIds, subject } = req.body;
+    const { instituteIds, cadetIds, subject } = req.body;
 
     if (!instituteIds) {
       return res.status(400).json({
@@ -221,6 +221,22 @@ const sendShortlistEmail = async (req, res) => {
         ids = JSON.parse(instituteIds);
       } else {
         ids = instituteIds.split(',').map((id) => id.trim());
+      }
+    }
+
+    // Parse cadetIds
+    let cIds = [];
+    if (Array.isArray(cadetIds)) {
+      cIds = cadetIds;
+    } else if (typeof cadetIds === 'string' && cadetIds.trim()) {
+      try {
+        if (cadetIds.trim().startsWith('[')) {
+          cIds = JSON.parse(cadetIds);
+        } else {
+          cIds = cadetIds.split(',').map((id) => id.trim());
+        }
+      } catch (e) {
+        console.error('Error parsing cadetIds:', e);
       }
     }
 
@@ -329,6 +345,21 @@ const sendShortlistEmail = async (req, res) => {
           email: targetEmail,
           cadetCount,
         });
+
+        // Update cadet status for specifically shortlisted cadets
+        if (cIds.length > 0) {
+          try {
+            // Update status and email flag for selected cadets
+            for (const cadetId of cIds) {
+              await cadetDao.updateCadet(cadetId, {
+                status: 'Eligible for Assessment',
+                shortlist_email_sent: 1
+              });
+            }
+          } catch (updateErr) {
+            console.error('Error updating cadet statuses after shortcut email:', updateErr);
+          }
+        }
       } catch (err) {
         console.error(
           `Failed to send shortlist email to institute ${id}:`,
