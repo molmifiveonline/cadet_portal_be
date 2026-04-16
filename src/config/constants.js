@@ -118,6 +118,7 @@ module.exports = {
 
   // Document Types
   DOCUMENT_TYPES: {
+    CV: 'CV',
     INDOS: 'INDOS',
     PASSPORT: 'PASSPORT',
     CDC: 'CDC',
@@ -148,4 +149,6 @@ module.exports = {
     MEDICAL_COMPLETED: 'Medical Completed',
     CLOSED: 'Closed',
   },
+
+  EXTERNAL_LINK_EXPIRY_HOURS: 168,
 };

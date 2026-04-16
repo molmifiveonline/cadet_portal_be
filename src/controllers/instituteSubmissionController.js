@@ -8,6 +8,8 @@ const {
   DRIVE_STATUS,
 } = require('../config/constants');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
+const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
+const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
 const {
   parseExcelFile,
   findHeaderRow,
@@ -54,6 +56,7 @@ const submitInstituteExcel = async (req, res) => {
 
     try {
       const institute = await instituteDao.getInstituteById(instituteId);
+      const submissionRemarks = req.body.remarks || null;
 
       if (!institute) {
         return res.status(404).json({ message: 'Institute not found' });
@@ -94,7 +97,39 @@ const submitInstituteExcel = async (req, res) => {
         file.buffer,
         batch_year,
         course_type,
+        submissionRemarks,
       );
+
+      // Notify MOLMI team after institute submission
+      const drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
+        instituteId,
+        batch_year,
+        course_type,
+      );
+      const molmiTeamEmail =
+        process.env.MOLMI_TEAM_EMAILS ||
+        process.env.MOLMI_TEAM_EMAIL ||
+        process.env.EMAIL_FROM_ADDRESS ||
+        process.env.EMAIL_USER;
+
+      if (molmiTeamEmail) {
+        await logAndSendEmail({
+          to: molmiTeamEmail,
+          template: emailTemplates.instituteSubmissionConfirmation,
+          templateData: {
+            instituteName: institute.institute_name,
+            driveName: drive?.drive_name,
+            batchYear: batch_year,
+            courseType: course_type,
+            remarks: submissionRemarks,
+          },
+          drive_id: drive?.id || null,
+          institute_id: instituteId,
+          communication_type: COMMUNICATION_TYPES.INSTITUTE_SUBMISSION,
+          remarks: submissionRemarks,
+          sent_by: req.user?.id || null,
+        });
+      }
 
       // Log activity
       if (req.user && req.user.id) {
@@ -127,6 +162,7 @@ const submitInstituteExcel = async (req, res) => {
         success: true,
         message: 'File submitted successfully',
         filename,
+        drive_id: drive?.id || null,
       });
     } catch (err) {
       return res

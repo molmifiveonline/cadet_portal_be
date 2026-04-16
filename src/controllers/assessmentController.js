@@ -1,11 +1,18 @@
 const assessmentDao = require('../dao/assessmentDao');
 const activityLogDao = require('../dao/activityLogDao');
 const cadetDao = require('../dao/cadetDao');
+const {
+  WORKFLOW_PHASES,
+  DISPLAY_STATUS,
+  buildWorkflowUpdate,
+} = require('../services/recruitmentWorkflowService');
 
 const saveAssessment = async (req, res) => {
   try {
     const { cadet_id } = req.params;
     const {
+      assessment_date,
+      assessment_time,
       ces_test,
       ces_test_2,
       qa_test,
@@ -18,6 +25,8 @@ const saveAssessment = async (req, res) => {
 
     const assessmentData = {
       cadet_id,
+      assessment_date,
+      assessment_time,
       ces_test,
       ces_test_2,
       qa_test,
@@ -37,14 +46,36 @@ const saveAssessment = async (req, res) => {
 
     const id = await assessmentDao.createOrUpdateAssessment(assessmentData);
 
-    // Workflow: Update cadet status if marked for interview or failed
+    // Workflow: keep failed assessments in the assessment queue so they can take attempt 2.
     if (status === 'fail') {
-      await cadetDao.updateCadet(cadet_id, { status: 'Assessment Failed' });
+      await cadetDao.updateCadet(
+        cadet_id,
+        buildWorkflowUpdate({
+          phase: WORKFLOW_PHASES.ASSESSMENT,
+          result: 'failed',
+          rejectionStage: null,
+          status: DISPLAY_STATUS.ASSESSMENT,
+        }),
+      );
     } else if (status === 'pass') {
       if (assessmentData.mark_for_interview) {
-        await cadetDao.updateCadet(cadet_id, { status: 'Eligible for Interview' });
+        await cadetDao.updateCadet(
+          cadet_id,
+          buildWorkflowUpdate({
+            phase: WORKFLOW_PHASES.INTERVIEW,
+            result: 'queued',
+            status: DISPLAY_STATUS.ASSESSMENT,
+          }),
+        );
       } else {
-        await cadetDao.updateCadet(cadet_id, { status: 'Assessment Passed' });
+        await cadetDao.updateCadet(
+          cadet_id,
+          buildWorkflowUpdate({
+            phase: WORKFLOW_PHASES.ASSESSMENT,
+            result: 'passed',
+            status: DISPLAY_STATUS.ASSESSMENT,
+          }),
+        );
       }
     }
 

@@ -1,13 +1,18 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { filterExistingColumns } = require('../services/schemaCompatibilityService');
 
 const createOrUpdateInterview = async (interviewData) => {
   const {
     cadet_id,
     interview_date,
+    interview_time,
     panel_members,
     evaluation_score,
     remarks,
+    comments,
+    invite_remark,
+    invite_document_link,
     final_decision,
     interview_sheet_data,
     interview_sheet_name,
@@ -25,17 +30,21 @@ const createOrUpdateInterview = async (interviewData) => {
     const updateFields = [];
     const values = [];
 
-    const fields = {
+    const fields = await filterExistingColumns('interviews', {
       interview_date,
+      interview_time,
       panel_members,
       evaluation_score,
       remarks,
+      comments,
+      invite_remark,
+      invite_document_link,
       final_decision,
       interview_sheet_data,
       interview_sheet_name,
       interview_sheet_mime_type,
       total_score,
-    };
+    });
 
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined) {
@@ -54,29 +63,26 @@ const createOrUpdateInterview = async (interviewData) => {
     interviewId = existing[0].id;
   } else {
     const id = uuidv4();
-    const fields = ['id', 'cadet_id'];
-    const placeholders = ['?', '?'];
-    const values = [id, cadet_id];
-
-    const optionalFields = {
+    const insertData = await filterExistingColumns('interviews', {
+      id,
+      cadet_id,
       interview_date,
+      interview_time,
       panel_members,
       evaluation_score,
       remarks,
+      comments,
+      invite_remark,
+      invite_document_link,
       final_decision,
       interview_sheet_data,
       interview_sheet_name,
       interview_sheet_mime_type,
       total_score,
-    };
-
-    for (const [key, value] of Object.entries(optionalFields)) {
-      if (value !== undefined) {
-        fields.push(key);
-        placeholders.push('?');
-        values.push(value);
-      }
-    }
+    });
+    const fields = Object.keys(insertData);
+    const placeholders = fields.map(() => '?');
+    const values = fields.map((field) => insertData[field]);
 
     await db.query(
       `INSERT INTO interviews (${fields.join(', ')}) VALUES (${placeholders.join(', ')})`,
@@ -84,15 +90,6 @@ const createOrUpdateInterview = async (interviewData) => {
     );
     interviewId = id;
   }
-
-  // Update cadet status based on final decision
-  const normalizedDecision = final_decision ? final_decision.toLowerCase() : '';
-  if (normalizedDecision === 'rejected') {
-    await db.query('UPDATE cadets SET status = ? WHERE id = ?', ['Interview Failed', cadet_id]);
-  } else if (normalizedDecision === 'selected') {
-    await db.query('UPDATE cadets SET status = ? WHERE id = ?', ['Eligible for Medical', cadet_id]);
-  }
-
   return interviewId;
 };
 

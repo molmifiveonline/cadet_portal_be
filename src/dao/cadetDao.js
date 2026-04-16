@@ -1,12 +1,132 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const {
+  WORKFLOW_PHASES,
+  DISPLAY_STATUS,
+  hydrateCadetWorkflow,
+} = require('../services/recruitmentWorkflowService');
+const {
+  hasColumn,
+  hasTable,
+  filterExistingColumns,
+} = require('../services/schemaCompatibilityService');
+
+const getCadetCompatibility = async () => ({
+  hasRollNo: await hasColumn('cadets', 'roll_no'),
+  hasWorkflowPhase: await hasColumn('cadets', 'workflow_phase'),
+  hasWorkflowResult: await hasColumn('cadets', 'workflow_result'),
+  hasRejectionStage: await hasColumn('cadets', 'rejection_stage'),
+  hasWorkflowUpdatedAt: await hasColumn('cadets', 'workflow_updated_at'),
+  hasShortlistedAt: await hasColumn('cadets', 'shortlisted_at'),
+  hasSelectedAt: await hasColumn('cadets', 'selected_at'),
+  hasShortlistEmailSent: await hasColumn('cadets', 'shortlist_email_sent'),
+});
+
+const getAssessmentCompatibility = async () => ({
+  hasAssessmentDate: await hasColumn('assessments', 'assessment_date'),
+  hasAssessmentTime: await hasColumn('assessments', 'assessment_time'),
+  hasInviteRemark: await hasColumn('assessments', 'invite_remark'),
+  hasInviteDocumentLink: await hasColumn('assessments', 'invite_document_link'),
+});
+
+const getInterviewCompatibility = async () => ({
+  hasInterviewTime: await hasColumn('interviews', 'interview_time'),
+  hasComments: await hasColumn('interviews', 'comments'),
+  hasInviteRemark: await hasColumn('interviews', 'invite_remark'),
+  hasInviteDocumentLink: await hasColumn('interviews', 'invite_document_link'),
+});
+
+const getMedicalCompatibility = async () => ({
+  hasFinalDecision: await hasColumn('cadet_medical_results', 'final_decision'),
+  hasPsychometricStatus: await hasColumn('cadet_medical_results', 'psychometric_status'),
+  hasProfilingStatus: await hasColumn('cadet_medical_results', 'profiling_status'),
+  hasInviteRemark: await hasColumn('cadet_medical_results', 'invite_remark'),
+});
+
+const buildBaseSelect = async () => {
+  const cadetCompat = await getCadetCompatibility();
+  const assessmentCompat = await getAssessmentCompatibility();
+  const interviewCompat = await getInterviewCompatibility();
+  const medicalCompat = await getMedicalCompatibility();
+  const hasCadetDocuments = await hasTable('cadet_documents');
+
+  const hasCvSelect = hasCadetDocuments
+    ? `EXISTS (
+        SELECT 1
+        FROM cadet_documents cv
+        WHERE cv.cadet_id = c.id
+          AND UPPER(cv.document_type) = 'CV'
+      ) AS has_cv`
+    : '0 AS has_cv';
+
+  return `
+    SELECT
+      c.*,
+      ${cadetCompat.hasRollNo ? 'c.roll_no' : 'NULL AS roll_no'},
+      ${cadetCompat.hasWorkflowPhase ? 'c.workflow_phase' : 'NULL AS workflow_phase'},
+      ${cadetCompat.hasWorkflowResult ? 'c.workflow_result' : 'NULL AS workflow_result'},
+      ${cadetCompat.hasRejectionStage ? 'c.rejection_stage' : 'NULL AS rejection_stage'},
+      ${cadetCompat.hasWorkflowUpdatedAt ? 'c.workflow_updated_at' : 'NULL AS workflow_updated_at'},
+      ${cadetCompat.hasShortlistedAt ? 'c.shortlisted_at' : 'NULL AS shortlisted_at'},
+      ${cadetCompat.hasSelectedAt ? 'c.selected_at' : 'NULL AS selected_at'},
+      ${cadetCompat.hasShortlistEmailSent ? 'c.shortlist_email_sent' : '0 AS shortlist_email_sent'},
+      i.institute_name,
+      a.id AS assessment_id,
+      ${assessmentCompat.hasAssessmentDate ? 'a.assessment_date' : 'NULL AS assessment_date'},
+      ${assessmentCompat.hasAssessmentTime ? 'a.assessment_time' : 'NULL AS assessment_time'},
+      a.ces_test,
+      a.ces_test_2,
+      a.qa_test,
+      a.english_test,
+      a.essay_writing_mark,
+      a.calculated_score,
+      a.calculated_score AS assessment_score,
+      a.remarks AS assessment_remarks,
+      a.status AS assessment_status,
+      a.mark_for_interview,
+      ${assessmentCompat.hasInviteRemark ? 'a.invite_remark' : 'NULL AS assessment_invite_remark'},
+      ${assessmentCompat.hasInviteDocumentLink ? 'a.invite_document_link' : 'NULL AS assessment_invite_document_link'},
+      iv.id AS interview_id,
+      iv.interview_date,
+      ${interviewCompat.hasInterviewTime ? 'iv.interview_time' : 'NULL AS interview_time'},
+      iv.panel_members,
+      iv.evaluation_score,
+      iv.total_score,
+      iv.final_decision AS interview_final_decision,
+      iv.remarks AS interview_remarks,
+      ${interviewCompat.hasComments ? 'iv.comments' : 'NULL AS interview_comments'},
+      ${interviewCompat.hasInviteRemark ? 'iv.invite_remark' : 'NULL AS interview_invite_remark'},
+      ${interviewCompat.hasInviteDocumentLink ? 'iv.invite_document_link' : 'NULL AS interview_invite_document_link'},
+      mr.id AS medical_result_id,
+      mr.appointment_date AS medical_date,
+      mr.appointment_time AS medical_time,
+      mr.status AS fit_status,
+      ${medicalCompat.hasFinalDecision ? 'mr.final_decision' : 'NULL AS medical_final_decision'},
+      ${medicalCompat.hasPsychometricStatus ? 'mr.psychometric_status' : 'NULL AS psychometric_status'},
+      ${medicalCompat.hasProfilingStatus ? 'mr.profiling_status' : 'NULL AS profiling_status'},
+      mr.remarks AS medical_remarks,
+      ${medicalCompat.hasInviteRemark ? 'mr.invite_remark' : 'NULL AS medical_invite_remark'},
+      mc.center_name AS medical_center_name,
+      ${hasCvSelect},
+      COALESCE(c.imu_avg_all_semester_percentage, c.twelfth_pcm_avg_percentage, c.tenth_avg_percentage) AS cadet_percentage
+    FROM cadets c
+    LEFT JOIN institutes i ON c.institute_id = i.id
+    LEFT JOIN assessments a ON c.id = a.cadet_id
+    LEFT JOIN interviews iv ON c.id = iv.cadet_id
+    LEFT JOIN cadet_medical_results mr ON c.id = mr.cadet_id
+    LEFT JOIN medical_centers mc ON mr.medical_center_id = mc.id
+  `;
+};
+
+const mapCadetRow = (row) => hydrateCadetWorkflow(row);
 
 const generateUniqueCadetId = async () => {
   const currentYear = new Date().getFullYear();
-  const query = 'SELECT MAX(SUBSTRING_INDEX(cadet_unique_id, "-", -1)) as lastNum FROM cadets WHERE cadet_unique_id LIKE ?';
+  const query =
+    'SELECT MAX(SUBSTRING_INDEX(cadet_unique_id, "-", -1)) as lastNum FROM cadets WHERE cadet_unique_id LIKE ?';
   const [rows] = await db.query(query, [`${currentYear}-%`]);
-  
-  const lastNum = rows[0].lastNum ? parseInt(rows[0].lastNum) : 0;
+
+  const lastNum = rows[0].lastNum ? parseInt(rows[0].lastNum, 10) : 0;
   const nextNum = String(lastNum + 1).padStart(4, '0');
   return `${currentYear}-${nextNum}`;
 };
@@ -14,21 +134,38 @@ const generateUniqueCadetId = async () => {
 const createCadet = async (cadetData) => {
   const id = uuidv4();
   const cadetUniqueId = await generateUniqueCadetId();
-  
+
   const finalData = {
+    workflow_phase: WORKFLOW_PHASES.UPLOADED,
+    workflow_result: 'pending',
+    status: DISPLAY_STATUS.UPLOADED,
     ...cadetData,
     id,
-    cadet_unique_id: cadetUniqueId
+    cadet_unique_id: cadetUniqueId,
   };
 
-  const fields = Object.keys(finalData);
+  if (!finalData.status || finalData.status === 'Imported') {
+    finalData.status = DISPLAY_STATUS.UPLOADED;
+  }
+
+  if (!finalData.workflow_phase) {
+    finalData.workflow_phase = WORKFLOW_PHASES.UPLOADED;
+  }
+
+  if (!finalData.workflow_result) {
+    finalData.workflow_result = 'pending';
+  }
+
+  const insertData = await filterExistingColumns('cadets', finalData);
+  const fields = Object.keys(insertData);
   const placeholders = fields.map(() => '?').join(', ');
-  const values = fields.map((f) => finalData[f]);
+  const values = fields.map((field) => insertData[field]);
 
   await db.query(
     `INSERT INTO cadets (${fields.join(', ')}) VALUES (${placeholders})`,
     values,
   );
+
   return id;
 };
 
@@ -79,21 +216,18 @@ const findDuplicateCadet = async (cadetData = {}) => {
   return rows[0] || null;
 };
 
-const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
-  let query = `
-    SELECT c.*, i.institute_name,
-           a.ces_test, a.ces_test_2, a.qa_test, a.english_test, a.essay_writing_mark, a.calculated_score, a.remarks as assessment_remarks, a.mark_for_interview,
-           iv.interview_date, iv.panel_members, iv.evaluation_score, iv.total_score, iv.final_decision, iv.remarks as interview_remarks,
-           mr.appointment_date as medical_date, mr.appointment_time as medical_time, mr.status as fit_status, mr.remarks as medical_remarks, mc.center_name as medical_center_name
-    FROM cadets c
-    LEFT JOIN institutes i ON c.institute_id = i.id
-    LEFT JOIN assessments a ON c.id = a.cadet_id
-    LEFT JOIN interviews iv ON c.id = iv.cadet_id
-    LEFT JOIN cadet_medical_results mr ON c.id = mr.cadet_id
-    LEFT JOIN medical_centers mc ON mr.medical_center_id = mc.id
-  `;
-  let queryParams = [];
-  let whereClauses = [];
+const buildWhereClause = (filters = {}, queryParams = [], options = {}) => {
+  const whereClauses = [];
+  const searchColumns = [
+    'c.name_as_in_indos_cert LIKE ?',
+    'c.email_id LIKE ?',
+    'c.contact_number LIKE ?',
+    'c.cadet_unique_id LIKE ?',
+  ];
+
+  if (options.hasRollNo) {
+    searchColumns.push('c.roll_no LIKE ?');
+  }
 
   if (filters.batch_year && filters.batch_year !== 'all') {
     whereClauses.push('c.batch_year = ?');
@@ -120,69 +254,170 @@ const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
     queryParams.push(`%${filters.batch}%`);
   }
 
+  if (filters.workflow_phase && options.hasWorkflowPhase) {
+    whereClauses.push('c.workflow_phase = ?');
+    queryParams.push(filters.workflow_phase);
+  }
+
   if (filters.status && filters.status !== 'all') {
-    if (filters.status === 'Imported') {
-      whereClauses.push("c.status IN ('Imported', 'Eligible for Assessment', 'active')");
-    } else if (filters.status === 'Eligible for Assessment') {
-      whereClauses.push("c.status IN ('Eligible for Assessment', 'active')");
-    } else {
-      whereClauses.push('c.status = ?');
-      queryParams.push(filters.status);
-    }
+    whereClauses.push('c.status = ?');
+    queryParams.push(filters.status);
   }
 
   if (filters.search) {
-    whereClauses.push(
-      '(c.name_as_in_indos_cert LIKE ? OR c.email_id LIKE ? OR c.contact_number LIKE ?)',
-    );
+    whereClauses.push(`(${searchColumns.join(' OR ')})`);
     const searchTerm = `%${filters.search}%`;
-    queryParams.push(searchTerm, searchTerm, searchTerm);
+    const searchValues = new Array(searchColumns.length).fill(searchTerm);
+    queryParams.push(...searchValues);
   }
 
+  return whereClauses;
+};
+
+const getAllCadets = async (limit = 10, offset = 0, filters = {}) => {
+  const cadetCompat = await getCadetCompatibility();
+  const baseSelect = await buildBaseSelect();
+  const queryParams = [];
+  const whereClauses = buildWhereClause(filters, queryParams, cadetCompat);
+
+  let query = baseSelect;
   if (whereClauses.length > 0) {
-    query += ' WHERE ' + whereClauses.join(' AND ');
+    query += ` WHERE ${whereClauses.join(' AND ')}`;
   }
 
   query += ' ORDER BY c.created_at DESC LIMIT ? OFFSET ?';
   queryParams.push(limit, offset);
 
   const [rows] = await db.query(query, queryParams);
+  const data = rows.map(mapCadetRow);
 
-  let countQuery = 'SELECT COUNT(*) as total FROM cadets c LEFT JOIN institutes i ON c.institute_id = i.id LEFT JOIN assessments a ON c.id = a.cadet_id LEFT JOIN interviews iv ON c.id = iv.cadet_id LEFT JOIN cadet_medical_results mr ON c.id = mr.cadet_id LEFT JOIN medical_centers mc ON mr.medical_center_id = mc.id';
-  let countParams = [];
-
-  if (whereClauses.length > 0) {
-    countQuery += ' WHERE ' + whereClauses.join(' AND ');
-    countParams = queryParams.slice(0, queryParams.length - 2);
+  let countQuery = 'SELECT COUNT(*) AS total FROM cadets c';
+  const countParams = [];
+  const countWhereClauses = buildWhereClause(filters, countParams, cadetCompat);
+  if (countWhereClauses.length > 0) {
+    countQuery += ` WHERE ${countWhereClauses.join(' AND ')}`;
   }
 
   const [[{ total }]] = await db.query(countQuery, countParams);
 
-  return { data: rows, total };
+  return { data, total };
 };
 
 const getCadetById = async (id) => {
-  const query = `
-    SELECT c.*, i.institute_name
-    FROM cadets c
-    LEFT JOIN institutes i ON c.institute_id = i.id
-    WHERE c.id = ?
-  `;
-  const [rows] = await db.query(query, [id]);
+  const baseSelect = await buildBaseSelect();
+  const [rows] = await db.query(`${baseSelect} WHERE c.id = ?`, [id]);
   const cadet = rows[0];
 
-  if (cadet) {
-    // Remove binary data to prevent it from being returned in the JSON response
-    delete cadet.photo_data;
-    delete cadet.photo_mime_type;
-    delete cadet.photo_name;
+  if (!cadet) return null;
+
+  delete cadet.photo_data;
+  delete cadet.photo_mime_type;
+  delete cadet.photo_name;
+
+  return mapCadetRow(cadet);
+};
+
+const getLegacyQueueCondition = (queue) => {
+  switch (queue) {
+    case 'assessment':
+      return {
+        clause: "c.status IN ('Shortlisted', 'Assessment', 'Eligible for Assessment', 'Assessment Failed')",
+        params: [],
+      };
+    case 'interview':
+      return {
+        clause: "c.status IN ('Interviewed', 'Eligible for Interview')",
+        params: [],
+      };
+    case 'medical':
+      return {
+        clause: "c.status IN ('Selected', 'Eligible for Medical')",
+        params: [],
+      };
+    case 'selected':
+      return {
+        clause: "c.status IN ('Selected', 'Medical Completed', 'CTV Assigned', 'Onboarded')",
+        params: [],
+      };
+    case 'rejected':
+      return {
+        clause: "c.status IN ('Rejected', 'Assessment Failed', 'Interview Failed', 'Medical Failed')",
+        params: [],
+      };
+    default:
+      return null;
+  }
+};
+
+const getDriveCadets = async (driveId, { queue = 'all', search = '', limit = 1000, offset = 0 } = {}) => {
+  const cadetCompat = await getCadetCompatibility();
+  const baseSelect = await buildBaseSelect();
+  const queryParams = [driveId];
+  const whereClauses = ['c.drive_id = ?'];
+  const searchColumns = [
+    'c.name_as_in_indos_cert LIKE ?',
+    'c.email_id LIKE ?',
+    'c.cadet_unique_id LIKE ?',
+  ];
+
+  if (cadetCompat.hasRollNo) {
+    searchColumns.push('c.roll_no LIKE ?');
   }
 
-  return cadet;
+  if (cadetCompat.hasWorkflowPhase) {
+    switch (queue) {
+      case 'assessment':
+        whereClauses.push(`(
+          c.workflow_phase IN (?, ?)
+          OR LOWER(COALESCE(a.status, '')) = 'fail'
+        )`);
+        queryParams.push(
+          WORKFLOW_PHASES.SHORTLISTED,
+          WORKFLOW_PHASES.ASSESSMENT,
+        );
+        break;
+      case 'interview':
+        whereClauses.push('c.workflow_phase = ?');
+        queryParams.push(WORKFLOW_PHASES.INTERVIEW);
+        break;
+      case 'medical':
+        whereClauses.push('c.workflow_phase = ?');
+        queryParams.push(WORKFLOW_PHASES.MEDICAL);
+        break;
+      case 'selected':
+        whereClauses.push('c.workflow_phase = ?');
+        queryParams.push(WORKFLOW_PHASES.SELECTED);
+        break;
+      case 'rejected':
+        whereClauses.push('c.workflow_phase = ?');
+        queryParams.push(WORKFLOW_PHASES.REJECTED);
+        break;
+      default:
+        break;
+    }
+  } else {
+    const legacyQueue = getLegacyQueueCondition(queue);
+    if (legacyQueue) {
+      whereClauses.push(legacyQueue.clause);
+      queryParams.push(...legacyQueue.params);
+    }
+  }
+
+  if (search) {
+    whereClauses.push(`(${searchColumns.join(' OR ')})`);
+    const searchTerm = `%${search}%`;
+    queryParams.push(...new Array(searchColumns.length).fill(searchTerm));
+  }
+
+  const [rows] = await db.query(
+    `${baseSelect} WHERE ${whereClauses.join(' AND ')} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`,
+    [...queryParams, limit, offset],
+  );
+
+  return rows.map(mapCadetRow);
 };
 
 const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
-  // We use casting because the fields are now VARCHARs
   let query = `
     SELECT c.*, i.institute_name
     FROM cadets c
@@ -199,8 +434,8 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
       AND CAST(c.imu_rank AS SIGNED) <= 3000
       AND CAST(c.bmi AS DECIMAL(10,2)) < 25
   `;
-  let queryParams = [];
-  let additionalClauses = [];
+  const queryParams = [];
+  const additionalClauses = [];
 
   if (filters.batch_year && filters.batch_year !== 'all') {
     additionalClauses.push('c.batch_year = ?');
@@ -231,7 +466,7 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
   }
 
   if (additionalClauses.length > 0) {
-    query += ' AND ' + additionalClauses.join(' AND ');
+    query += ` AND ${additionalClauses.join(' AND ')}`;
   }
 
   query += ' ORDER BY c.created_at DESC LIMIT ? OFFSET ?';
@@ -240,7 +475,7 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
   const [rows] = await db.query(query, queryParams);
 
   let countQuery = `
-    SELECT COUNT(*) as total 
+    SELECT COUNT(*) as total
     FROM cadets c
     WHERE CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 85
       AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 80
@@ -254,25 +489,23 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
       AND CAST(c.imu_rank AS SIGNED) <= 3000
       AND CAST(c.bmi AS DECIMAL(10,2)) < 25
   `;
-  let countParams = [];
+  const countParams = queryParams.slice(0, queryParams.length - 2);
 
   if (additionalClauses.length > 0) {
-    countQuery += ' AND ' + additionalClauses.join(' AND ');
-    countParams = queryParams.slice(0, queryParams.length - 2);
+    countQuery += ` AND ${additionalClauses.join(' AND ')}`;
   }
 
-  // Use try catch because CAST could fail on strings like LATERAL ENTRY
   try {
     const [[{ total }]] = await db.query(countQuery, countParams);
-    return { data: rows, total };
-  } catch (err) {
+    return { data: rows.map(mapCadetRow), total };
+  } catch (error) {
     return { data: [], total: 0 };
   }
 };
 
 const getShortlistCountByInstitute = async () => {
   const query = `
-    SELECT 
+    SELECT
       i.id as institute_id,
       i.institute_name,
       COUNT(c.id) as count
@@ -297,32 +530,48 @@ const getShortlistCountByInstitute = async () => {
   try {
     const [rows] = await db.query(query);
     return rows;
-  } catch (err) {
+  } catch (error) {
     return [];
   }
 };
 
 const updateCadet = async (id, cadetData) => {
+  const filteredData = await filterExistingColumns('cadets', cadetData);
   const updateFields = [];
   const values = [];
 
-  const allowedFields = Object.keys(cadetData);
+  Object.keys(filteredData).forEach((field) => {
+    updateFields.push(`${field} = ?`);
+    values.push(filteredData[field]);
+  });
 
-  for (const field of allowedFields) {
-    if (cadetData[field] !== undefined) {
-      updateFields.push(`${field} = ?`);
-      values.push(cadetData[field]);
-    }
-  }
-
-  if (updateFields.length === 0) {
-    return;
-  }
+  if (updateFields.length === 0) return;
 
   values.push(id);
+  await db.query(`UPDATE cadets SET ${updateFields.join(', ')} WHERE id = ?`, values);
+};
 
-  const query = `UPDATE cadets SET ${updateFields.join(', ')} WHERE id = ?`;
-  await db.query(query, values);
+const bulkUpdateCadets = async (ids = [], cadetData = {}) => {
+  if (!ids.length) return 0;
+
+  const filteredData = await filterExistingColumns('cadets', cadetData);
+  const updateFields = [];
+  const values = [];
+
+  Object.keys(filteredData).forEach((field) => {
+    updateFields.push(`${field} = ?`);
+    values.push(filteredData[field]);
+  });
+
+  if (!updateFields.length) return 0;
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const [result] = await db.query(
+    `UPDATE cadets SET ${updateFields.join(', ')} WHERE id IN (${placeholders})`,
+    [...values, ...ids],
+  );
+
+  return result.affectedRows;
 };
 
 const deleteCadet = async (id) => {
@@ -350,9 +599,11 @@ module.exports = {
   findDuplicateCadet,
   getAllCadets,
   getCadetById,
+  getDriveCadets,
   getShortlistedCadets,
   getShortlistCountByInstitute,
   updateCadet,
+  bulkUpdateCadets,
   deleteCadet,
   saveCadetPhoto,
   getCadetPhoto,

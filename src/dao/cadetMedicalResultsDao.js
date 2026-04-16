@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { filterExistingColumns, hasColumn } = require('../services/schemaCompatibilityService');
 
 const createOrUpdateMedicalResult = async (medicalData) => {
   const {
@@ -7,8 +8,12 @@ const createOrUpdateMedicalResult = async (medicalData) => {
     medical_date,      // maps to -> appointment_date
     medical_center_id,
     fit_status,        // maps to -> status
+    final_decision,
     remarks,
     medical_time,      // maps to -> appointment_time
+    psychometric_status,
+    profiling_status,
+    invite_remark,
     report_data,
     report_name,
     report_mime_type,
@@ -24,16 +29,20 @@ const createOrUpdateMedicalResult = async (medicalData) => {
     const values = [];
 
     // Map friendly names to actual DB column names
-    const fields = {
+    const fields = await filterExistingColumns('cadet_medical_results', {
       appointment_date: medical_date,
       medical_center_id,
       status: fit_status,
+      final_decision,
       remarks,
       appointment_time: medical_time,
+      psychometric_status,
+      profiling_status,
+      invite_remark,
       report_data,
       report_name,
       report_mime_type,
-    };
+    });
 
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined) {
@@ -52,29 +61,25 @@ const createOrUpdateMedicalResult = async (medicalData) => {
     return existing[0].id;
   } else {
     const id = uuidv4();
-    const fields = ['id', 'cadet_id'];
-    const placeholders = ['?', '?'];
-    const values = [id, cadet_id];
-
-    // Map friendly names to actual DB column names
-    const optionalFields = {
+    const insertData = await filterExistingColumns('cadet_medical_results', {
+      id,
+      cadet_id,
       appointment_date: medical_date,
       medical_center_id,
       status: fit_status,
+      final_decision,
       remarks,
       appointment_time: medical_time,
+      psychometric_status,
+      profiling_status,
+      invite_remark,
       report_data,
       report_name,
       report_mime_type,
-    };
-
-    for (const [key, value] of Object.entries(optionalFields)) {
-      if (value !== undefined) {
-        fields.push(key);
-        placeholders.push('?');
-        values.push(value);
-      }
-    }
+    });
+    const fields = Object.keys(insertData);
+    const placeholders = fields.map(() => '?');
+    const values = fields.map((field) => insertData[field]);
 
     await db.query(
       `INSERT INTO cadet_medical_results (${fields.join(', ')}) VALUES (${placeholders.join(', ')})`,
@@ -85,14 +90,23 @@ const createOrUpdateMedicalResult = async (medicalData) => {
 };
 
 const getMedicalResultByCadetId = async (cadetId) => {
+  const hasFinalDecision = await hasColumn('cadet_medical_results', 'final_decision');
+  const hasPsychometricStatus = await hasColumn('cadet_medical_results', 'psychometric_status');
+  const hasProfilingStatus = await hasColumn('cadet_medical_results', 'profiling_status');
+  const hasInviteRemark = await hasColumn('cadet_medical_results', 'invite_remark');
+
   // Alias actual column names back to the friendly names expected by the frontend
   const [rows] = await db.query(
     `SELECT id, cadet_id,
             appointment_date  AS medical_date,
             appointment_time  AS medical_time,
             status            AS fit_status,
+            ${hasFinalDecision ? 'final_decision' : 'NULL AS final_decision'},
             medical_center_id,
+            ${hasPsychometricStatus ? 'psychometric_status' : 'NULL AS psychometric_status'},
+            ${hasProfilingStatus ? 'profiling_status' : 'NULL AS profiling_status'},
             remarks,
+            ${hasInviteRemark ? 'invite_remark' : 'NULL AS invite_remark'},
             report_name,
             report_mime_type,
             created_at, updated_at

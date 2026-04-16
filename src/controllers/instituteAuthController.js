@@ -11,6 +11,8 @@ const {
 } = require('../config/constants');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const shortlistService = require('../services/shortlistService');
+const { logAndSendEmail } = require('../services/recruitmentCommunicationService');
+const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
 
 const normalizeCourseType = (value) => {
   if (!value) return null;
@@ -22,14 +24,14 @@ const normalizeCourseType = (value) => {
 
 const sendInstituteEmail = async (req, res) => {
   try {
-    const { instituteIds, subject, description, batch_year, course_type } =
+    const { instituteIds, subject, description, remarks, batch_year, course_type } =
       req.body;
     const file = req.file;
     const resolvedCourseType = normalizeCourseType(course_type);
 
-    if (!instituteIds || !subject || !description) {
+    if (!instituteIds || !subject || !description || !remarks) {
       return res.status(400).json({
-        message: 'Institute IDs, subject, and description are required',
+        message: 'Institute IDs, subject, description, and remarks are required',
       });
     }
 
@@ -75,6 +77,17 @@ const sendInstituteEmail = async (req, res) => {
       .slice(0, 19)
       .replace('T', ' ');
 
+    const requestProgressStatuses = new Set([
+      DRIVE_STATUS.REQUESTED,
+      DRIVE_STATUS.RECEIVED,
+      DRIVE_STATUS.SUBMITTED,
+      DRIVE_STATUS.SHORTLISTED,
+      DRIVE_STATUS.ASSESSMENT_COMPLETED,
+      DRIVE_STATUS.INTERVIEW_COMPLETED,
+      DRIVE_STATUS.MEDICAL_COMPLETED,
+      DRIVE_STATUS.CLOSED,
+    ]);
+
     for (const id of ids) {
       const institute = await instituteDao.getInstituteById(id);
       if (!institute) {
@@ -103,12 +116,23 @@ const sendInstituteEmail = async (req, res) => {
 
       // Generate Link (No token needed now)
       const link = `${process.env.FRONTEND_URL}/institute/submit-excel`;
+      let drive = null;
+
+      try {
+        drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
+          id,
+          batch_year || new Date().getFullYear(),
+          resolvedCourseType
+        );
+      } catch (driveErr) {
+        console.error('Error resolving drive before sending institute email:', driveErr);
+      }
 
       // Prepare Email
       const emailContent = emailTemplates.instituteExcelSubmission({
         instituteName: institute.institute_name,
         subject,
-        description,
+        description: `${description}<br/><br/><strong>Remarks:</strong><br/>${remarks}`,
         link,
         expiryDate: expiryDateString,
         tempUsername,
@@ -142,10 +166,22 @@ const sendInstituteEmail = async (req, res) => {
 
       // Send Email
       try {
-        await sendEmail({
+        await logAndSendEmail({
           to: targetEmail,
-          subject: emailContent.subject,
-          html: emailContent.html,
+          template: () => emailContent,
+          templateData: {
+            instituteName: institute.institute_name,
+            subject,
+            description,
+            remarks,
+            batch_year: batch_year || new Date().getFullYear(),
+            course_type: resolvedCourseType,
+          },
+          drive_id: drive?.id || null,
+          institute_id: id,
+          communication_type: COMMUNICATION_TYPES.INSTITUTE_REQUEST,
+          remarks,
+          sent_by: req.user?.id || null,
           attachments: [
             {
               filename: file.originalname,
@@ -161,12 +197,10 @@ const sendInstituteEmail = async (req, res) => {
 
         // Automatically update Recruitment Drive status to 'Requested' if matching drive exists
         try {
-          const drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
-            id,
-            batch_year || new Date().getFullYear(),
-            resolvedCourseType
-          );
-          if (drive && drive.status === DRIVE_STATUS.DRAFT) {
+          if (
+            drive &&
+            !requestProgressStatuses.has(drive.status)
+          ) {
             await recruitmentDriveDao.updateRecruitmentDrive(drive.id, {
               status: DRIVE_STATUS.REQUESTED
             });
@@ -204,7 +238,7 @@ const sendInstituteEmail = async (req, res) => {
 
 const sendShortlistEmail = async (req, res) => {
   try {
-    const { instituteIds, cadetIds, subject } = req.body;
+    const { instituteIds, cadetIds, subject, remarks } = req.body;
 
     if (!instituteIds) {
       return res.status(400).json({
@@ -334,10 +368,21 @@ const sendShortlistEmail = async (req, res) => {
 
       // Send Email
       try {
-        await sendEmail({
+        await logAndSendEmail({
           to: targetEmail,
-          subject: emailContent.subject,
-          html: emailContent.html,
+          template: () => ({
+            ...emailContent,
+            html: `${emailContent.html}<p><strong>Remarks:</strong> ${remarks || 'No remarks provided.'}</p>`,
+          }),
+          templateData: {
+            instituteName: institute.institute_name,
+            cadetCount,
+            remarks,
+          },
+          institute_id: id,
+          communication_type: COMMUNICATION_TYPES.SHORTLIST,
+          remarks,
+          sent_by: req.user?.id || null,
         });
         results.push({
           id,

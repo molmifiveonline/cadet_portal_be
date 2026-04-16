@@ -1,8 +1,20 @@
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const activityLogDao = require('../dao/activityLogDao');
 const instituteDao = require('../dao/instituteDao');
+const cadetDao = require('../dao/cadetDao');
+const assessmentDao = require('../dao/assessmentDao');
+const interviewDao = require('../dao/interviewDao');
+const medicalDao = require('../dao/cadetMedicalResultsDao');
+const recruitmentCommunicationDao = require('../dao/recruitmentCommunicationDao');
 const { DEFAULT_PAGE_SIZE, ROLES, DRIVE_STATUS, SUBMISSION_STATUS } = require('../config/constants');
 const { processImport } = require('./instituteSubmissionController');
+const {
+  WORKFLOW_PHASES,
+  DISPLAY_STATUS,
+  buildWorkflowUpdate,
+  COMMUNICATION_TYPES,
+} = require('../services/recruitmentWorkflowService');
+const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
 
 const createRecruitmentDrive = async (req, res) => {
   try {
@@ -307,6 +319,38 @@ const getRecruitmentDriveStats = async (req, res) => {
   }
 };
 
+const getDriveCadetQueue = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const queue = req.query.queue || 'all';
+    const search = req.query.search || '';
+    const data = await cadetDao.getDriveCadets(id, { queue, search });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Get Drive Cadet Queue Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching drive cadets',
+      error: error.message,
+    });
+  }
+};
+
+const getDriveCommunications = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = await recruitmentCommunicationDao.getDriveCommunications(id);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Get Drive Communications Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching drive communications',
+      error: error.message,
+    });
+  }
+};
+
 const submitCadetDetails = async (req, res) => {
   try {
     const { id } = req.params;
@@ -371,6 +415,199 @@ const finalizeShortlist = async (req, res) => {
   }
 };
 
+const shortlistCadets = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cadet_ids } = req.body;
+
+    if (!Array.isArray(cadet_ids) || cadet_ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'cadet_ids is required' });
+    }
+
+    await cadetDao.bulkUpdateCadets(
+      cadet_ids,
+      buildWorkflowUpdate({
+        phase: WORKFLOW_PHASES.SHORTLISTED,
+        result: 'pending',
+        status: DISPLAY_STATUS.SHORTLISTED,
+        extraFields: {
+          shortlisted_at: new Date(),
+        },
+      }),
+    );
+
+    await recruitmentDriveDao.updateRecruitmentDrive(id, { status: DRIVE_STATUS.SHORTLISTED });
+
+    res.json({ success: true, message: 'Cadets shortlisted successfully' });
+  } catch (error) {
+    console.error('Shortlist Cadets Error:', error);
+    res.status(500).json({ success: false, message: 'Error shortlisting cadets', error: error.message });
+  }
+};
+
+const sendAssessmentInvites = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cadets = [] } = req.body;
+
+    for (const cadetInvite of cadets) {
+      const cadet = await cadetDao.getCadetById(cadetInvite.cadet_id);
+      if (!cadet || cadet.drive_id !== id || !cadet.email_id) continue;
+
+      await assessmentDao.createOrUpdateAssessment({
+        cadet_id: cadet.id,
+        assessment_date: cadetInvite.assessment_date,
+        assessment_time: cadetInvite.assessment_time,
+        invite_remark: cadetInvite.remarks,
+        invite_document_link: cadetInvite.document_link,
+      });
+
+      await cadetDao.updateCadet(
+        cadet.id,
+        buildWorkflowUpdate({
+          phase: WORKFLOW_PHASES.ASSESSMENT,
+          result: 'invited',
+          status: DISPLAY_STATUS.SHORTLISTED,
+        }),
+      );
+
+      await logAndSendEmail({
+        to: cadet.email_id,
+        template: emailTemplates.stageInvite,
+        templateData: {
+          subject: cadetInvite.subject || `Assessment invite for ${cadet.name_as_in_indos_cert}`,
+          recipientName: cadet.name_as_in_indos_cert,
+          message: 'You are eligible for the assessment stage. Please review the assessment schedule below.',
+          date: cadetInvite.assessment_date,
+          time: cadetInvite.assessment_time,
+          remarks: cadetInvite.remarks,
+          documentLink: cadetInvite.document_link,
+        },
+        drive_id: id,
+        cadet_id: cadet.id,
+        institute_id: cadet.institute_id,
+        communication_type: COMMUNICATION_TYPES.ASSESSMENT_INVITE,
+        remarks: cadetInvite.remarks,
+        sent_by: req.user?.id || null,
+      });
+    }
+
+    res.json({ success: true, message: 'Assessment invites sent successfully' });
+  } catch (error) {
+    console.error('Send Assessment Invites Error:', error);
+    res.status(500).json({ success: false, message: 'Error sending assessment invites', error: error.message });
+  }
+};
+
+const sendInterviewInvites = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cadets = [] } = req.body;
+
+    for (const cadetInvite of cadets) {
+      const cadet = await cadetDao.getCadetById(cadetInvite.cadet_id);
+      if (!cadet || cadet.drive_id !== id || !cadet.email_id) continue;
+
+      await interviewDao.createOrUpdateInterview({
+        cadet_id: cadet.id,
+        interview_date: cadetInvite.interview_date,
+        interview_time: cadetInvite.interview_time,
+        invite_remark: cadetInvite.remarks,
+        invite_document_link: cadetInvite.document_link,
+      });
+
+      await cadetDao.updateCadet(
+        cadet.id,
+        buildWorkflowUpdate({
+          phase: WORKFLOW_PHASES.INTERVIEW,
+          result: 'invited',
+          status: DISPLAY_STATUS.ASSESSMENT,
+        }),
+      );
+
+      await logAndSendEmail({
+        to: cadet.email_id,
+        template: emailTemplates.stageInvite,
+        templateData: {
+          subject: cadetInvite.subject || `Interview invite for ${cadet.name_as_in_indos_cert}`,
+          recipientName: cadet.name_as_in_indos_cert,
+          message: 'You are eligible for the face-to-face interview stage. Please review the interview schedule below.',
+          date: cadetInvite.interview_date,
+          time: cadetInvite.interview_time,
+          remarks: cadetInvite.remarks,
+          documentLink: cadetInvite.document_link,
+        },
+        drive_id: id,
+        cadet_id: cadet.id,
+        institute_id: cadet.institute_id,
+        communication_type: COMMUNICATION_TYPES.INTERVIEW_INVITE,
+        remarks: cadetInvite.remarks,
+        sent_by: req.user?.id || null,
+      });
+    }
+
+    res.json({ success: true, message: 'Interview invites sent successfully' });
+  } catch (error) {
+    console.error('Send Interview Invites Error:', error);
+    res.status(500).json({ success: false, message: 'Error sending interview invites', error: error.message });
+  }
+};
+
+const sendMedicalInvites = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cadets = [] } = req.body;
+
+    for (const cadetInvite of cadets) {
+      const cadet = await cadetDao.getCadetById(cadetInvite.cadet_id);
+      if (!cadet || cadet.drive_id !== id || !cadet.email_id) continue;
+
+      await medicalDao.createOrUpdateMedicalResult({
+        cadet_id: cadet.id,
+        medical_date: cadetInvite.medical_date,
+        medical_time: cadetInvite.medical_time,
+        medical_center_id: cadetInvite.medical_center_id,
+        invite_remark: cadetInvite.remarks,
+      });
+
+      await cadetDao.updateCadet(
+        cadet.id,
+        buildWorkflowUpdate({
+          phase: WORKFLOW_PHASES.MEDICAL,
+          result: 'invited',
+          status: DISPLAY_STATUS.SELECTED,
+        }),
+      );
+
+      await logAndSendEmail({
+        to: cadet.email_id,
+        template: emailTemplates.stageInvite,
+        templateData: {
+          subject: cadetInvite.subject || `Medical invite for ${cadet.name_as_in_indos_cert}`,
+          recipientName: cadet.name_as_in_indos_cert,
+          message: 'You are eligible for the medical / profiling stage. Please review the appointment details below.',
+          date: cadetInvite.medical_date,
+          time: cadetInvite.medical_time,
+          location: cadetInvite.medical_location || cadetInvite.medical_center_name || 'Medical Center',
+          locationLabel: 'Medical Location',
+          remarks: cadetInvite.remarks,
+        },
+        drive_id: id,
+        cadet_id: cadet.id,
+        institute_id: cadet.institute_id,
+        communication_type: COMMUNICATION_TYPES.MEDICAL_INVITE,
+        remarks: cadetInvite.remarks,
+        sent_by: req.user?.id || null,
+      });
+    }
+
+    res.json({ success: true, message: 'Medical invites sent successfully' });
+  } catch (error) {
+    console.error('Send Medical Invites Error:', error);
+    res.status(500).json({ success: false, message: 'Error sending medical invites', error: error.message });
+  }
+};
+
 const finalizeAssessment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -418,7 +655,13 @@ module.exports = {
   updateRecruitmentDrive,
   deleteRecruitmentDrive,
   getRecruitmentDriveStats,
+  getDriveCadetQueue,
+  getDriveCommunications,
   submitCadetDetails,
+  shortlistCadets,
+  sendAssessmentInvites,
+  sendInterviewInvites,
+  sendMedicalInvites,
   finalizeShortlist,
   finalizeAssessment,
   finalizeInterview,

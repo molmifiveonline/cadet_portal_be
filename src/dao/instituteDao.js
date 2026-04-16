@@ -1,6 +1,10 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
 const bcrypt = require('bcryptjs');
+const {
+  filterExistingColumns,
+  hasColumn,
+} = require('../services/schemaCompatibilityService');
 
 const createInstitute = async (instituteData) => {
   const {
@@ -130,19 +134,28 @@ const createSubmission = async (
   fileData,
   batch_year,
   course_type,
+  remarks = null,
 ) => {
   const id = uuidv4();
+
+  const filteredData = await filterExistingColumns('institute_submissions', {
+    id,
+    institute_id: instituteId,
+    file_name: fileName,
+    original_name: originalName,
+    file_data: fileData,
+    batch_year,
+    course_type,
+    remarks,
+  });
+
+  const fields = Object.keys(filteredData);
+  const placeholders = fields.map(() => '?').join(', ');
+  const values = fields.map((field) => filteredData[field]);
+
   await db.query(
-    'INSERT INTO institute_submissions (id, institute_id, file_name, original_name, file_data, batch_year, course_type) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [
-      id,
-      instituteId,
-      fileName,
-      originalName,
-      fileData,
-      batch_year,
-      course_type,
-    ],
+    `INSERT INTO institute_submissions (${fields.join(', ')}) VALUES (${placeholders})`,
+    values,
   );
   return id;
 };
@@ -157,8 +170,25 @@ const getAllSubmissions = async (
   courseType = '',
 ) => {
   // Exclude file_data from this query for performance
+  const hasBatchYear = await hasColumn('institute_submissions', 'batch_year');
+  const hasCourseType = await hasColumn('institute_submissions', 'course_type');
+  const hasRemarks = await hasColumn('institute_submissions', 'remarks');
+  const hasSubmissionNotifiedAt = await hasColumn(
+    'institute_submissions',
+    'submission_notified_at',
+  );
+  const selectExtras = [
+    hasRemarks ? 'isub.remarks' : 'NULL AS remarks',
+    hasSubmissionNotifiedAt
+      ? 'isub.submission_notified_at'
+      : 'NULL AS submission_notified_at',
+  ].join(', ');
+
   let query = `
-    SELECT isub.id, isub.institute_id, isub.file_name, isub.original_name, isub.status, isub.created_at, isub.batch_year, isub.course_type, i.institute_name 
+    SELECT isub.id, isub.institute_id, isub.file_name, isub.original_name, isub.status, isub.created_at,
+           ${hasBatchYear ? 'isub.batch_year' : 'NULL AS batch_year'},
+           ${hasCourseType ? 'isub.course_type' : 'NULL AS course_type'},
+           ${selectExtras}, i.institute_name 
     FROM institute_submissions isub
     LEFT JOIN institutes i ON isub.institute_id = i.id
   `;
@@ -175,12 +205,12 @@ const getAllSubmissions = async (
     queryParams.push(instituteId);
   }
 
-  if (batchYear) {
+  if (batchYear && hasBatchYear) {
     whereClauses.push('isub.batch_year = ?');
     queryParams.push(batchYear);
   }
 
-  if (courseType && courseType !== 'all') {
+  if (courseType && courseType !== 'all' && hasCourseType) {
     whereClauses.push('isub.course_type = ?');
     queryParams.push(courseType);
   }
@@ -238,8 +268,21 @@ const deleteSubmissions = async (ids) => {
 };
 
 const getSubmissionById = async (id) => {
+  const hasBatchYear = await hasColumn('institute_submissions', 'batch_year');
+  const hasCourseType = await hasColumn('institute_submissions', 'course_type');
+  const hasRemarks = await hasColumn('institute_submissions', 'remarks');
+  const hasSubmissionNotifiedAt = await hasColumn(
+    'institute_submissions',
+    'submission_notified_at',
+  );
   const [rows] = await db.query(
-    'SELECT id, institute_id, file_name, original_name, status, created_at, batch_year, course_type FROM institute_submissions WHERE id = ?',
+    `SELECT id, institute_id, file_name, original_name, status, created_at,
+            ${hasBatchYear ? 'batch_year' : 'NULL AS batch_year'},
+            ${hasCourseType ? 'course_type' : 'NULL AS course_type'},
+            ${hasRemarks ? 'remarks' : 'NULL AS remarks'},
+            ${hasSubmissionNotifiedAt ? 'submission_notified_at' : 'NULL AS submission_notified_at'}
+     FROM institute_submissions
+     WHERE id = ?`,
     [id],
   );
   return rows[0];
@@ -257,6 +300,23 @@ const updateSubmissionStatus = async (id, status) => {
   const [result] = await db.query(
     'UPDATE institute_submissions SET status = ? WHERE id = ?',
     [status, id],
+  );
+  return result.affectedRows > 0;
+};
+
+const markSubmissionNotified = async (id) => {
+  const hasSubmissionNotifiedAt = await hasColumn(
+    'institute_submissions',
+    'submission_notified_at',
+  );
+
+  if (!hasSubmissionNotifiedAt) {
+    return false;
+  }
+
+  const [result] = await db.query(
+    'UPDATE institute_submissions SET submission_notified_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [id],
   );
   return result.affectedRows > 0;
 };
@@ -323,6 +383,7 @@ module.exports = {
   getSubmissionById,
   getSubmissionFile,
   updateSubmissionStatus,
+  markSubmissionNotified,
   updateInstituteCredentials,
   extendInstituteExpiry,
   getInstituteByTempUsername,

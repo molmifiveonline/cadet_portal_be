@@ -9,6 +9,7 @@ const {
   EXCEL_HEADER_KEYWORDS,
   SUBMISSION_STATUS,
 } = require('../config/constants');
+const { DISPLAY_STATUS, WORKFLOW_PHASES } = require('../services/recruitmentWorkflowService');
 const {
   parseExcelFile,
   findHeaderRow,
@@ -287,7 +288,9 @@ const getInstituteShortlistedCadets = async (req, res) => {
 const createCadet = async (req, res) => {
   try {
     let cadetData = req.body;
-    cadetData.status = cadetData.status || 'Assessment';
+    cadetData.status = cadetData.status || DISPLAY_STATUS.UPLOADED;
+    cadetData.workflow_phase = cadetData.workflow_phase || WORKFLOW_PHASES.UPLOADED;
+    cadetData.workflow_result = cadetData.workflow_result || 'pending';
     delete cadetData.photo;
     delete cadetData.photo_data;
     delete cadetData.photo_mime_type;

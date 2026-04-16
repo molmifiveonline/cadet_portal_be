@@ -333,6 +333,53 @@ const emailTemplates = {
     `,
   }),
 
+  instituteSubmissionConfirmation: (data) => ({
+    subject: data.subject || `Institute submission received for ${data.driveName || 'Recruitment Drive'}`,
+    html: `
+      <p>Hello MOLMI Team,</p>
+      <p>The institute <strong>${data.instituteName}</strong> has submitted cadet data for the recruitment drive <strong>${data.driveName || 'N/A'}</strong>.</p>
+      <p>Batch Year: <strong>${data.batchYear || 'N/A'}</strong><br/>
+      Course Type: <strong>${data.courseType || 'N/A'}</strong></p>
+      <p>Remarks:</p>
+      <p>${data.remarks || 'No remarks provided.'}</p>
+    `,
+  }),
+
+  stageInvite: (data) => ({
+    subject: data.subject,
+    html: `
+      <p>Dear ${data.recipientName || 'Cadet'},</p>
+      <p>${data.message}</p>
+      <p>
+        ${data.dateLabel || 'Date'}: <strong>${data.date || 'TBD'}</strong><br/>
+        ${data.timeLabel || 'Time'}: <strong>${data.time || 'TBD'}</strong><br/>
+        ${data.location ? `${data.locationLabel || 'Location'}: <strong>${data.location}</strong><br/>` : ''}
+        ${data.documentLink ? `Document Upload Link: <a href="${data.documentLink}" target="_blank">Open Link</a><br/>` : ''}
+      </p>
+      <p>Remarks:</p>
+      <p>${data.remarks || 'No remarks provided.'}</p>
+      <p>Regards,<br/>MOLMI Recruitment Team</p>
+    `,
+  }),
+
+  instituteSelectionConfirmation: (data) => ({
+    subject: data.subject || `Selected cadets confirmed for ${data.driveName || 'Recruitment Drive'}`,
+    html: `
+      <p>Dear ${data.instituteName},</p>
+      <p>The following cadets have been confirmed after the medical stage for <strong>${data.driveName || 'the current drive'}</strong>:</p>
+      <ul>
+        ${(data.cadets || [])
+          .map(
+            (cadet) =>
+              `<li>${cadet.name_as_in_indos_cert || cadet.name || 'Cadet'} (${cadet.cadet_unique_id || cadet.id})</li>`,
+          )
+          .join('')}
+      </ul>
+      <p>Remarks:</p>
+      <p>${data.remarks || 'No remarks provided.'}</p>
+    `,
+  }),
+
   // Forgot password email template
   forgotPassword: (data) => ({
     subject: 'Action Required: Reset Your MOLMI Password',

@@ -15,6 +15,7 @@ const interviewRoutes = require('./interviewRoutes');
 const medicalRoutes = require('./medicalRoutes');
 const recruitmentDriveRoutes = require('./recruitmentDriveRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
+const documentRoutes = require('./documentRoutes');
 
 // Use routes
 router.use('/auth', authRoutes);
@@ -30,6 +31,7 @@ router.use('/interviews', interviewRoutes);
 router.use('/medical-results', medicalRoutes);
 router.use('/recruitment-drives', recruitmentDriveRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/documents', documentRoutes);
 
 // API info
 router.get('/', (req, res) => {
@@ -45,6 +47,7 @@ router.get('/', (req, res) => {
       cadets: '/api/cadets',
       assessments: '/api/assessments',
       recruitmentDrives: '/api/recruitment-drives',
+      documents: '/api/documents',
     },
   });
 });

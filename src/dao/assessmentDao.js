@@ -1,9 +1,12 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { filterExistingColumns } = require('../services/schemaCompatibilityService');
 
 const createOrUpdateAssessment = async (assessmentData) => {
   const {
     cadet_id,
+    assessment_date,
+    assessment_time,
     ces_test,
     ces_test_2,
     qa_test,
@@ -13,6 +16,8 @@ const createOrUpdateAssessment = async (assessmentData) => {
     essay_mime_type,
     essay_name,
     remarks,
+    invite_remark,
+    invite_document_link,
     status,
     mark_for_interview,
   } = assessmentData;
@@ -49,7 +54,9 @@ const createOrUpdateAssessment = async (assessmentData) => {
   if (existing.length > 0) {
     const updateFields = [];
     const values = [];
-    const fields = {
+    const fields = await filterExistingColumns('assessments', {
+      assessment_date,
+      assessment_time,
       ces_test,
       ces_test_2,
       qa_test,
@@ -59,10 +66,12 @@ const createOrUpdateAssessment = async (assessmentData) => {
       essay_mime_type,
       essay_name,
       remarks,
+      invite_remark,
+      invite_document_link,
       status,
       mark_for_interview,
       calculated_score,
-    };
+    });
 
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined) {
@@ -80,10 +89,11 @@ const createOrUpdateAssessment = async (assessmentData) => {
     }
     assessmentId = existing[0].id;
   } else {
-    const fields = ['id', 'cadet_id'];
-    const placeholders = ['?', '?'];
-    const values = [id, cadet_id];
-    const optionalFields = {
+    const insertData = await filterExistingColumns('assessments', {
+      id,
+      cadet_id,
+      assessment_date,
+      assessment_time,
       ces_test,
       ces_test_2,
       qa_test,
@@ -93,18 +103,15 @@ const createOrUpdateAssessment = async (assessmentData) => {
       essay_mime_type,
       essay_name,
       remarks,
+      invite_remark,
+      invite_document_link,
       status,
       mark_for_interview,
       calculated_score,
-    };
-
-    for (const [key, value] of Object.entries(optionalFields)) {
-      if (value !== undefined) {
-        fields.push(key);
-        placeholders.push('?');
-        values.push(value);
-      }
-    }
+    });
+    const fields = Object.keys(insertData);
+    const placeholders = fields.map(() => '?');
+    const values = fields.map((field) => insertData[field]);
 
     await db.query(
       `INSERT INTO assessments (${fields.join(', ')}) VALUES (${placeholders.join(', ')})`,
