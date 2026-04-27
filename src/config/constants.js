@@ -42,6 +42,7 @@ module.exports = {
 
   // Expiry
   INSTITUTE_CREDENTIAL_EXPIRY_DAYS: 7,
+  INSTITUTE_OTP_EXPIRY_MINUTES: 10,
   CV_TOKEN_EXPIRY_DAYS: 7,
 
   // Submission Status
@@ -151,4 +152,8 @@ module.exports = {
   },
 
   EXTERNAL_LINK_EXPIRY_HOURS: 168,
+  
+  // Frontend URLs for absolute links
+  FRONTEND_URL: (process.env.FRONTEND_URL || '').split(',')[0].trim() || 'http://localhost:3000',
+  INSTITUTE_FRONTEND_URL: (process.env.FRONTEND_URL || '').split(',')[1]?.trim() || (process.env.FRONTEND_URL || '').split(',')[0].trim() || 'http://localhost:3001',
 };

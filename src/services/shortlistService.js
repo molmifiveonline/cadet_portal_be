@@ -2,31 +2,21 @@ const cadetDao = require('../dao/cadetDao');
 
 /**
  * Shortlisting Criteria for Cadets:
- * - 10th Average % >= 85%
- * - 10th Std Maths >= 80%
- * - 10th Std Science >= 80%
- * - 10th Std English >= 80%
- * - 12th Average % >= 80%
- * - 12th Std English >= 75%
- * - 12th Std Physics >= 75%
- * - 12th Std Chemistry >= 75%
- * - 12th Std Maths >= 75%
- * - IMU Rank <= 3000
- * - BMI < 25
+ * - 10th Average % >= 60%
+ * - 10th Std Maths >= 60%
+ * - 10th Std Science >= 60%
+ * - 10th Std English >= 60%
+ * - 12th Average % >= 60%
+ * - 12th Std English >= 70%
  */
 
 const SHORTLIST_CRITERIA = {
-  tenth_avg_percentage: 85,
-  tenth_std_maths: 80,
-  tenth_std_science: 80,
-  tenth_std_english: 80,
-  twelfth_pcm_avg_percentage: 80,
-  twelfth_std_english: 75,
-  twelfth_std_physics: 75,
-  twelfth_std_chemistry: 75,
-  twelfth_std_maths: 75,
-  imu_rank_max: 3000,
-  bmi_max: 25,
+  tenth_avg_percentage: 60,
+  tenth_std_maths: 60,
+  tenth_std_science: 60,
+  tenth_std_english: 60,
+  twelfth_pcm_avg_percentage: 60,
+  twelfth_std_english: 70,
 };
 
 /**
@@ -52,16 +42,6 @@ const checkShortlistCriteria = (cadetData) => {
       SHORTLIST_CRITERIA.twelfth_pcm_avg_percentage,
     parseFloat(cadetData.twelfth_std_english) >=
       SHORTLIST_CRITERIA.twelfth_std_english,
-    parseFloat(cadetData.twelfth_std_physics) >=
-      SHORTLIST_CRITERIA.twelfth_std_physics,
-    parseFloat(cadetData.twelfth_std_chemistry) >=
-      SHORTLIST_CRITERIA.twelfth_std_chemistry,
-    parseFloat(cadetData.twelfth_std_maths) >=
-      SHORTLIST_CRITERIA.twelfth_std_maths,
-
-    // IMU and BMI criteria
-    parseInt(cadetData.imu_rank) <= SHORTLIST_CRITERIA.imu_rank_max,
-    parseFloat(cadetData.bmi) < SHORTLIST_CRITERIA.bmi_max,
   ];
 
   // All criteria must be met (AND logic)

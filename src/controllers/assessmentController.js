@@ -45,6 +45,9 @@ const saveAssessment = async (req, res) => {
     }
 
     const id = await assessmentDao.createOrUpdateAssessment(assessmentData);
+    const cadet = await cadetDao.getCadetById(cadet_id);
+    const cadetDisplayName =
+      cadet?.name_as_in_indos_cert || cadet?.cadet_unique_id || cadet_id;
 
     // Workflow: keep failed assessments in the assessment queue so they can take attempt 2.
     if (status === 'fail') {
@@ -83,7 +86,7 @@ const saveAssessment = async (req, res) => {
     await activityLogDao.createLog(
       req.user.id,
       'Assessment Saved',
-      `Assessment for cadet ID ${cadet_id} has been saved.`,
+      `Assessment for cadet ${cadetDisplayName} has been saved.`,
       req.ip || req.connection.remoteAddress,
     );
 
@@ -158,13 +161,16 @@ const downloadEssay = async (req, res) => {
 const deleteAssessment = async (req, res) => {
   try {
     const { cadet_id } = req.params;
+    const cadet = await cadetDao.getCadetById(cadet_id);
+    const cadetDisplayName =
+      cadet?.name_as_in_indos_cert || cadet?.cadet_unique_id || cadet_id;
     await assessmentDao.deleteAssessment(cadet_id);
 
     // Add activity log
     await activityLogDao.createLog(
       req.user.id,
       'Assessment Deleted',
-      `Assessment for cadet ID ${cadet_id} has been deleted.`,
+      `Assessment for cadet ${cadetDisplayName} has been deleted.`,
       req.ip || req.connection.remoteAddress,
     );
 

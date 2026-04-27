@@ -1,9 +1,9 @@
-const nodemailer = require('nodemailer');
+const nodemailer = require("nodemailer");
 
 // Create email transporter
 const createTransporter = () => {
   // Check if using a service like Gmail
-  if (process.env.EMAIL_SERVICE && process.env.EMAIL_SERVICE !== 'custom') {
+  if (process.env.EMAIL_SERVICE && process.env.EMAIL_SERVICE !== "custom") {
     return nodemailer.createTransport({
       service: process.env.EMAIL_SERVICE,
       auth: {
@@ -14,20 +14,20 @@ const createTransporter = () => {
   }
 
   // Custom SMTP configuration
-  console.log('  SMTP Configuration Debug:');
-  console.log('  SMTP_HOST:', process.env.SMTP_HOST);
-  console.log('  SMTP_PORT:', process.env.SMTP_PORT);
-  console.log('  SMTP_USER:', process.env.SMTP_USER);
+  console.log("  SMTP Configuration Debug:");
+  console.log("  SMTP_HOST:", process.env.SMTP_HOST);
+  console.log("  SMTP_PORT:", process.env.SMTP_PORT);
+  console.log("  SMTP_USER:", process.env.SMTP_USER);
   console.log(
-    '  SMTP_PASS:',
-    process.env.SMTP_PASS ? '***' + process.env.SMTP_PASS.slice(-4) : 'MISSING',
+    "  SMTP_PASS:",
+    process.env.SMTP_PASS ? "***" + process.env.SMTP_PASS.slice(-4) : "MISSING",
   );
-  console.log('  EMAIL_SERVICE:', process.env.EMAIL_SERVICE);
+  console.log("  EMAIL_SERVICE:", process.env.EMAIL_SERVICE);
 
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: process.env.SMTP_PORT || 587,
-    secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
+    secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -53,11 +53,11 @@ const sendEmail = async (options) => {
     const transporter = createTransporter();
 
     const mailOptions = {
-      from: `${process.env.EMAIL_FROM_NAME || 'MOLMI Recruitment'} <${process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER}>`,
+      from: `${process.env.EMAIL_FROM_NAME || "MOLMI Recruitment"} <${process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER}>`,
       to: options.to,
       subject: options.subject,
       text: options.text,
-      html: options.html || options.text.replace(/\n/g, '<br>'),
+      html: options.html || options.text.replace(/\n/g, "<br>"),
       attachments: options.attachments || [],
     };
 
@@ -67,7 +67,7 @@ const sendEmail = async (options) => {
     console.log(`✉️  Email sent to ${options.to}: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('❌ Email sending failed:', error);
+    console.error("❌ Email sending failed:", error);
     throw error;
   }
 };
@@ -103,7 +103,7 @@ const sendBulkEmails = async (emailList) => {
 // Email templates
 const emailTemplates = {
   instituteExcelSubmission: (data) => ({
-    subject: data.subject || 'Action Required: Submit Excel Data - MOLMI',
+    subject: data.subject || "Action Required: Submit Excel Data - MOLMI",
     html: `
       <!DOCTYPE html>
       <html lang="en">
@@ -143,6 +143,7 @@ const emailTemplates = {
                   </td>
                 </tr>
 
+
                 <!-- Credentials Card -->
                 <tr>
                   <td style="padding: 0 32px;">
@@ -155,11 +156,8 @@ const emailTemplates = {
                               <td style="padding: 6px 0; font-size: 16px; color: #0047AB; font-weight: 600; width: 100px;">User ID:</td>
                               <td style="padding: 6px 0; font-size: 16px; color: #1f2937; font-weight: 500; letter-spacing: 0.5px;">${data.tempUsername}</td>
                             </tr>
-                            <tr>
-                              <td style="padding: 6px 0; font-size: 16px; color: #0047AB; font-weight: 600; width: 100px;">Password:</td>
-                              <td style="padding: 6px 0; font-size: 16px; color: #1f2937; font-weight: 500; letter-spacing: 0.5px;">${data.tempPassword}</td>
-                            </tr>
                           </table>
+                          <p style="margin: 12px 0 0; font-size: 14px; color: #4b5563;">An OTP (One-Time Password) will be sent to your email each time you attempt to login.</p>
                         </td>
                       </tr>
                     </table>
@@ -227,29 +225,24 @@ const emailTemplates = {
 
   // Institute Shortlisted Cadets View email template
   instituteShortlistView: (data) => ({
-    subject: data.subject || 'Action Required: View Shortlisted Cadets - MOLMI',
+    subject: data.subject || "Action Required: View Shortlisted Cadets - MOLMI",
     html: `
       <!DOCTYPE html>
       <html lang="en">
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <!--[if mso]>
-        <style type="text/css">
-          body, table, td { font-family: Arial, sans-serif !important; }
-        </meta>
-        <![endif]-->
       </head>
       <body style="margin: 0; padding: 0; background-color: #f0f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-font-smoothing: antialiased;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f0f4f8;">
           <tr>
             <td align="center" style="padding: 40px 16px;">
               <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);">
-                
+
                 <!-- Header -->
                 <tr>
                   <td style="background: linear-gradient(135deg, #0f766e 0%, #059669 100%); background-color: #059669; padding: 36px 30px; text-align: center;">
-                    <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 700; letter-spacing: 0.5px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">🎯 MOLMI Institute Portal</h1>
+                    <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 700; letter-spacing: 0.5px;">🎯 MOLMI Institute Portal</h1>
                     <p style="margin: 8px 0 0; color: rgba(255,255,255,0.9); font-size: 14px; font-weight: 400;">Shortlisted Cadets Announcement</p>
                   </td>
                 </tr>
@@ -258,46 +251,44 @@ const emailTemplates = {
                 <tr>
                   <td style="padding: 36px 32px 24px;">
                     <p style="margin: 0 0 18px; font-size: 16px; color: #333333; line-height: 1.6;">Dear <strong style="color: #059669;">${data.instituteName}</strong>,</p>
-
                     <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">We are pleased to inform you that cadet(s) from your institute have been shortlisted for further processing.</p>
 
                     <!-- Highlight Box -->
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0; background-color: #ecfdf5; border-radius: 8px; border: 1px solid #a7f3d0;">
                       <tr>
                         <td align="center" style="padding: 20px;">
-                          <p style="margin: 0; font-size: 24px; font-weight: 700; color: #059669;">
-                            ${data.cadetCount} Cadet(s) Shortlisted
-                          </p>
+                          <p style="margin: 0; font-size: 24px; font-weight: 700; color: #059669;">${data.cadetCount} Cadet(s) Shortlisted</p>
                         </td>
                       </tr>
                     </table>
 
-                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">Please use the secure credentials below to access the portal and view the details of your shortlisted cadets.</p>
+                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">Please use your Institute User ID to login. An OTP will be sent to your registered email each time you attempt to login.</p>
 
                     <!-- Credentials Card -->
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 24px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #059669; border-radius: 8px; overflow: hidden;">
                       <tr>
                         <td style="padding: 20px 24px;">
-                          <p style="margin: 0 0 4px; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Your Temporary Credentials</p>
+                          <p style="margin: 0 0 4px; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Your Login Credentials</p>
                           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 12px;">
                             <tr>
                               <td style="padding: 6px 0; font-size: 16px; color: #334155; font-weight: 600; width: 100px;">User ID:</td>
                               <td style="padding: 6px 0; font-size: 16px; color: #0f172a; font-weight: 600; letter-spacing: 0.5px;">${data.tempUsername}</td>
                             </tr>
-                            <tr>
-                              <td style="padding: 6px 0; font-size: 16px; color: #334155; font-weight: 600; width: 100px;">Password:</td>
-                              <td style="padding: 6px 0; font-size: 16px; color: #0f172a; font-weight: 600; letter-spacing: 0.5px;">${data.tempPassword}</td>
-                            </tr>
                           </table>
+                          <p style="margin: 12px 0 0; font-size: 14px; color: #4b5563;">An OTP (One-Time Password) will be sent to your email each time you attempt to login.</p>
                         </td>
                       </tr>
                     </table>
+                  </td>
+                </tr>
 
-                    <!-- Warnings -->
-                    <div style="margin-top: 24px; padding: 16px; background-color: #fffbeb; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                <!-- Warning -->
+                <tr>
+                  <td style="padding: 0 32px 24px;">
+                    <div style="padding: 16px; background-color: #fffbeb; border-radius: 8px; border-left: 4px solid #f59e0b;">
                       <p style="margin: 0 0 8px; font-size: 14px; color: #b45309; font-weight: 600;">⚠️ Security Notice</p>
                       <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #92400e; line-height: 1.5;">
-                        <li>Do not share these credentials with anyone.</li>
+                        <li>Do not share your User ID with anyone.</li>
                         <li>These credentials will expire on <strong>${data.expiryDate}</strong> (7 days).</li>
                       </ul>
                     </div>
@@ -306,11 +297,11 @@ const emailTemplates = {
 
                 <!-- CTA Button -->
                 <tr>
-                  <td align="center" style="padding: 0 32px 32px;">
+                  <td align="center" style="padding: 0 32px 36px;">
                     <table role="presentation" cellpadding="0" cellspacing="0">
                       <tr>
                         <td align="center" style="border-radius: 6px; background: linear-gradient(135deg, #0f766e, #059669); background-color: #059669; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);">
-                          <a href="${data.link}" target="_blank" style="font-size: 15px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #ffffff; text-decoration: none; font-weight: 600; padding: 14px 32px; border: 1px solid #059669; display: inline-block; border-radius: 6px;">Login & View Cadets</a>
+                          <a href="${data.link}" target="_blank" style="font-size: 15px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #ffffff; text-decoration: none; font-weight: 600; padding: 14px 32px; border: 1px solid #059669; display: inline-block; border-radius: 6px;">Login &amp; View Cadets</a>
                         </td>
                       </tr>
                     </table>
@@ -333,56 +324,124 @@ const emailTemplates = {
     `,
   }),
 
+  // Institute OTP Login email template
+  instituteOtpLogin: (data) => ({
+    subject: `Login OTP for MOLMI Institute Portal: ${data.otp}`,
+    html: `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #f0f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-font-smoothing: antialiased;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f0f4f8;">
+          <tr>
+            <td align="center" style="padding: 40px 16px;">
+              <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);">
+                
+                <!-- Header -->
+                <tr>
+                  <td style="background: linear-gradient(135deg, #0047AB 0%, #1a73e8 100%); background-color: #1a73e8; padding: 36px 30px; text-align: center;">
+                    <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 700; letter-spacing: 0.5px;">🔒 Login Verification</h1>
+                    <p style="margin: 8px 0 0; color: rgba(255,255,255,0.85); font-size: 14px; font-weight: 400;">MOLMI Institute Portal</p>
+                  </td>
+                </tr>
+
+                <!-- Body Text -->
+                <tr>
+                  <td style="padding: 36px 32px 24px;">
+                    <p style="margin: 0 0 18px; font-size: 16px; color: #333333; line-height: 1.6;">Hello,</p>
+                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">Use the following OTP code to verify your login attempt. This code is valid for <strong>${data.expiryMinutes || 10} minutes</strong>.</p>
+                  </td>
+                </tr>
+
+                <!-- OTP Card -->
+                <tr>
+                  <td align="center" style="padding: 0 32px 32px;">
+                    <div style="background-color: #f1f5f9; padding: 24px; border-radius: 8px; border: 1px dashed #cbd5e1; display: inline-block;">
+                      <span style="font-size: 42px; font-weight: 800; color: #1e3a8a; letter-spacing: 8px; font-family: 'Courier New', Courier, monospace;">${data.otp}</span>
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Warning -->
+                <tr>
+                  <td style="padding: 0 32px 32px; text-align: center;">
+                    <p style="margin: 0; font-size: 14px; color: #ef4444; font-weight: 600;">⚠️ Do not share this OTP with anyone.</p>
+                    <p style="margin: 12px 0 0; font-size: 13px; color: #64748b; line-height: 1.5;">If you did not request this code, you can safely ignore this email.</p>
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="background-color: #f8fafc; padding: 24px 32px; text-align: center; border-top: 1px solid #e2e8f0;">
+                    <p style="margin: 0; color: #64748b; font-size: 13px; font-weight: 500;">&copy; ${new Date().getFullYear()} MOL Maritime India. All rights reserved.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `,
+  }),
+
   instituteSubmissionConfirmation: (data) => ({
-    subject: data.subject || `Institute submission received for ${data.driveName || 'Recruitment Drive'}`,
+    subject:
+      data.subject ||
+      `Institute submission received for ${data.driveName || "Recruitment Drive"}`,
     html: `
       <p>Hello MOLMI Team,</p>
-      <p>The institute <strong>${data.instituteName}</strong> has submitted cadet data for the recruitment drive <strong>${data.driveName || 'N/A'}</strong>.</p>
-      <p>Batch Year: <strong>${data.batchYear || 'N/A'}</strong><br/>
-      Course Type: <strong>${data.courseType || 'N/A'}</strong></p>
+      <p>The institute <strong>${data.instituteName}</strong> has submitted cadet data for the recruitment drive <strong>${data.driveName || "N/A"}</strong>.</p>
+      <p>Batch Year: <strong>${data.batchYear || "N/A"}</strong><br/>
+      Course Type: <strong>${data.courseType || "N/A"}</strong></p>
       <p>Remarks:</p>
-      <p>${data.remarks || 'No remarks provided.'}</p>
+      <p>${data.remarks || "No remarks provided."}</p>
     `,
   }),
 
   stageInvite: (data) => ({
     subject: data.subject,
     html: `
-      <p>Dear ${data.recipientName || 'Cadet'},</p>
+      <p>Dear ${data.recipientName || "Cadet"},</p>
       <p>${data.message}</p>
       <p>
-        ${data.dateLabel || 'Date'}: <strong>${data.date || 'TBD'}</strong><br/>
-        ${data.timeLabel || 'Time'}: <strong>${data.time || 'TBD'}</strong><br/>
-        ${data.location ? `${data.locationLabel || 'Location'}: <strong>${data.location}</strong><br/>` : ''}
-        ${data.documentLink ? `Document Upload Link: <a href="${data.documentLink}" target="_blank">Open Link</a><br/>` : ''}
+        ${data.dateLabel || "Date"}: <strong>${data.date || "TBD"}</strong><br/>
+        ${data.timeLabel || "Time"}: <strong>${data.time || "TBD"}</strong><br/>
+        ${data.location ? `${data.locationLabel || "Location"}: <strong>${data.location}</strong><br/>` : ""}
+        ${data.documentLink ? `Document Upload Link: <a href="${data.documentLink}" target="_blank">Open Link</a><br/>` : ""}
       </p>
       <p>Remarks:</p>
-      <p>${data.remarks || 'No remarks provided.'}</p>
+      <p>${data.remarks || "No remarks provided."}</p>
       <p>Regards,<br/>MOLMI Recruitment Team</p>
     `,
   }),
 
   instituteSelectionConfirmation: (data) => ({
-    subject: data.subject || `Selected cadets confirmed for ${data.driveName || 'Recruitment Drive'}`,
+    subject:
+      data.subject ||
+      `Selected cadets confirmed for ${data.driveName || "Recruitment Drive"}`,
     html: `
       <p>Dear ${data.instituteName},</p>
-      <p>The following cadets have been confirmed after the medical stage for <strong>${data.driveName || 'the current drive'}</strong>:</p>
+      <p>The following cadets have been confirmed after the medical stage for <strong>${data.driveName || "the current drive"}</strong>:</p>
       <ul>
         ${(data.cadets || [])
           .map(
             (cadet) =>
-              `<li>${cadet.name_as_in_indos_cert || cadet.name || 'Cadet'} (${cadet.cadet_unique_id || cadet.id})</li>`,
+              `<li>${cadet.name_as_in_indos_cert || cadet.name || "Cadet"} (${cadet.cadet_unique_id || cadet.id})</li>`,
           )
-          .join('')}
+          .join("")}
       </ul>
       <p>Remarks:</p>
-      <p>${data.remarks || 'No remarks provided.'}</p>
+      <p>${data.remarks || "No remarks provided."}</p>
     `,
   }),
 
   // Forgot password email template
   forgotPassword: (data) => ({
-    subject: 'Action Required: Reset Your MOLMI Password',
+    subject: "Action Required: Reset Your MOLMI Password",
     html: `
       <!DOCTYPE html>
       <html lang="en">
@@ -462,7 +521,7 @@ const emailTemplates = {
 
   // Password reset success confirmation template
   resetPasswordSuccess: () => ({
-    subject: 'Password Reset Successful',
+    subject: "Password Reset Successful",
     html: `<p>Hi,</p><p>Your password has been successfully updated.</p>`,
   }),
 };

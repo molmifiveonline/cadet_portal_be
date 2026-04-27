@@ -10,6 +10,7 @@ const {
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
+const notificationService = require('../services/notificationService');
 const {
   parseExcelFile,
   findHeaderRow,
@@ -24,6 +25,16 @@ const normalizeCourseType = (value) => {
   if (normalized === 'engine') return 'Engine';
   return null;
 };
+
+const INSTITUTE_UPLOAD_CLOSED_STATUSES = new Set([
+  DRIVE_STATUS.RECEIVED,
+  DRIVE_STATUS.SUBMITTED,
+  DRIVE_STATUS.SHORTLISTED,
+  DRIVE_STATUS.ASSESSMENT_COMPLETED,
+  DRIVE_STATUS.INTERVIEW_COMPLETED,
+  DRIVE_STATUS.MEDICAL_COMPLETED,
+  DRIVE_STATUS.CLOSED,
+]);
 
 const submitInstituteExcel = async (req, res) => {
   try {
@@ -62,13 +73,8 @@ const submitInstituteExcel = async (req, res) => {
         return res.status(404).json({ message: 'Institute not found' });
       }
 
-      const batch_year =
-        isAdmin && req.body.batch_year
-          ? req.body.batch_year
-          : institute.batch_year;
-      const requestedCourseType = isAdmin
-        ? req.body.course_type
-        : institute.submission_course_type || req.body.course_type;
+      const batch_year = req.body.batch_year || institute.batch_year;
+      const requestedCourseType = req.body.course_type || institute.submission_course_type;
       const course_type = normalizeCourseType(requestedCourseType);
 
       if (!batch_year) {
@@ -83,6 +89,31 @@ const submitInstituteExcel = async (req, res) => {
           message:
             'Course type is missing or invalid for this submission. Please resend request email with Deck/Engine.',
         });
+      }
+
+      const drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
+        instituteId,
+        batch_year,
+        course_type,
+      );
+
+      if (!isAdmin) {
+        const activeSubmission =
+          await instituteDao.getActiveSubmissionForContext(
+            instituteId,
+            batch_year,
+            course_type,
+          );
+
+        if (
+          activeSubmission ||
+          (drive && INSTITUTE_UPLOAD_CLOSED_STATUSES.has(drive.status))
+        ) {
+          return res.status(409).json({
+            message:
+              'Cadet data has already been submitted for this drive. Further uploads are disabled.',
+          });
+        }
       }
 
       // Generate filename for DB record
@@ -101,11 +132,6 @@ const submitInstituteExcel = async (req, res) => {
       );
 
       // Notify MOLMI team after institute submission
-      const drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
-        instituteId,
-        batch_year,
-        course_type,
-      );
       const molmiTeamEmail =
         process.env.MOLMI_TEAM_EMAILS ||
         process.env.MOLMI_TEAM_EMAIL ||
@@ -113,23 +139,34 @@ const submitInstituteExcel = async (req, res) => {
         process.env.EMAIL_USER;
 
       if (molmiTeamEmail) {
-        await logAndSendEmail({
-          to: molmiTeamEmail,
-          template: emailTemplates.instituteSubmissionConfirmation,
-          templateData: {
-            instituteName: institute.institute_name,
-            driveName: drive?.drive_name,
-            batchYear: batch_year,
-            courseType: course_type,
+        try {
+          await logAndSendEmail({
+            to: molmiTeamEmail,
+            template: emailTemplates.instituteSubmissionConfirmation,
+            templateData: {
+              instituteName: institute.institute_name,
+              driveName: drive?.drive_name,
+              batchYear: batch_year,
+              courseType: course_type,
+              remarks: submissionRemarks,
+            },
+            drive_id: drive?.id || null,
+            institute_id: instituteId,
+            communication_type: COMMUNICATION_TYPES.INSTITUTE_SUBMISSION,
             remarks: submissionRemarks,
-          },
-          drive_id: drive?.id || null,
-          institute_id: instituteId,
-          communication_type: COMMUNICATION_TYPES.INSTITUTE_SUBMISSION,
-          remarks: submissionRemarks,
-          sent_by: req.user?.id || null,
-        });
+            sent_by: req.user?.id || null,
+          });
+        } catch (emailErr) {
+          console.error('Error sending institute submission email notification:', emailErr);
+        }
       }
+
+      // Notification for admins
+      await notificationService.notifyAdmins(
+        'New Cadet Data Uploaded',
+        `${institute.institute_name} has uploaded cadet data for ${course_type} (${batch_year}).`,
+        drive ? `/drives/${drive.id}` : '/institutes/submissions'
+      );
 
       // Log activity
       if (req.user && req.user.id) {
@@ -143,11 +180,6 @@ const submitInstituteExcel = async (req, res) => {
 
       // Automatically update Recruitment Drive status to 'Received' if matching drive exists
       try {
-        const drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
-          instituteId,
-          batch_year,
-          course_type
-        );
         if (drive && (drive.status === DRIVE_STATUS.REQUESTED || drive.status === DRIVE_STATUS.DRAFT)) {
           await recruitmentDriveDao.updateRecruitmentDrive(drive.id, {
             status: DRIVE_STATUS.RECEIVED
@@ -213,14 +245,12 @@ const getAllSubmissions = async (req, res) => {
   }
 };
 
-// Helper function for import logic
-const processImport = async (id, userId, clientIp, driveId = null) => {
-  const submission = await instituteDao.getSubmissionById(id);
+// Helper function to parse submission data without importing
+const parseSubmissionData = async (submissionId, driveId = null) => {
+  const submission = await instituteDao.getSubmissionById(submissionId);
   if (!submission) throw new Error('Submission not found');
-  if (submission.status === SUBMISSION_STATUS.IMPORTED)
-    throw new Error('Submission already imported');
 
-  const submissionFile = await instituteDao.getSubmissionFile(id);
+  const submissionFile = await instituteDao.getSubmissionFile(submissionId);
   if (!submissionFile || !submissionFile.file_data)
     throw new Error('File data not found');
 
@@ -231,8 +261,7 @@ const processImport = async (id, userId, clientIp, driveId = null) => {
     throw new Error('Could not identify header row in Excel file');
 
   const { rowIndex: headerRowIndex, headers } = headerInfo;
-  let successCount = 0;
-  let failedCount = 0;
+  const cadets = [];
 
   for (let i = headerRowIndex + 1; i < rawData.length; i++) {
     const rowData = rawData[i];
@@ -240,7 +269,29 @@ const processImport = async (id, userId, clientIp, driveId = null) => {
     try {
       const cadetData = mapRowToCadetData(rowData, headers, submission);
       if (driveId) cadetData.drive_id = driveId;
+      cadets.push(cadetData);
+    } catch (err) {
+      console.error('Error parsing row:', i, err);
+    }
+  }
+  return { cadets, submission };
+};
 
+// Helper function for import logic
+const processImport = async (id, userId, clientIp, driveId = null) => {
+  const { cadets, submission } = await parseSubmissionData(id, driveId);
+  const drive = driveId
+    ? await recruitmentDriveDao.getRecruitmentDriveById(driveId)
+    : null;
+  
+  if (submission.status === SUBMISSION_STATUS.IMPORTED)
+    throw new Error('Submission already imported');
+
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (const cadetData of cadets) {
+    try {
       if (cadetData.name_as_in_indos_cert) {
         await cadetDao.createCadet(cadetData);
         successCount++;
@@ -248,7 +299,7 @@ const processImport = async (id, userId, clientIp, driveId = null) => {
         failedCount++;
       }
     } catch (err) {
-      console.error('Error importing row:', i, err);
+      console.error('Error importing cadet:', err);
       failedCount++;
     }
   }
@@ -256,10 +307,15 @@ const processImport = async (id, userId, clientIp, driveId = null) => {
   await instituteDao.updateSubmissionStatus(id, SUBMISSION_STATUS.IMPORTED);
 
   if (userId) {
+    const submissionLabel =
+      submission?.original_name || submission?.file_name || submission?.id || id;
+    const driveLabel = drive?.drive_name || driveId;
     await activityLogDao.createLog(
       userId,
       'IMPORT_SUBMISSION',
-      `Imported ${successCount} cadets from submission ${id}${driveId ? ` for drive ${driveId}` : ''}`,
+      `Imported ${successCount} cadets from submission ${submissionLabel}${
+        driveLabel ? ` for drive ${driveLabel}` : ''
+      }`,
       clientIp,
     );
   }
@@ -415,5 +471,6 @@ module.exports = {
   deleteSubmission,
   bulkDeleteSubmissions,
   bulkImportSubmissions,
-  processImport, // Export this for other controllers
+  processImport,
+  parseSubmissionData,
 };

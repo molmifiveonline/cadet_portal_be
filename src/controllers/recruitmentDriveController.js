@@ -7,7 +7,7 @@ const interviewDao = require('../dao/interviewDao');
 const medicalDao = require('../dao/cadetMedicalResultsDao');
 const recruitmentCommunicationDao = require('../dao/recruitmentCommunicationDao');
 const { DEFAULT_PAGE_SIZE, ROLES, DRIVE_STATUS, SUBMISSION_STATUS } = require('../config/constants');
-const { processImport } = require('./instituteSubmissionController');
+const { processImport, parseSubmissionData } = require('./instituteSubmissionController');
 const {
   WORKFLOW_PHASES,
   DISPLAY_STATUS,
@@ -15,6 +15,64 @@ const {
   COMMUNICATION_TYPES,
 } = require('../services/recruitmentWorkflowService');
 const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
+
+// ... (skipping to the function implementation later in the file)
+
+const previewSubmitCadets = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const drive = await recruitmentDriveDao.getRecruitmentDriveById(id);
+    if (!drive) {
+      return res.status(404).json({ message: 'Recruitment drive not found' });
+    }
+
+    // Find the latest pending/uploaded submission for this drive
+    const { data: submissions } = await instituteDao.getAllSubmissions(
+      1,
+      0,
+      SUBMISSION_STATUS.UPLOADED,
+      '',
+      drive.institute_id,
+      drive.year,
+      drive.course_type
+    );
+
+    if (!submissions || submissions.length === 0) {
+      return res.status(400).json({
+        message: 'No pending submissions found for this institute and drive details.'
+      });
+    }
+
+    const latestSubmission = submissions[0];
+
+    // Parse but don't import
+    const { cadets } = await parseSubmissionData(latestSubmission.id, id);
+
+    res.json({
+      success: true,
+      data: cadets,
+      cadets,
+      total: cadets.length,
+      submission_id: latestSubmission.id,
+      submission: {
+        id: latestSubmission.id,
+        institute_id: latestSubmission.institute_id,
+        institute_name: latestSubmission.institute_name,
+        original_name: latestSubmission.original_name,
+        batch_year: latestSubmission.batch_year,
+        course_type: latestSubmission.course_type,
+        remarks: latestSubmission.remarks,
+        created_at: latestSubmission.created_at,
+      },
+    });
+  } catch (error) {
+    console.error('Preview Submit Cadets Error:', error);
+    res.status(500).json({
+      message: 'Error parsing cadet data for preview',
+      error: error.message
+    });
+  }
+};
 
 const createRecruitmentDrive = async (req, res) => {
   try {
@@ -104,7 +162,7 @@ const getAllRecruitmentDrives = async (req, res) => {
     const status = req.query.status;
 
     if (req.user && req.user.role === 'Institute') {
-      institute_id = req.user.id;
+      institute_id = req.user.instituteId || req.user.id;
     }
 
     const offset = (page - 1) * limit;
@@ -164,7 +222,11 @@ const getRecruitmentDriveById = async (req, res) => {
       drive = await recruitmentDriveDao.getRecruitmentDriveById(id);
     }
 
-    if (req.user && req.user.role === 'Institute' && drive.institute_id !== req.user.id) {
+    if (
+      req.user &&
+      req.user.role === 'Institute' &&
+      drive.institute_id !== (req.user.instituteId || req.user.id)
+    ) {
       return res.status(403).json({ message: 'Access denied to this recruitment drive' });
     }
 
@@ -306,6 +368,17 @@ const deleteRecruitmentDrive = async (req, res) => {
 const getRecruitmentDriveStats = async (req, res) => {
   try {
     const { id } = req.params;
+    if (req.user && req.user.role === 'Institute') {
+      const drive = await recruitmentDriveDao.getRecruitmentDriveById(id);
+
+      if (!drive) {
+        return res.status(404).json({ message: 'Recruitment drive not found' });
+      }
+
+      if (drive.institute_id !== (req.user.instituteId || req.user.id)) {
+        return res.status(403).json({ message: 'Access denied to this recruitment drive' });
+      }
+    }
 
     const stats = await recruitmentDriveDao.getRecruitmentDriveStats(id);
 
@@ -324,6 +397,18 @@ const getDriveCadetQueue = async (req, res) => {
     const { id } = req.params;
     const queue = req.query.queue || 'all';
     const search = req.query.search || '';
+
+    if (req.user && req.user.role === 'Institute') {
+      const drive = await recruitmentDriveDao.getRecruitmentDriveById(id);
+      if (!drive) {
+        return res.status(404).json({ message: 'Recruitment drive not found' });
+      }
+
+      if (drive.institute_id !== (req.user.instituteId || req.user.id)) {
+        return res.status(403).json({ message: 'Access denied to this recruitment drive' });
+      }
+    }
+
     const data = await cadetDao.getDriveCadets(id, { queue, search });
     res.json({ success: true, data });
   } catch (error) {
@@ -394,7 +479,11 @@ const submitCadetDetails = async (req, res) => {
     res.json({
       success: true,
       message: 'Cadets submitted successfully to the drive',
-      stats
+      stats: {
+        ...stats,
+        total: stats.success + stats.failed,
+      },
+      submission_id: latestSubmission.id,
     });
   } catch (error) {
     console.error('Submit Cadet Details Error:', error);
@@ -648,6 +737,23 @@ const closeDrive = async (req, res) => {
   }
 };
 
+const getPendingDriveCount = async (req, res) => {
+  try {
+    const role = req.user.role;
+    const userId = req.user.instituteId || req.user.id;
+
+    if (role !== 'Institute') {
+      return res.json({ success: true, count: 0 });
+    }
+
+    const count = await recruitmentDriveDao.getPendingDriveCount(userId);
+    res.json({ success: true, count });
+  } catch (error) {
+    console.error('Get Pending Drive Count Error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching pending drive count' });
+  }
+};
+
 module.exports = {
   createRecruitmentDrive,
   getAllRecruitmentDrives,
@@ -658,6 +764,7 @@ module.exports = {
   getDriveCadetQueue,
   getDriveCommunications,
   submitCadetDetails,
+  previewSubmitCadets,
   shortlistCadets,
   sendAssessmentInvites,
   sendInterviewInvites,
@@ -666,5 +773,6 @@ module.exports = {
   finalizeAssessment,
   finalizeInterview,
   finalizeMedical,
-  closeDrive
+  closeDrive,
+  getPendingDriveCount
 };

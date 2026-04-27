@@ -2,6 +2,31 @@ const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const { DEFAULT_PAGE_SIZE } = require('../config/constants');
 
+const normalizeEmail = (email) =>
+  typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+const getContactEmailValues = (contactEmails) =>
+  Array.isArray(contactEmails)
+    ? contactEmails
+        .map((contact) =>
+          normalizeEmail(
+            typeof contact === 'string' ? contact : contact && contact.email,
+          ),
+        )
+        .filter(Boolean)
+    : [];
+
+const hasDuplicateContactEmails = (contactEmails) => {
+  const emails = getContactEmailValues(contactEmails);
+  return new Set(emails).size !== emails.length;
+};
+
+const ensureDefaultContact = (contactEmails) => {
+  if (!contactEmails.some((contact) => contact.isDefault)) {
+    contactEmails[0].isDefault = true;
+  }
+};
+
 const createInstitute = async (req, res) => {
   try {
     const {
@@ -17,24 +42,30 @@ const createInstitute = async (req, res) => {
       !institute_name ||
       !address ||
       !location ||
-      (!contact_emails || contact_emails.length === 0)
+      !Array.isArray(contact_emails) ||
+      contact_emails.length === 0 ||
+      getContactEmailValues(contact_emails).length === 0
     ) {
       return res.status(400).json({ message: 'Required fields are missing' });
     }
 
-    // Determine the primary email from the contact list
-    let primaryEmail = '';
-    let mainContactPerson = '';
-
-    if (contact_emails && Array.isArray(contact_emails) && contact_emails.length > 0) {
-      const defaultContact = contact_emails.find((c) => c.isDefault) || contact_emails[0];
-      primaryEmail = defaultContact.email || '';
-      mainContactPerson = defaultContact.name || '';
-      
-      if (!contact_emails.some(c => c.isDefault)) {
-        contact_emails[0].isDefault = true;
-      }
+    if (hasDuplicateContactEmails(contact_emails)) {
+      return res
+        .status(400)
+        .json({ message: 'Duplicate contact emails are not allowed' });
     }
+
+    const duplicateInstitute = await instituteDao.getInstituteByContactEmails(
+      getContactEmailValues(contact_emails),
+    );
+    if (duplicateInstitute) {
+      return res.status(409).json({
+        message: 'A contact email is already used by another institute',
+        email: duplicateInstitute.duplicate_email,
+      });
+    }
+
+    ensureDefaultContact(contact_emails);
 
     const id = await instituteDao.createInstitute({
       institute_name,
@@ -157,30 +188,31 @@ const updateInstitute = async (req, res) => {
       !institute_name ||
       !address ||
       !location ||
-      (!contact_emails || contact_emails.length === 0)
+      !Array.isArray(contact_emails) ||
+      contact_emails.length === 0 ||
+      getContactEmailValues(contact_emails).length === 0
     ) {
       return res.status(400).json({ message: 'Required fields are missing' });
     }
 
-    // Determine the primary email from the contact list
-    let primaryEmail = '';
-    let mainContactPerson = '';
-
-    if (
-      contact_emails &&
-      Array.isArray(contact_emails) &&
-      contact_emails.length > 0
-    ) {
-      const defaultContact =
-        contact_emails.find((c) => c.isDefault) || contact_emails[0];
-      primaryEmail = defaultContact.email || '';
-      mainContactPerson = defaultContact.name || '';
-
-      // Ensure one is default for data consistency
-      if (!contact_emails.some((c) => c.isDefault)) {
-        contact_emails[0].isDefault = true;
-      }
+    if (hasDuplicateContactEmails(contact_emails)) {
+      return res
+        .status(400)
+        .json({ message: 'Duplicate contact emails are not allowed' });
     }
+
+    const duplicateInstitute = await instituteDao.getInstituteByContactEmails(
+      getContactEmailValues(contact_emails),
+      id,
+    );
+    if (duplicateInstitute) {
+      return res.status(409).json({
+        message: 'A contact email is already used by another institute',
+        email: duplicateInstitute.duplicate_email,
+      });
+    }
+
+    ensureDefaultContact(contact_emails);
 
     const success = await instituteDao.updateInstitute(id, {
       institute_name,

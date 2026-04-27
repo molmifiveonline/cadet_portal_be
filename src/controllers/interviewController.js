@@ -37,6 +37,9 @@ const saveInterview = async (req, res) => {
     };
 
     const id = await interviewDao.createOrUpdateInterview(interviewData);
+    const cadet = await cadetDao.getCadetById(cadet_id);
+    const cadetDisplayName =
+      cadet?.name_as_in_indos_cert || cadet?.cadet_unique_id || cadet_id;
 
     // Workflow: selected cadets move to medical, waitlisted stays in interview, rejected becomes terminal
     const normalizedDecision = String(final_decision || '').toLowerCase();
@@ -73,7 +76,7 @@ const saveInterview = async (req, res) => {
     await activityLogDao.createLog(
       req.user.id,
       'Interview Saved',
-      `Interview for cadet ID ${cadet_id} has been saved.`,
+      `Interview for cadet ${cadetDisplayName} has been saved.`,
       req.ip || req.connection.remoteAddress
     );
 

@@ -321,17 +321,17 @@ const getLegacyQueueCondition = (queue) => {
   switch (queue) {
     case 'assessment':
       return {
-        clause: "c.status IN ('Shortlisted', 'Assessment', 'Eligible for Assessment', 'Assessment Failed')",
+        clause: "c.status IN ('Shortlisted', 'Assessment', 'Eligible for Assessment', 'Assessment Failed', 'Interviewed', 'Eligible for Interview', 'Interview Selected', 'Interview Failed')",
         params: [],
       };
     case 'interview':
       return {
-        clause: "c.status IN ('Interviewed', 'Eligible for Interview')",
+        clause: "c.status IN ('Interviewed', 'Eligible for Interview', 'Interview Selected', 'Interview Failed')",
         params: [],
       };
     case 'medical':
       return {
-        clause: "c.status IN ('Selected', 'Eligible for Medical')",
+        clause: "c.status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')",
         params: [],
       };
     case 'selected':
@@ -368,20 +368,31 @@ const getDriveCadets = async (driveId, { queue = 'all', search = '', limit = 100
     switch (queue) {
       case 'assessment':
         whereClauses.push(`(
-          c.workflow_phase IN (?, ?)
-          OR LOWER(COALESCE(a.status, '')) = 'fail'
+          c.workflow_phase IN (?, ?, ?)
+          OR LOWER(COALESCE(a.status, '')) IN ('pass', 'fail', 'completed', 'complete', 'assessment completed')
+          OR c.status IN ('Assessment Passed', 'Assessment Failed', 'Assessment Completed')
         )`);
         queryParams.push(
           WORKFLOW_PHASES.SHORTLISTED,
           WORKFLOW_PHASES.ASSESSMENT,
+          WORKFLOW_PHASES.INTERVIEW
         );
         break;
       case 'interview':
-        whereClauses.push('c.workflow_phase = ?');
+        whereClauses.push(`(
+          c.workflow_phase = ?
+          OR LOWER(COALESCE(iv.final_decision, '')) IN ('selected', 'rejected', 'waitlisted', 'pass', 'fail')
+          OR c.status IN ('Interviewed', 'Eligible for Interview', 'Interview Selected', 'Interview Failed')
+        )`);
         queryParams.push(WORKFLOW_PHASES.INTERVIEW);
         break;
       case 'medical':
-        whereClauses.push('c.workflow_phase = ?');
+        whereClauses.push(`(
+          c.workflow_phase = ?
+          OR LOWER(COALESCE(iv.final_decision, '')) IN ('selected', 'pass')
+          OR c.status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')
+          OR mr.id IS NOT NULL
+        )`);
         queryParams.push(WORKFLOW_PHASES.MEDICAL);
         break;
       case 'selected':
@@ -422,17 +433,12 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
     SELECT c.*, i.institute_name
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
-    WHERE CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 85
-      AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 80
-      AND CAST(c.tenth_std_science AS DECIMAL(10,2)) >= 80
-      AND CAST(c.tenth_std_english AS DECIMAL(10,2)) >= 80
-      AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 80
-      AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 75
-      AND CAST(c.twelfth_std_physics AS DECIMAL(10,2)) >= 75
-      AND CAST(c.twelfth_std_chemistry AS DECIMAL(10,2)) >= 75
-      AND CAST(c.twelfth_std_maths AS DECIMAL(10,2)) >= 75
-      AND CAST(c.imu_rank AS SIGNED) <= 3000
-      AND CAST(c.bmi AS DECIMAL(10,2)) < 25
+    WHERE CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 60
+      AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 60
+      AND CAST(c.tenth_std_science AS DECIMAL(10,2)) >= 60
+      AND CAST(c.tenth_std_english AS DECIMAL(10,2)) >= 60
+      AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 60
+      AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 70
   `;
   const queryParams = [];
   const additionalClauses = [];
@@ -477,17 +483,12 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
   let countQuery = `
     SELECT COUNT(*) as total
     FROM cadets c
-    WHERE CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 85
-      AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 80
-      AND CAST(c.tenth_std_science AS DECIMAL(10,2)) >= 80
-      AND CAST(c.tenth_std_english AS DECIMAL(10,2)) >= 80
-      AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 80
-      AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 75
-      AND CAST(c.twelfth_std_physics AS DECIMAL(10,2)) >= 75
-      AND CAST(c.twelfth_std_chemistry AS DECIMAL(10,2)) >= 75
-      AND CAST(c.twelfth_std_maths AS DECIMAL(10,2)) >= 75
-      AND CAST(c.imu_rank AS SIGNED) <= 3000
-      AND CAST(c.bmi AS DECIMAL(10,2)) < 25
+    WHERE CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 60
+      AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 60
+      AND CAST(c.tenth_std_science AS DECIMAL(10,2)) >= 60
+      AND CAST(c.tenth_std_english AS DECIMAL(10,2)) >= 60
+      AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 60
+      AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 70
   `;
   const countParams = queryParams.slice(0, queryParams.length - 2);
 
@@ -511,17 +512,12 @@ const getShortlistCountByInstitute = async () => {
       COUNT(c.id) as count
     FROM institutes i
     LEFT JOIN cadets c ON i.id = c.institute_id
-      AND CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 85
-      AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 80
-      AND CAST(c.tenth_std_science AS DECIMAL(10,2)) >= 80
-      AND CAST(c.tenth_std_english AS DECIMAL(10,2)) >= 80
-      AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 80
-      AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 75
-      AND CAST(c.twelfth_std_physics AS DECIMAL(10,2)) >= 75
-      AND CAST(c.twelfth_std_chemistry AS DECIMAL(10,2)) >= 75
-      AND CAST(c.twelfth_std_maths AS DECIMAL(10,2)) >= 75
-      AND CAST(c.imu_rank AS SIGNED) <= 3000
-      AND CAST(c.bmi AS DECIMAL(10,2)) < 25
+      AND CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 60
+      AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 60
+      AND CAST(c.tenth_std_science AS DECIMAL(10,2)) >= 60
+      AND CAST(c.tenth_std_english AS DECIMAL(10,2)) >= 60
+      AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 60
+      AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 70
     GROUP BY i.id, i.institute_name
     HAVING count > 0
     ORDER BY count DESC

@@ -11,6 +11,7 @@ const {
   buildWorkflowUpdate,
   COMMUNICATION_TYPES,
 } = require('../services/recruitmentWorkflowService');
+const { FRONTEND_URL } = require('../config/constants');
 const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
 
 const saveMedicalResult = async (req, res) => {
@@ -46,6 +47,9 @@ const saveMedicalResult = async (req, res) => {
     };
 
     const id = await medicalDao.createOrUpdateMedicalResult(medicalData);
+    const cadet = await cadetDao.getCadetById(cadet_id);
+    const cadetDisplayName =
+      cadet?.name_as_in_indos_cert || cadet?.cadet_unique_id || cadet_id;
 
     if (resolvedDecision === 'pass') {
       await cadetDao.updateCadet(
@@ -74,7 +78,7 @@ const saveMedicalResult = async (req, res) => {
     await activityLogDao.createLog(
       req.user.id,
       'Medical Result Saved',
-      `Medical result for cadet ID ${cadet_id} has been saved.`,
+      `Medical result for cadet ${cadetDisplayName} has been saved.`,
       req.ip || req.connection.remoteAddress
     );
 
@@ -248,7 +252,7 @@ const bulkCollectDocuments = async (req, res) => {
       const candidateLink =
         document_link ||
         process.env.CANDIDATE_DOCUMENT_UPLOAD_LINK ||
-        `${process.env.FRONTEND_URL || ''}/drives/${drive_id}`;
+        `${FRONTEND_URL || ''}/drives/${drive_id}`;
 
       await documentController.createExternalDocumentRequest({
         cadet,

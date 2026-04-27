@@ -3,16 +3,22 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const activityLogDao = require('../dao/activityLogDao');
 const { sendEmail, emailTemplates } = require('../services/emailService');
+const cadetDao = require('../dao/cadetDao');
 const jwt = require('jsonwebtoken');
 const {
   JWT_SECRET,
   INSTITUTE_CREDENTIAL_EXPIRY_DAYS,
   DRIVE_STATUS,
+  INSTITUTE_FRONTEND_URL,
 } = require('../config/constants');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const shortlistService = require('../services/shortlistService');
 const { logAndSendEmail } = require('../services/recruitmentCommunicationService');
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
+const notificationService = require('../services/notificationService');
+const { ROLES } = require('../config/constants');
+
+const INSTITUTE_RECRUITMENT_DRIVES_ROUTE = '/drives';
 
 const normalizeCourseType = (value) => {
   if (!value) return null;
@@ -100,22 +106,21 @@ const sendInstituteEmail = async (req, res) => {
         continue;
       }
 
-      // Generate Temp Credentials
+      // Generate Temp Username (No password needed now)
       const tempUsername = `SUB-${Math.floor(100000 + Math.random() * 900000)}`;
-      const tempPassword = crypto.randomBytes(4).toString('hex').toUpperCase();
 
-      // Store in DB
+      // Store in DB (password is NULL or empty now)
       await instituteDao.updateInstituteCredentials(
         id,
         tempUsername,
-        tempPassword,
+        null, // No static password
         mysqlExpiryDate,
         batch_year || new Date().getFullYear(),
         resolvedCourseType,
       );
 
       // Generate Link (No token needed now)
-      const link = `${process.env.FRONTEND_URL}/institute/submit-excel`;
+      const link = `${INSTITUTE_FRONTEND_URL}${INSTITUTE_RECRUITMENT_DRIVES_ROUTE}`;
       let drive = null;
 
       try {
@@ -136,7 +141,6 @@ const sendInstituteEmail = async (req, res) => {
         link,
         expiryDate: expiryDateString,
         tempUsername,
-        tempPassword,
         batch_year: batch_year || new Date().getFullYear(),
         course_type: resolvedCourseType,
       });
@@ -195,6 +199,15 @@ const sendInstituteEmail = async (req, res) => {
           email: targetEmail,
         });
 
+        // Notify Institute
+        await notificationService.notify({
+          recipient_type: ROLES.INSTITUTE,
+          recipient_id: id,
+          title: 'Cadet Data Request',
+          message: `Admin has requested cadet data for ${resolvedCourseType} (${batch_year || new Date().getFullYear()}).`,
+          url: drive?.id ? `${INSTITUTE_RECRUITMENT_DRIVES_ROUTE}/${drive.id}?tab=upload` : INSTITUTE_RECRUITMENT_DRIVES_ROUTE,
+        });
+
         // Automatically update Recruitment Drive status to 'Requested' if matching drive exists
         try {
           if (
@@ -238,7 +251,7 @@ const sendInstituteEmail = async (req, res) => {
 
 const sendShortlistEmail = async (req, res) => {
   try {
-    const { instituteIds, cadetIds, subject, remarks } = req.body;
+    const { instituteIds, cadetIds, subject, remarks, drive_id } = req.body;
 
     if (!instituteIds) {
       return res.status(400).json({
@@ -274,9 +287,30 @@ const sendShortlistEmail = async (req, res) => {
       }
     }
 
-    // Get shortlist count per institute to include in emails
-    const shortlistCounts =
-      await shortlistService.getShortlistCountByInstitute();
+    const selectedCadets = [];
+    const cadetsByInstitute = new Map();
+    if (cIds.length > 0) {
+      for (const cadetId of cIds) {
+        const cadet = await cadetDao.getCadetById(cadetId);
+        if (!cadet) continue;
+
+        selectedCadets.push(cadet);
+
+        if (!cadetsByInstitute.has(cadet.institute_id)) {
+          cadetsByInstitute.set(cadet.institute_id, []);
+        }
+        cadetsByInstitute.get(cadet.institute_id).push(cadet);
+      }
+    }
+
+    // Get shortlist count per institute to include in emails.
+    // When cadetIds are supplied, count only those selected cadets.
+    const shortlistCounts = cIds.length > 0
+      ? Array.from(cadetsByInstitute.entries()).map(([institute_id, cadets]) => ({
+          institute_id,
+          count: cadets.length,
+        }))
+      : await shortlistService.getShortlistCountByInstitute();
     const countMap = {};
     shortlistCounts.forEach((item) => {
       countMap[item.institute_id] = item.count;
@@ -306,6 +340,21 @@ const sendShortlistEmail = async (req, res) => {
         continue;
       }
 
+      const instituteCadets = cadetsByInstitute.get(id) || [];
+      const primaryCadet = instituteCadets[0] || selectedCadets[0] || null;
+      const resolvedBatchYear = primaryCadet?.batch_year || new Date().getFullYear();
+      let drive = null;
+
+      try {
+        if (drive_id) {
+          drive = await recruitmentDriveDao.getRecruitmentDriveById(drive_id);
+        } else if (primaryCadet?.drive_id) {
+          drive = await recruitmentDriveDao.getRecruitmentDriveById(primaryCadet.drive_id);
+        }
+      } catch (driveErr) {
+        console.error('Error resolving drive before sending shortlist email:', driveErr);
+      }
+
       const cadetCount = countMap[id] || 0;
       if (cadetCount === 0) {
         results.push({
@@ -316,21 +365,20 @@ const sendShortlistEmail = async (req, res) => {
         continue;
       }
 
-      // Generate SHOR- prefix credentials
+      // Generate SHOR- prefix username (No password needed)
       const tempUsername = `SHOR-${Math.floor(100000 + Math.random() * 900000)}`;
-      const tempPassword = crypto.randomBytes(4).toString('hex').toUpperCase();
 
       // Store in DB
       await instituteDao.updateInstituteCredentials(
         id,
         tempUsername,
-        tempPassword,
+        null,
         mysqlExpiryDate,
-        new Date().getFullYear(),
+        resolvedBatchYear,
       );
 
       // Generate Link
-      const link = `${process.env.FRONTEND_URL}/institute/shortlisted-cadets`;
+      const link = `${INSTITUTE_FRONTEND_URL}${INSTITUTE_RECRUITMENT_DRIVES_ROUTE}`;
 
       // Prepare Email
       const emailContent = emailTemplates.instituteShortlistView({
@@ -340,7 +388,6 @@ const sendShortlistEmail = async (req, res) => {
         link,
         expiryDate: expiryDateString,
         tempUsername,
-        tempPassword,
       });
 
       // Determine target Email
@@ -378,7 +425,10 @@ const sendShortlistEmail = async (req, res) => {
             instituteName: institute.institute_name,
             cadetCount,
             remarks,
+            driveName: drive?.drive_name,
+            batch_year: resolvedBatchYear,
           },
+          drive_id: drive?.id || null,
           institute_id: id,
           communication_type: COMMUNICATION_TYPES.SHORTLIST,
           remarks,
@@ -390,13 +440,21 @@ const sendShortlistEmail = async (req, res) => {
           email: targetEmail,
           cadetCount,
         });
+        // Notify Institute
+        await notificationService.notify({
+          recipient_type: ROLES.INSTITUTE,
+          recipient_id: id,
+          title: 'Shortlist Notification',
+          message: `Admin has shortlisted ${cadetCount} cadet(s) for your institute (${resolvedBatchYear}). Please provide pending details.`,
+          url: drive?.id ? `${INSTITUTE_RECRUITMENT_DRIVES_ROUTE}/${drive.id}?tab=shortlist` : INSTITUTE_RECRUITMENT_DRIVES_ROUTE,
+        });
 
         // Update cadet status for specifically shortlisted cadets
-        if (cIds.length > 0) {
+        if (instituteCadets.length > 0) {
           try {
             // Update status and email flag for selected cadets
-            for (const cadetId of cIds) {
-              await cadetDao.updateCadet(cadetId, {
+            for (const cadet of instituteCadets) {
+              await cadetDao.updateCadet(cadet.id, {
                 status: 'Eligible for Assessment',
                 shortlist_email_sent: 1
               });
@@ -438,59 +496,10 @@ const sendShortlistEmail = async (req, res) => {
 };
 
 const loginInstitute = async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res
-        .status(400)
-        .json({ message: 'Username and password are required' });
-    }
-
-    const institute = await instituteDao.getInstituteByTempUsername(username);
-
-    if (!institute) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    if (institute.status !== 'active') {
-      return res.status(403).json({ message: 'Institute account is inactive' });
-    }
-
-    // Check expiry
-    if (new Date() > new Date(institute.temp_expiry)) {
-      return res.status(401).json({ message: 'Credentials have expired' });
-    }
-
-    // Check password
-    const isMatch = await bcrypt.compare(password, institute.temp_password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    // Generate Token
-    const token = jwt.sign(
-      {
-        instituteId: institute.id,
-        adminYear: institute.batch_year,
-        type: 'excel_submission',
-        exp:
-          Math.floor(Date.now() / 1000) +
-          INSTITUTE_CREDENTIAL_EXPIRY_DAYS * 24 * 60 * 60,
-      },
-      JWT_SECRET,
-    );
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      token,
-      instituteName: institute.institute_name,
-    });
-  } catch (error) {
-    console.error('Institute Login Error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
+  return res.status(400).json({ 
+    message: 'Institute login has been upgraded to OTP-based security. Please use the OTP login flow.',
+    isInstitute: true
+  });
 };
 
 const verifyInstituteToken = async (req, res) => {

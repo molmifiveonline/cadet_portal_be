@@ -21,8 +21,20 @@ const buildDriveSelect = async () => {
     : "c.status IN ('Shortlisted', 'Eligible for Assessment')";
 
   const medicalQueueCondition = cadetCompat.hasWorkflowPhase
-    ? "c.workflow_phase = 'medical'"
-    : "c.status IN ('Selected', 'Eligible for Medical')";
+    ? `(c.workflow_phase = 'medical'
+        OR c.status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')
+        OR EXISTS (
+          SELECT 1
+          FROM interviews iv
+          WHERE iv.cadet_id = c.id
+            AND LOWER(COALESCE(iv.final_decision, '')) IN ('selected', 'pass')
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM cadet_medical_results mr
+          WHERE mr.cadet_id = c.id
+        ))`
+    : "c.status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')";
 
   const revertedExcelFilters = [];
   if (submissionCompat.hasBatchYear) {
@@ -38,6 +50,11 @@ const buildDriveSelect = async () => {
     revertedExcelFilters.length > 0
       ? ` AND ${revertedExcelFilters.join(' AND ')}`
       : '';
+  const matchingSubmissionExistsExpression = `EXISTS (
+          SELECT 1
+          FROM institute_submissions isub
+          WHERE isub.institute_id = rd.institute_id${revertedExcelWhere}
+        )`;
 
   const progressedDriveStatuses = [
     'Requested',
@@ -67,6 +84,12 @@ const buildDriveSelect = async () => {
       END`
     : `CASE
         WHEN rd.status IN (${progressedDriveStatuses})
+        THEN 1
+        ELSE 0
+      END`;
+  const cadetDataRequestPendingExpression = `CASE
+        WHEN (${instituteRequestSentExpression}) = 1
+          AND NOT ${matchingSubmissionExistsExpression}
         THEN 1
         ELSE 0
       END`;
@@ -120,14 +143,21 @@ const buildDriveSelect = async () => {
       ) AS onboarded,
       ${instituteRequestSentExpression} AS institute_email_sent,
       CASE
-        WHEN EXISTS (
-          SELECT 1
-          FROM institute_submissions isub
-          WHERE isub.institute_id = rd.institute_id${revertedExcelWhere}
-        )
+        WHEN ${matchingSubmissionExistsExpression}
         THEN 1
         ELSE 0
-      END AS institute_reverted_excel
+      END AS institute_reverted_excel,
+      ${cadetDataRequestPendingExpression} AS cadet_data_submit_request_pending,
+      CASE
+        WHEN (${cadetDataRequestPendingExpression}) = 1 THEN 'pending_submission'
+        WHEN ${matchingSubmissionExistsExpression} THEN 'submitted'
+        ELSE 'not_requested'
+      END AS cadet_data_request_status,
+      CASE
+        WHEN (${cadetDataRequestPendingExpression}) = 1
+        THEN 'Cadet data submit request is pending'
+        ELSE NULL
+      END AS cadet_data_request_message
     FROM recruitment_drives rd
     LEFT JOIN institutes i ON rd.institute_id = i.id
   `;
@@ -308,8 +338,20 @@ const getRecruitmentDriveStats = async (driveId) => {
     ? "workflow_phase = 'interview'"
     : "status IN ('Interviewed', 'Eligible for Interview')";
   const medicalQueueCondition = cadetCompat.hasWorkflowPhase
-    ? "workflow_phase = 'medical'"
-    : "status IN ('Selected', 'Eligible for Medical')";
+    ? `(workflow_phase = 'medical'
+        OR status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')
+        OR EXISTS (
+          SELECT 1
+          FROM interviews iv
+          WHERE iv.cadet_id = cadets.id
+            AND LOWER(COALESCE(iv.final_decision, '')) IN ('selected', 'pass')
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM cadet_medical_results mr
+          WHERE mr.cadet_id = cadets.id
+        ))`
+    : "status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')";
   const rejectedCondition = cadetCompat.hasWorkflowPhase
     ? "workflow_phase = 'rejected'"
     : "status IN ('Rejected', 'Assessment Failed', 'Interview Failed', 'Medical Failed')";
@@ -354,6 +396,51 @@ const getRecruitmentDriveStats = async (driveId) => {
   };
 };
 
+const getPendingDriveCount = async (instituteId) => {
+  const submissionCompat = await getSubmissionCompatibility();
+  const hasRecruitmentCommunications = await hasTable('recruitment_communications');
+  const submissionFilters = [];
+
+  if (submissionCompat.hasBatchYear) {
+    submissionFilters.push(
+      'isub.batch_year = COALESCE(rd.year, YEAR(rd.created_at))',
+    );
+  }
+
+  if (submissionCompat.hasCourseType) {
+    submissionFilters.push('isub.course_type = rd.course_type');
+  }
+
+  const submissionWhere =
+    submissionFilters.length > 0
+      ? ` AND ${submissionFilters.join(' AND ')}`
+      : '';
+  const requestCondition = hasRecruitmentCommunications
+    ? `(rd.status = 'Requested'
+       OR EXISTS (
+         SELECT 1
+         FROM recruitment_communications rc
+         WHERE rc.drive_id = rd.id
+           AND rc.communication_type = 'institute_request'
+           AND LOWER(COALESCE(rc.send_status, 'sent')) = 'sent'
+       ))`
+    : "rd.status = 'Requested'";
+
+  const [rows] = await db.query(
+    `SELECT COUNT(*) as count
+     FROM recruitment_drives rd
+     WHERE rd.institute_id = ?
+       AND ${requestCondition}
+       AND NOT EXISTS (
+         SELECT 1
+         FROM institute_submissions isub
+         WHERE isub.institute_id = rd.institute_id${submissionWhere}
+       )`,
+    [instituteId],
+  );
+  return rows[0]?.count || 0;
+};
+
 module.exports = {
   createRecruitmentDrive,
   getAllRecruitmentDrives,
@@ -364,4 +451,5 @@ module.exports = {
   updateRecruitmentDrive,
   deleteRecruitmentDrive,
   getRecruitmentDriveStats,
+  getPendingDriveCount,
 };

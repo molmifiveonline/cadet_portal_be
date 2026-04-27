@@ -95,6 +95,68 @@ const getInstituteById = async (id) => {
   return rows[0];
 };
 
+const normalizeEmail = (email) =>
+  typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+const parseContactEmails = (contactEmails) => {
+  if (Array.isArray(contactEmails)) {
+    return contactEmails;
+  }
+
+  if (typeof contactEmails === 'string') {
+    try {
+      const parsed = JSON.parse(contactEmails);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  return [];
+};
+
+const getInstituteByContactEmails = async (emails, excludeId = null) => {
+  const normalizedEmails = [
+    ...new Set((emails || []).map(normalizeEmail).filter(Boolean)),
+  ];
+
+  if (normalizedEmails.length === 0) {
+    return null;
+  }
+
+  let query =
+    'SELECT id, institute_name, contact_emails FROM institutes WHERE contact_emails IS NOT NULL';
+  const params = [];
+
+  if (excludeId) {
+    query += ' AND id <> ?';
+    params.push(excludeId);
+  }
+
+  const [rows] = await db.query(query, params);
+  const emailSet = new Set(normalizedEmails);
+
+  for (const row of rows) {
+    const contactEmails = parseContactEmails(row.contact_emails);
+    const duplicateEmail = contactEmails
+      .map((contact) =>
+        normalizeEmail(
+          typeof contact === 'string' ? contact : contact && contact.email,
+        ),
+      )
+      .find((email) => emailSet.has(email));
+
+    if (duplicateEmail) {
+      return {
+        ...row,
+        duplicate_email: duplicateEmail,
+      };
+    }
+  }
+
+  return null;
+};
+
 const updateInstitute = async (id, instituteData) => {
   const {
     institute_name,
@@ -267,6 +329,38 @@ const deleteSubmissions = async (ids) => {
   return result.affectedRows;
 };
 
+const getActiveSubmissionForContext = async (
+  instituteId,
+  batchYear,
+  courseType,
+) => {
+  const hasBatchYear = await hasColumn('institute_submissions', 'batch_year');
+  const hasCourseType = await hasColumn('institute_submissions', 'course_type');
+  const whereClauses = ['institute_id = ?', 'status <> ?'];
+  const params = [instituteId, 'rejected'];
+
+  if (batchYear && hasBatchYear) {
+    whereClauses.push('batch_year = ?');
+    params.push(batchYear);
+  }
+
+  if (courseType && hasCourseType) {
+    whereClauses.push('course_type = ?');
+    params.push(courseType);
+  }
+
+  const [rows] = await db.query(
+    `SELECT id, status, created_at
+     FROM institute_submissions
+     WHERE ${whereClauses.join(' AND ')}
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    params,
+  );
+
+  return rows[0] || null;
+};
+
 const getSubmissionById = async (id) => {
   const hasBatchYear = await hasColumn('institute_submissions', 'batch_year');
   const hasCourseType = await hasColumn('institute_submissions', 'course_type');
@@ -329,7 +423,11 @@ const updateInstituteCredentials = async (
   batch_year,
   submission_course_type = null,
 ) => {
-  const hashedPassword = await bcrypt.hash(tempPassword, 10);
+  let hashedPassword = null;
+  if (tempPassword) {
+    hashedPassword = await bcrypt.hash(tempPassword, 10);
+  }
+
   const [result] = await db.query(
     `UPDATE institutes 
      SET temp_username = ?, temp_password = ?, temp_expiry = ?, batch_year = ?, submission_course_type = ?
@@ -363,23 +461,42 @@ const getInstituteByTempUsername = async (username) => {
 };
 
 const getInstituteByEmail = async (email) => {
+  const lowerEmail = email.toLowerCase().trim();
   const [rows] = await db.query(
-    'SELECT * FROM institutes WHERE contact_emails LIKE ?',
-    [`%"email":"${email}"%`],
+    'SELECT * FROM institutes WHERE LOWER(contact_emails) LIKE ?',
+    [`%"email":"${lowerEmail}"%`],
   );
   return rows[0];
+};
+
+const saveInstituteOtp = async (id, hashedOtp, expiresAt) => {
+  const [result] = await db.query(
+    'UPDATE institutes SET otp = ?, otp_expires_at = ? WHERE id = ?',
+    [hashedOtp, expiresAt, id],
+  );
+  return result.affectedRows > 0;
+};
+
+const clearInstituteOtp = async (id) => {
+  const [result] = await db.query(
+    'UPDATE institutes SET otp = NULL, otp_expires_at = NULL WHERE id = ?',
+    [id],
+  );
+  return result.affectedRows > 0;
 };
 
 module.exports = {
   createInstitute,
   getAllInstitutes,
   getInstituteById,
+  getInstituteByContactEmails,
   updateInstitute,
   deleteInstitute,
   createSubmission,
   getAllSubmissions,
   deleteSubmission,
   deleteSubmissions,
+  getActiveSubmissionForContext,
   getSubmissionById,
   getSubmissionFile,
   updateSubmissionStatus,
@@ -388,4 +505,6 @@ module.exports = {
   extendInstituteExpiry,
   getInstituteByTempUsername,
   getInstituteByEmail,
+  saveInstituteOtp,
+  clearInstituteOtp,
 };

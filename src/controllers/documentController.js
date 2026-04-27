@@ -4,7 +4,7 @@ const cadetDao = require('../dao/cadetDao');
 const activityLogDao = require('../dao/activityLogDao');
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
 const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
-const { EXTERNAL_LINK_EXPIRY_HOURS } = require('../config/constants');
+const { EXTERNAL_LINK_EXPIRY_HOURS, FRONTEND_URL } = require('../config/constants');
 
 const groupDocumentsByCadet = (rows = []) => {
   const grouped = new Map();
@@ -133,7 +133,7 @@ const reviewDocument = async (req, res) => {
     if (status === 'reupload_requested' && document.email_id) {
       const documentLink =
         document.external_upload_link ||
-        `${process.env.FRONTEND_URL || ''}/drives/${document.drive_id}`;
+        `${FRONTEND_URL || ''}/drives/${document.drive_id}`;
 
       await logAndSendEmail({
         to: document.email_id,
