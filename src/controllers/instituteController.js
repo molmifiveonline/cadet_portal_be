@@ -1,6 +1,7 @@
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const { DEFAULT_PAGE_SIZE } = require('../config/constants');
+const { formatDateForDisplay } = require('../utils/dateUtils');
 
 const normalizeEmail = (email) =>
   typeof email === 'string' ? email.trim().toLowerCase() : '';
@@ -339,7 +340,7 @@ const extendInstituteToken = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Token expiry extended to ${new Date(newExpiry).toLocaleDateString()}`,
+      message: `Token expiry extended to ${formatDateForDisplay(newExpiry)}`,
       new_expiry: newExpiry,
     });
   } catch (error) {

@@ -2,9 +2,10 @@ const crypto = require('crypto');
 const documentDao = require('../dao/documentDao');
 const cadetDao = require('../dao/cadetDao');
 const activityLogDao = require('../dao/activityLogDao');
+const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
 const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
-const { EXTERNAL_LINK_EXPIRY_HOURS, FRONTEND_URL } = require('../config/constants');
+const { EXTERNAL_LINK_EXPIRY_HOURS, FRONTEND_URL, ROLES } = require('../config/constants');
 
 const groupDocumentsByCadet = (rows = []) => {
   const grouped = new Map();
@@ -46,11 +47,44 @@ const groupDocumentsByCadet = (rows = []) => {
   return Array.from(grouped.values());
 };
 
+const getInstituteId = (user = {}) => user.instituteId || user.id;
+
+const isInstituteUser = (user = {}) => user.role === ROLES.INSTITUTE;
+
+const ensureInstituteOwnsCadet = async (req, cadet) => {
+  if (!isInstituteUser(req.user)) return true;
+  return cadet?.institute_id === getInstituteId(req.user);
+};
+
+const canInstituteUploadDocument = async (cadetId) => {
+  const documents = await documentDao.getCadetDocuments(cadetId);
+  const hasCv = documents.some(
+    (document) => String(document.document_type || '').toUpperCase() === 'CV',
+  );
+  const hasPendingUpload = documents.some(
+    (document) =>
+      document.status === 'reupload_requested' ||
+      (document.status === 'pending' && !document.original_filename),
+  );
+
+  return !hasCv || hasPendingUpload;
+};
+
 const getDriveDocuments = async (req, res) => {
   try {
     const { drive_id } = req.query;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
+    }
+
+    if (isInstituteUser(req.user)) {
+      const drive = await recruitmentDriveDao.getRecruitmentDriveById(drive_id);
+      if (!drive) {
+        return res.status(404).json({ success: false, message: 'Recruitment drive not found' });
+      }
+      if (drive.institute_id !== getInstituteId(req.user)) {
+        return res.status(403).json({ success: false, message: 'Access denied to this recruitment drive' });
+      }
     }
 
     const rows = await documentDao.getDocumentsByDrive(drive_id);
@@ -79,6 +113,17 @@ const uploadCadetDocument = async (req, res) => {
     const cadet = await cadetDao.getCadetById(cadet_id);
     if (!cadet) {
       return res.status(404).json({ success: false, message: 'Cadet not found' });
+    }
+
+    if (!(await ensureInstituteOwnsCadet(req, cadet))) {
+      return res.status(403).json({ success: false, message: 'Unauthorized access to this cadet data' });
+    }
+
+    if (isInstituteUser(req.user) && !(await canInstituteUploadDocument(cadet_id))) {
+      return res.status(403).json({
+        success: false,
+        message: 'No pending document upload is available for this cadet',
+      });
     }
 
     const id = await documentDao.createDocument({
@@ -120,6 +165,10 @@ const reviewDocument = async (req, res) => {
     const document = await documentDao.getDocumentById(id);
     if (!document) {
       return res.status(404).json({ success: false, message: 'Document not found' });
+    }
+
+    if (isInstituteUser(req.user)) {
+      return res.status(403).json({ success: false, message: 'Institute users are not allowed to review documents' });
     }
 
     await documentDao.updateDocument(id, {
@@ -170,6 +219,10 @@ const downloadDocument = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Document file not found' });
     }
 
+    if (isInstituteUser(req.user) && document.institute_id !== getInstituteId(req.user)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized access to this document' });
+    }
+
     res.set({
       'Content-Type': document.document_mime_type || 'application/octet-stream',
       'Content-Disposition': `attachment; filename="${document.original_filename || document.document_name}"`,
@@ -188,6 +241,10 @@ const deleteDocument = async (req, res) => {
 
     if (!document) {
       return res.status(404).json({ success: false, message: 'Document not found' });
+    }
+
+    if (isInstituteUser(req.user)) {
+      return res.status(403).json({ success: false, message: 'Institute users are not allowed to delete documents' });
     }
 
     await documentDao.deleteDocument(id);

@@ -39,12 +39,15 @@ const formatDate = (value) => {
       console.error('Error parsing Excel date code:', err);
     }
   }
-  // If it's a string, try parsing it from expected dd-mm-yyyy
+  // If it's a string, try parsing it from expected day-first formats.
   if (typeof value === 'string') {
     value = value.trim();
-    const parts = value.split('-');
-    if (parts.length === 3) {
-      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    const match = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (match) {
+      const day = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10);
+      if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+      return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
     }
   }
   return null;
@@ -66,8 +69,8 @@ const formatYear = (value) => {
   if (typeof value === 'string') {
     value = value.trim();
     if (value.length === 4 && !isNaN(parseInt(value))) return parseInt(value);
-    const parts = value.split('-');
-    if (parts.length === 3) return parseInt(parts[2]); // Extract year if it's dd-mm-yyyy
+    const match = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (match) return parseInt(match[3], 10);
   }
   return null;
 };

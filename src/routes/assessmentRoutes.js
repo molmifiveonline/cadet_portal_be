@@ -3,21 +3,24 @@ const router = express.Router();
 const assessmentController = require('../controllers/assessmentController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requireSuperAdmin } = require('../middleware/permissionMiddleware');
+const {
+  requireSuperAdminOrInstituteCadetRead,
+} = require('../middleware/instituteOwnershipMiddleware');
 const upload = require('../middleware/uploadMiddleware');
 
 // Apply protection to all assessment routes
 router.use(authMiddleware);
 
-// Allow SuperAdmin specifically or check for generic permissions
-// Setting it to require SuperAdmin for now as per previous logic
-router.use(requireSuperAdmin);
-
 router
   .route('/:cadet_id')
-  .get(assessmentController.getAssessment)
-  .post(upload.single('essay'), assessmentController.saveAssessment)
-  .delete(assessmentController.deleteAssessment);
+  .get(requireSuperAdminOrInstituteCadetRead('cadet_id'), assessmentController.getAssessment)
+  .post(requireSuperAdmin, upload.single('essay'), assessmentController.saveAssessment)
+  .delete(requireSuperAdmin, assessmentController.deleteAssessment);
 
-router.get('/:cadet_id/essay/download', assessmentController.downloadEssay);
+router.get(
+  '/:cadet_id/essay/download',
+  requireSuperAdminOrInstituteCadetRead('cadet_id'),
+  assessmentController.downloadEssay,
+);
 
 module.exports = router;

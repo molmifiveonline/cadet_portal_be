@@ -17,6 +17,7 @@ const { logAndSendEmail } = require('../services/recruitmentCommunicationService
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
 const notificationService = require('../services/notificationService');
 const { ROLES } = require('../config/constants');
+const { formatDateForDisplay } = require('../utils/dateUtils');
 
 const INSTITUTE_RECRUITMENT_DRIVES_ROUTE = '/drives';
 
@@ -75,7 +76,7 @@ const sendInstituteEmail = async (req, res) => {
     const expiryDays = INSTITUTE_CREDENTIAL_EXPIRY_DAYS;
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + expiryDays);
-    const expiryDateString = expiryDate.toLocaleDateString('en-GB');
+    const expiryDateString = formatDateForDisplay(expiryDate);
 
     // Format for MySQL timestamp
     const mysqlExpiryDate = expiryDate
@@ -320,7 +321,7 @@ const sendShortlistEmail = async (req, res) => {
     const expiryDays = INSTITUTE_CREDENTIAL_EXPIRY_DAYS;
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + expiryDays);
-    const expiryDateString = expiryDate.toLocaleDateString('en-GB');
+    const expiryDateString = formatDateForDisplay(expiryDate);
 
     // Format for MySQL timestamp
     const mysqlExpiryDate = expiryDate

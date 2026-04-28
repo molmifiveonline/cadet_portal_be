@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const { formatDateForDisplay } = require("../utils/dateUtils");
 
 // Create email transporter
 const createTransporter = () => {
@@ -408,7 +409,7 @@ const emailTemplates = {
       <p>Dear ${data.recipientName || "Cadet"},</p>
       <p>${data.message}</p>
       <p>
-        ${data.dateLabel || "Date"}: <strong>${data.date || "TBD"}</strong><br/>
+        ${data.dateLabel || "Date"}: <strong>${formatDateForDisplay(data.date) || data.date || "TBD"}</strong><br/>
         ${data.timeLabel || "Time"}: <strong>${data.time || "TBD"}</strong><br/>
         ${data.location ? `${data.locationLabel || "Location"}: <strong>${data.location}</strong><br/>` : ""}
         ${data.documentLink ? `Document Upload Link: <a href="${data.documentLink}" target="_blank">Open Link</a><br/>` : ""}

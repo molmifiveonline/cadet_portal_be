@@ -15,6 +15,7 @@ const buildDriveSelect = async () => {
   const cadetCompat = await getCadetCompatibility();
   const submissionCompat = await getSubmissionCompatibility();
   const hasRecruitmentCommunications = await hasTable('recruitment_communications');
+  const hasCadetDocuments = await hasTable('cadet_documents');
 
   const shortlistedCondition = cadetCompat.hasWorkflowPhase
     ? "c.workflow_phase = 'shortlisted'"
@@ -93,6 +94,14 @@ const buildDriveSelect = async () => {
         THEN 1
         ELSE 0
       END`;
+  const documentCountSelect = hasCadetDocuments
+    ? `(
+        SELECT COUNT(DISTINCT c.id)
+        FROM cadets c
+        JOIN cadet_documents cd ON cd.cadet_id = c.id
+        WHERE c.drive_id = rd.id
+      ) AS document_count`
+    : '0 AS document_count';
 
   return `
     SELECT
@@ -129,6 +138,7 @@ const buildDriveSelect = async () => {
         WHERE c.drive_id = rd.id
           AND ${medicalQueueCondition}
       ) AS medical_queue_count,
+      ${documentCountSelect},
       (
         SELECT COUNT(*)
         FROM cadets c
