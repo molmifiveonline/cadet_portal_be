@@ -434,9 +434,6 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
     WHERE CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 60
-      AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 60
-      AND CAST(c.tenth_std_science AS DECIMAL(10,2)) >= 60
-      AND CAST(c.tenth_std_english AS DECIMAL(10,2)) >= 60
       AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 60
       AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 70
   `;
@@ -484,9 +481,6 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
     SELECT COUNT(*) as total
     FROM cadets c
     WHERE CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 60
-      AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 60
-      AND CAST(c.tenth_std_science AS DECIMAL(10,2)) >= 60
-      AND CAST(c.tenth_std_english AS DECIMAL(10,2)) >= 60
       AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 60
       AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 70
   `;
@@ -513,9 +507,6 @@ const getShortlistCountByInstitute = async () => {
     FROM institutes i
     LEFT JOIN cadets c ON i.id = c.institute_id
       AND CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 60
-      AND CAST(c.tenth_std_maths AS DECIMAL(10,2)) >= 60
-      AND CAST(c.tenth_std_science AS DECIMAL(10,2)) >= 60
-      AND CAST(c.tenth_std_english AS DECIMAL(10,2)) >= 60
       AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 60
       AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 70
     GROUP BY i.id, i.institute_name

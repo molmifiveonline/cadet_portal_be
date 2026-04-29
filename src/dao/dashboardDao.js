@@ -70,7 +70,7 @@ const getDashboardStats = async () => {
     safeQuery(
       `SELECT 
         c.id, c.cadet_unique_id, c.name_as_in_indos_cert, c.email_id, 
-        c.contact_number, c.course, c.status, c.batch,
+        c.contact_number, c.course, c.status,
         i.institute_name
        FROM cadets c
        LEFT JOIN institutes i ON c.institute_id = i.id

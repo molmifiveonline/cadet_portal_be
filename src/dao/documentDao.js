@@ -120,6 +120,10 @@ const getDocumentsByDrive = async (driveId) => {
      FROM cadets c
      LEFT JOIN cadet_documents cd ON cd.cadet_id = c.id
      WHERE c.drive_id = ?
+       AND (
+         c.workflow_result IN ('medical_passed', 'ctv_assigned', 'onboarded')
+         OR c.status IN ('Selected', 'CTV Assigned', 'Onboarded')
+       )
      ORDER BY c.created_at DESC, cd.created_at DESC`,
     [driveId],
   );
