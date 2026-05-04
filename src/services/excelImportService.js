@@ -1,4 +1,23 @@
 const xlsx = require('xlsx');
+const {
+  getPhoneValidationMessage,
+  sanitizePhoneValue,
+} = require('../utils/validationUtils');
+
+const PHONE_HEADER_KEYWORDS = ['mobile', 'phone', 'whatsapp', 'contact'];
+
+const getPhoneFieldName = (header = '') => {
+  const lowerHeader = String(header).toLowerCase();
+  const matchedKeyword = PHONE_HEADER_KEYWORDS.find((keyword) =>
+    lowerHeader.includes(keyword),
+  );
+
+  if (!matchedKeyword) return '';
+  if (matchedKeyword === 'whatsapp') return 'WhatsApp';
+  return matchedKeyword.charAt(0).toUpperCase() + matchedKeyword.slice(1);
+};
+
+const isPhoneHeader = (header) => !!getPhoneFieldName(header);
 
 const parseExcelFile = (buffer) => {
   const workbook = xlsx.read(buffer, { type: 'buffer' });
@@ -93,6 +112,24 @@ const findHeaderRow = (rawData, keywords, threshold = 2) => {
   return null;
 };
 
+const validateExcelPhoneFields = (rawData, headers, startRowIndex) => {
+  for (let i = startRowIndex; i < rawData.length; i++) {
+    const rowData = rawData[i];
+    if (isRowEmpty(rowData)) continue;
+
+    for (let index = 0; index < headers.length; index++) {
+      const header = headers[index];
+      if (!isPhoneHeader(header)) continue;
+
+      const fieldName = getPhoneFieldName(header);
+      const message = getPhoneValidationMessage(rowData[index], fieldName);
+      if (message) return message;
+    }
+  }
+
+  return '';
+};
+
 const mapRowToCadetData = (rowData, headers, submission) => {
   const row = {};
   headers.forEach((header, index) => {
@@ -137,7 +174,7 @@ const mapRowToCadetData = (rowData, headers, submission) => {
     passing_out_date: formatYear(getValue(['Passing Out Date', 'Passing Out'])),
     date_of_birth: formatDate(getValue(['Date of Birth', 'DOB', 'Birth Date'])),
     age_when_passing_out: getValue(['Age when Passing Out', 'Age']),
-    contact_number: getValue(['Contact Number', 'Phone', 'Mobile']),
+    contact_number: sanitizePhoneValue(getValue(['Contact Number', 'Phone', 'Mobile'])),
     email_id: getValue(['Email ID', 'Email']),
     batch_rank_out_of_72_cadets: getValue([
       'BATCH RANK OUT OF 72 CADETS',
@@ -222,4 +259,5 @@ module.exports = {
   mapRowToCadetData,
   formatDate,
   isRowEmpty,
+  validateExcelPhoneFields,
 };

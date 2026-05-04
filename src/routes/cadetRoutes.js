@@ -92,8 +92,8 @@ router.get(
 router.put(
   '/:id',
   authMiddleware,
-  blockInstitute('Institute users are not allowed to update cadets'),
-  requirePermission('cadets', 'edit'),
+  allowInstituteOrPermission('cadets', 'edit'),
+  requireInstituteCadetOwnership('id'),
   upload.single('photo'),
   updateCadet,
 );

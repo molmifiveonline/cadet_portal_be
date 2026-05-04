@@ -615,9 +615,15 @@ const sendAssessmentInvites = async (req, res) => {
     const { id } = req.params;
     const { cadets = [] } = req.body;
 
+    const pendingDetailsNames = [];
     for (const cadetInvite of cadets) {
       const cadet = await cadetDao.getCadetById(cadetInvite.cadet_id);
       if (!cadet || cadet.drive_id !== id || !cadet.email_id) continue;
+
+      if (!Number(cadet.institute_detail_filled || 0)) {
+        pendingDetailsNames.push(cadet.name_as_in_indos_cert);
+        continue;
+      }
 
       await assessmentDao.createOrUpdateAssessment({
         cadet_id: cadet.id,
@@ -664,6 +670,15 @@ const sendAssessmentInvites = async (req, res) => {
     // (No dedicated "Assessment In Progress" status exists, so we leave the drive at Shortlisted
     // until assessment is finalised via finalizeAssessment.)
     // Nothing extra needed here – status remains Shortlisted until finalized.
+
+    if (pendingDetailsNames.length > 0) {
+      return res.json({
+        success: true,
+        message: `Assessment invites sent, but ${pendingDetailsNames.length} cadets were skipped because their details are still pending from the institute: ${pendingDetailsNames.join(', ')}.`,
+        skippedCount: pendingDetailsNames.length,
+        skippedCadets: pendingDetailsNames
+      });
+    }
 
     res.json({
       success: true,

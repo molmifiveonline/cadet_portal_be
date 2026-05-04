@@ -2,6 +2,7 @@ const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const { DEFAULT_PAGE_SIZE } = require('../config/constants');
 const { formatDateForDisplay } = require('../utils/dateUtils');
+const { getEmailValidationMessage } = require('../utils/validationUtils');
 
 const normalizeEmail = (email) =>
   typeof email === 'string' ? email.trim().toLowerCase() : '';
@@ -20,6 +21,14 @@ const getContactEmailValues = (contactEmails) =>
 const hasDuplicateContactEmails = (contactEmails) => {
   const emails = getContactEmailValues(contactEmails);
   return new Set(emails).size !== emails.length;
+};
+
+const getInvalidContactEmailMessage = (contactEmails) => {
+  const invalidEmail = getContactEmailValues(contactEmails).find((email) =>
+    getEmailValidationMessage(email),
+  );
+
+  return invalidEmail ? getEmailValidationMessage(invalidEmail) : '';
 };
 
 const ensureDefaultContact = (contactEmails) => {
@@ -54,6 +63,12 @@ const createInstitute = async (req, res) => {
       return res
         .status(400)
         .json({ message: 'Duplicate contact emails are not allowed' });
+    }
+
+    const invalidContactEmailMessage =
+      getInvalidContactEmailMessage(contact_emails);
+    if (invalidContactEmailMessage) {
+      return res.status(400).json({ message: invalidContactEmailMessage });
     }
 
     const duplicateInstitute = await instituteDao.getInstituteByContactEmails(
@@ -200,6 +215,12 @@ const updateInstitute = async (req, res) => {
       return res
         .status(400)
         .json({ message: 'Duplicate contact emails are not allowed' });
+    }
+
+    const invalidContactEmailMessage =
+      getInvalidContactEmailMessage(contact_emails);
+    if (invalidContactEmailMessage) {
+      return res.status(400).json({ message: invalidContactEmailMessage });
     }
 
     const duplicateInstitute = await instituteDao.getInstituteByContactEmails(

@@ -159,6 +159,18 @@ const deleteDocument = async (id) => {
   return result.affectedRows > 0;
 };
 
+const getDocumentsByCadetForDrive = async (cadetId, driveId) => {
+  const [rows] = await db.query(
+    `SELECT cd.* 
+     FROM cadet_documents cd
+     JOIN cadets c ON c.id = cd.cadet_id
+     WHERE cd.cadet_id = ? AND c.drive_id = ?
+     ORDER BY cd.created_at DESC`,
+    [cadetId, driveId]
+  );
+  return rows;
+};
+
 module.exports = {
   createDocument,
   getDocumentById,
@@ -166,4 +178,5 @@ module.exports = {
   getDocumentsByDrive,
   updateDocument,
   deleteDocument,
+  getDocumentsByCadetForDrive,
 };

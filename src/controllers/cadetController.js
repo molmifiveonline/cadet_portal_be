@@ -15,7 +15,43 @@ const {
   findHeaderRow,
   mapRowToCadetData,
   isRowEmpty,
+  validateExcelPhoneFields,
 } = require('../services/excelImportService');
+const {
+  getEmailValidationMessage,
+  getPhoneValidationMessage,
+  sanitizePhoneValue,
+} = require('../utils/validationUtils');
+
+const sanitizeAndValidateCadetPhone = (cadetData) => {
+  if (!cadetData || cadetData.contact_number === undefined) return '';
+
+  cadetData.contact_number = sanitizePhoneValue(cadetData.contact_number);
+  return getPhoneValidationMessage(cadetData.contact_number, 'Phone');
+};
+
+const validateCadetEmail = (cadetData) => {
+  if (!cadetData || cadetData.email_id === undefined) return '';
+  return getEmailValidationMessage(cadetData.email_id);
+};
+
+const formatBytesAsMb = (bytes) => (bytes / (1024 * 1024)).toFixed(1);
+
+const validatePhotoPacketSize = async (file) => {
+  if (!file || !file.size) return null;
+
+  const maxAllowedPacket = await cadetDao.getMaxAllowedPacket();
+  if (!maxAllowedPacket) return null;
+
+  const packetHeadroomBytes = 64 * 1024;
+  const maxSafePhotoSize = Math.max(0, maxAllowedPacket - packetHeadroomBytes);
+
+  if (file.size > maxSafePhotoSize) {
+    return `Photo is too large for the database upload limit. Please upload an image smaller than ${formatBytesAsMb(maxSafePhotoSize)} MB.`;
+  }
+
+  return null;
+};
 
 const getAllCadets = async (req, res) => {
   try {
@@ -89,6 +125,14 @@ const importCadets = async (req, res) => {
     }
 
     const { rowIndex: headerRowIndex, headers } = headerInfo;
+    const phoneValidationMessage = validateExcelPhoneFields(
+      rawData,
+      headers,
+      headerRowIndex + 1,
+    );
+    if (phoneValidationMessage) {
+      return res.status(400).json({ message: phoneValidationMessage });
+    }
 
     let importedCount = 0;
     let failedCount = 0;
@@ -120,6 +164,11 @@ const importCadets = async (req, res) => {
       try {
         const cadetData = mapRowToCadetData(rowData, headers, mockSubmission);
         if (batchName) cadetData.batch = batchName;
+
+        const phoneValidationMessage = sanitizeAndValidateCadetPhone(cadetData);
+        if (phoneValidationMessage) {
+          return res.status(400).json({ message: phoneValidationMessage });
+        }
 
         if (cadetData.name_as_in_indos_cert) {
           await cadetDao.createCadet(cadetData);
@@ -299,6 +348,16 @@ const createCadet = async (req, res) => {
     delete cadetData.is_shortlisted;
     delete cadetData.declaration_accepted;
 
+    const phoneValidationMessage = sanitizeAndValidateCadetPhone(cadetData);
+    if (phoneValidationMessage) {
+      return res.status(400).json({ message: phoneValidationMessage });
+    }
+
+    const emailValidationMessage = validateCadetEmail(cadetData);
+    if (emailValidationMessage) {
+      return res.status(400).json({ message: emailValidationMessage });
+    }
+
     if (cadetData.institute_id && cadetData.batch_year && cadetData.course) {
       const drive = await recruitmentDriveDao.getDriveByContext(cadetData.institute_id, cadetData.batch_year, cadetData.course);
       if (drive) {
@@ -306,9 +365,16 @@ const createCadet = async (req, res) => {
       }
     }
 
+    if (req.file && req.file.size > 0) {
+      const photoValidationMessage = await validatePhotoPacketSize(req.file);
+      if (photoValidationMessage) {
+        return res.status(413).json({ message: photoValidationMessage });
+      }
+    }
+
     const newCadetId = await cadetDao.createCadet(cadetData);
 
-    if (req.file) {
+    if (req.file && req.file.size > 0) {
       await cadetDao.saveCadetPhoto(
         newCadetId,
         req.file.buffer,
@@ -335,6 +401,17 @@ const createCadet = async (req, res) => {
     });
   } catch (error) {
     console.error('Create Cadet Error:', error);
+    if (
+      error.code === 'ER_NET_PACKET_TOO_LARGE' ||
+      error.message?.includes('max_allowed_packet')
+    ) {
+      return res.status(413).json({
+        message:
+          'Photo is too large for the database upload limit. Please upload a smaller image.',
+        error: error.message,
+      });
+    }
+
     res
       .status(500)
       .json({ message: 'Error creating cadet', error: error.message });
@@ -371,7 +448,42 @@ const updateCadet = async (req, res) => {
 
     delete cadetData.institute_name;
 
-    if (req.file) {
+    // For institute users, only allow editing personal/academic fields
+    if (req.user && req.user.role === ROLES.INSTITUTE) {
+      const protectedFields = [
+        'status',
+        'workflow_phase',
+        'workflow_result',
+        'drive_id',
+        'shortlisted_at',
+        'assessment_invitation_sent_at',
+        'assessment_score',
+        'assessment_result',
+        'interview_score',
+        'interview_result',
+        'medical_result',
+        'medical_date',
+        'final_selection_status',
+      ];
+      protectedFields.forEach((field) => delete cadetData[field]);
+    }
+
+    const phoneValidationMessage = sanitizeAndValidateCadetPhone(cadetData);
+    if (phoneValidationMessage) {
+      return res.status(400).json({ message: phoneValidationMessage });
+    }
+
+    const emailValidationMessage = validateCadetEmail(cadetData);
+    if (emailValidationMessage) {
+      return res.status(400).json({ message: emailValidationMessage });
+    }
+
+    if (req.file && req.file.size > 0) {
+      const photoValidationMessage = await validatePhotoPacketSize(req.file);
+      if (photoValidationMessage) {
+        return res.status(413).json({ message: photoValidationMessage });
+      }
+
       await cadetDao.saveCadetPhoto(
         id,
         req.file.buffer,
@@ -381,6 +493,33 @@ const updateCadet = async (req, res) => {
 
       const photoPath = `${req.protocol}://${req.get('host')}/api/cadets/${id}/photo`;
       cadetData = { ...cadetData, photo_path: photoPath };
+    }
+
+    // Check if mandatory fields are filled
+    const mandatoryFields = [
+      'name_as_in_indos_cert',
+      'email_id',
+      'contact_number',
+      'date_of_birth',
+      'gender',
+      'tenth_avg_percentage',
+      'tenth_std_maths',
+      'tenth_std_science',
+      'tenth_std_english',
+      'twelfth_pcm_avg_percentage',
+      'twelfth_std_english',
+      'imu_rank',
+    ];
+
+    const updatedCadet = { ...existingCadet, ...cadetData };
+    const allFilled = mandatoryFields.every(
+      (field) => updatedCadet[field] !== null && updatedCadet[field] !== '',
+    );
+
+    if (allFilled) {
+      cadetData.institute_detail_filled = 1;
+    } else {
+      cadetData.institute_detail_filled = 0;
     }
 
     await cadetDao.updateCadet(id, cadetData);
@@ -397,6 +536,17 @@ const updateCadet = async (req, res) => {
     res.json({ message: 'Cadet updated successfully' });
   } catch (error) {
     console.error('Update Cadet Error:', error);
+    if (
+      error.code === 'ER_NET_PACKET_TOO_LARGE' ||
+      error.message?.includes('max_allowed_packet')
+    ) {
+      return res.status(413).json({
+        message:
+          'Photo is too large for the database upload limit. Please upload a smaller image.',
+        error: error.message,
+      });
+    }
+
     res
       .status(500)
       .json({ message: 'Error updating cadet', error: error.message });

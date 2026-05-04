@@ -1,6 +1,7 @@
 const medicalCenterDao = require('../dao/medicalCenterDao');
 const activityLogDao = require('../dao/activityLogDao');
 const { DEFAULT_PAGE_SIZE } = require('../config/constants');
+const { getEmailValidationMessage } = require('../utils/validationUtils');
 
 const createMedicalCenter = async (req, res, next) => {
   try {
@@ -10,6 +11,14 @@ const createMedicalCenter = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'Center Name and Location are required.',
+      });
+    }
+
+    const emailValidationMessage = getEmailValidationMessage(email);
+    if (emailValidationMessage) {
+      return res.status(400).json({
+        success: false,
+        message: emailValidationMessage,
       });
     }
 
@@ -115,6 +124,14 @@ const updateMedicalCenter = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'Center Name and Location are required.',
+      });
+    }
+
+    const emailValidationMessage = getEmailValidationMessage(email);
+    if (emailValidationMessage) {
+      return res.status(400).json({
+        success: false,
+        message: emailValidationMessage,
       });
     }
 

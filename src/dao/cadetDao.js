@@ -20,6 +20,7 @@ const getCadetCompatibility = async () => ({
   hasShortlistedAt: await hasColumn('cadets', 'shortlisted_at'),
   hasSelectedAt: await hasColumn('cadets', 'selected_at'),
   hasShortlistEmailSent: await hasColumn('cadets', 'shortlist_email_sent'),
+  hasInstituteDetailFilled: await hasColumn('cadets', 'institute_detail_filled'),
 });
 
 const getAssessmentCompatibility = async () => ({
@@ -70,7 +71,9 @@ const buildBaseSelect = async () => {
       ${cadetCompat.hasShortlistedAt ? 'c.shortlisted_at' : 'NULL AS shortlisted_at'},
       ${cadetCompat.hasSelectedAt ? 'c.selected_at' : 'NULL AS selected_at'},
       ${cadetCompat.hasShortlistEmailSent ? 'c.shortlist_email_sent' : '0 AS shortlist_email_sent'},
+      ${cadetCompat.hasInstituteDetailFilled ? 'c.institute_detail_filled' : '0 AS institute_detail_filled'},
       i.institute_name,
+      rd.drive_name,
       a.id AS assessment_id,
       ${assessmentCompat.hasAssessmentDate ? 'a.assessment_date' : 'NULL AS assessment_date'},
       ${assessmentCompat.hasAssessmentTime ? 'a.assessment_time' : 'NULL AS assessment_time'},
@@ -111,6 +114,7 @@ const buildBaseSelect = async () => {
       COALESCE(c.imu_avg_all_semester_percentage, c.twelfth_pcm_avg_percentage, c.tenth_avg_percentage) AS cadet_percentage
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
+    LEFT JOIN recruitment_drives rd ON c.drive_id = rd.id
     LEFT JOIN assessments a ON c.id = a.cadet_id
     LEFT JOIN interviews iv ON c.id = iv.cadet_id
     LEFT JOIN cadet_medical_results mr ON c.id = mr.cadet_id
@@ -572,6 +576,16 @@ const saveCadetPhoto = async (cadetId, photoBuffer, mimeType, photoName) => {
   );
 };
 
+const getMaxAllowedPacket = async () => {
+  try {
+    const [rows] = await db.query("SHOW VARIABLES LIKE 'max_allowed_packet'");
+    const value = Number(rows?.[0]?.Value);
+    return Number.isFinite(value) ? value : null;
+  } catch (error) {
+    return null;
+  }
+};
+
 const getCadetPhoto = async (cadetId) => {
   const [rows] = await db.query(
     'SELECT photo_data, photo_mime_type FROM cadets WHERE id = ?',
@@ -593,5 +607,6 @@ module.exports = {
   bulkUpdateCadets,
   deleteCadet,
   saveCadetPhoto,
+  getMaxAllowedPacket,
   getCadetPhoto,
 };

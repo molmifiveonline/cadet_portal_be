@@ -1,6 +1,11 @@
 const userManagementDao = require('../dao/userManagementDao');
 const activityLogDao = require('../dao/activityLogDao');
 const { DEFAULT_PAGE_SIZE } = require('../config/constants');
+const {
+  getEmailValidationMessage,
+  PASSWORD_LENGTH_MESSAGE,
+  isValidPasswordLength,
+} = require('../utils/validationUtils');
 
 const getUsers = async (req, res, next) => {
   try {
@@ -66,6 +71,15 @@ const createUser = async (req, res, next) => {
         .json({ message: 'Email and password are required' });
     }
 
+    const emailValidationMessage = getEmailValidationMessage(email);
+    if (emailValidationMessage) {
+      return res.status(400).json({ message: emailValidationMessage });
+    }
+
+    if (!isValidPasswordLength(password)) {
+      return res.status(400).json({ message: PASSWORD_LENGTH_MESSAGE });
+    }
+
     if (!first_name || !last_name) {
       return res
         .status(400)
@@ -116,6 +130,11 @@ const updateUser = async (req, res, next) => {
       });
     }
 
+    const emailValidationMessage = getEmailValidationMessage(email);
+    if (emailValidationMessage) {
+      return res.status(400).json({ message: emailValidationMessage });
+    }
+
     const existingUser = await userManagementDao.findUserById(id);
     if (!existingUser) {
       return res.status(404).json({ message: 'User not found' });
@@ -130,6 +149,12 @@ const updateUser = async (req, res, next) => {
       }
     }
 
+    const shouldUpdatePassword =
+      typeof password === 'string' && password.trim() !== '';
+    if (shouldUpdatePassword && !isValidPasswordLength(password)) {
+      return res.status(400).json({ message: PASSWORD_LENGTH_MESSAGE });
+    }
+
     const updated = await userManagementDao.updateUser(
       id,
       email,
@@ -137,7 +162,7 @@ const updateUser = async (req, res, next) => {
       last_name,
       status || existingUser.status || 'active',
       role || existingUser.role || 'Admin',
-      password || null,
+      shouldUpdatePassword ? password : null,
     );
 
     if (updated) {

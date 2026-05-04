@@ -11,6 +11,10 @@ const {
   FRONTEND_URL,
 } = require('../config/constants');
 const instituteDao = require('../dao/instituteDao');
+const {
+  PASSWORD_LENGTH_MESSAGE,
+  isValidPasswordLength,
+} = require('../utils/validationUtils');
 
 const login = async (req, res) => {
   try {
@@ -165,6 +169,10 @@ const resetPassword = async (req, res) => {
 
     if (password !== confirm_password) {
       return res.status(400).json({ message: 'Passwords do not match' });
+    }
+
+    if (!isValidPasswordLength(password)) {
+      return res.status(400).json({ message: PASSWORD_LENGTH_MESSAGE });
     }
 
     const hashedPassword = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);

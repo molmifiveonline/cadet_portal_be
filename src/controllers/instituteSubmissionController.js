@@ -16,6 +16,7 @@ const {
   findHeaderRow,
   mapRowToCadetData,
   isRowEmpty,
+  validateExcelPhoneFields,
 } = require('../services/excelImportService');
 
 const normalizeCourseType = (value) => {
@@ -89,6 +90,23 @@ const submitInstituteExcel = async (req, res) => {
           message:
             'Course type is missing or invalid for this submission. Please resend request email with Deck/Engine.',
         });
+      }
+
+      const { rawData } = parseExcelFile(file.buffer);
+      const headerInfo = findHeaderRow(rawData, EXCEL_HEADER_KEYWORDS);
+      if (!headerInfo) {
+        return res
+          .status(400)
+          .json({ message: 'Could not identify header row in Excel file' });
+      }
+
+      const phoneValidationMessage = validateExcelPhoneFields(
+        rawData,
+        headerInfo.headers,
+        headerInfo.rowIndex + 1,
+      );
+      if (phoneValidationMessage) {
+        return res.status(400).json({ message: phoneValidationMessage });
       }
 
       const drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
@@ -261,6 +279,17 @@ const parseSubmissionData = async (submissionId, driveId = null) => {
     throw new Error('Could not identify header row in Excel file');
 
   const { rowIndex: headerRowIndex, headers } = headerInfo;
+  const phoneValidationMessage = validateExcelPhoneFields(
+    rawData,
+    headers,
+    headerRowIndex + 1,
+  );
+  if (phoneValidationMessage) {
+    const error = new Error(phoneValidationMessage);
+    error.statusCode = 400;
+    throw error;
+  }
+
   const cadets = [];
 
   for (let i = headerRowIndex + 1; i < rawData.length; i++) {
@@ -344,6 +373,8 @@ const importSubmission = async (req, res) => {
       return res.status(404).json({ message: error.message });
     if (error.message === 'Submission already imported')
       return res.status(400).json({ message: error.message });
+    if (error.statusCode)
+      return res.status(error.statusCode).json({ message: error.message });
     console.error('Import Submission Error:', error);
     res
       .status(500)

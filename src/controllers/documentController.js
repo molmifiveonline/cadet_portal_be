@@ -179,20 +179,23 @@ const reviewDocument = async (req, res) => {
       last_reupload_requested_at: status === 'reupload_requested' ? new Date() : document.last_reupload_requested_at,
     });
 
-    if (status === 'reupload_requested' && document.email_id) {
+    if (document.email_id) {
       const documentLink =
         document.external_upload_link ||
         `${FRONTEND_URL || ''}/drives/${document.drive_id}`;
 
+      const allCadetDocuments = await documentDao.getDocumentsByCadetForDrive(document.cadet_id, document.drive_id);
+      const requiresReupload = allCadetDocuments.some(doc => doc.status === 'reupload_requested');
+
       await logAndSendEmail({
         to: document.email_id,
-        template: emailTemplates.stageInvite,
+        template: emailTemplates.documentStatusReport,
         templateData: {
-          subject: `Re-upload requested for ${document.document_name}`,
+          subject: `Document Status Update - MOLMI`,
           recipientName: document.name_as_in_indos_cert,
-          message: `Please re-upload the document "${document.document_name}" requested by the MOLMI team.`,
-          documentLink,
-          remarks: admin_remarks,
+          documents: allCadetDocuments,
+          requiresReupload,
+          onedriveLink: documentLink,
         },
         drive_id: document.drive_id,
         cadet_id: document.cadet_id,
@@ -286,6 +289,76 @@ const createExternalDocumentRequest = async ({ cadet, documentType = 'OTHER', li
   return { token, expiresAt };
 };
 
+const requestDocumentUpload = async (req, res) => {
+  try {
+    const { drive_id, cadet_links, remarks } = req.body;
+
+    if (!drive_id || !cadet_links || !cadet_links.length) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    if (isInstituteUser(req.user)) {
+      return res.status(403).json({ success: false, message: 'Institute users are not allowed to request documents' });
+    }
+
+    const drive = await recruitmentDriveDao.getRecruitmentDriveById(drive_id);
+    if (!drive) {
+      return res.status(404).json({ success: false, message: 'Recruitment drive not found' });
+    }
+
+    let successCount = 0;
+
+    for (const { cadet_id: cadetId, onedrive_link } of cadet_links) {
+      if (!cadetId || !onedrive_link) continue;
+
+      const cadet = await cadetDao.getCadetById(cadetId);
+      if (!cadet || cadet.drive_id !== drive_id) continue;
+
+      // Create document record with cadet-specific OneDrive link
+      await documentDao.createDocument({
+        cadet_id: cadetId,
+        document_name: 'Required Documents',
+        document_type: 'OTHER',
+        status: 'pending',
+        source: 'onedrive',
+        external_upload_link: onedrive_link,
+        requested_at: new Date(),
+        admin_remarks: remarks || null,
+        reviewed_by: req.user?.id || null,
+      });
+
+      if (cadet.email_id) {
+        try {
+          await logAndSendEmail({
+            to: cadet.email_id,
+            template: emailTemplates.documentUploadRequest,
+            templateData: {
+              subject: `Action Required: Document Upload - MOLMI`,
+              recipientName: cadet.name_as_in_indos_cert,
+              onedriveLink: onedrive_link,
+              remarks: remarks,
+            },
+            drive_id,
+            cadet_id: cadetId,
+            institute_id: cadet.institute_id,
+            communication_type: COMMUNICATION_TYPES.DOCUMENT_REQUEST,
+            remarks: remarks,
+            sent_by: req.user?.id || null,
+          });
+          successCount++;
+        } catch (emailError) {
+          console.error(`Failed to send email to cadet ${cadetId}:`, emailError);
+        }
+      }
+    }
+
+    res.json({ success: true, message: `Document upload requested for ${successCount} cadet(s)` });
+  } catch (error) {
+    console.error('Error in requestDocumentUpload:', error);
+    res.status(500).json({ success: false, message: 'Failed to request documents', error: error.message });
+  }
+};
+
 module.exports = {
   getDriveDocuments,
   uploadCadetDocument,
@@ -293,4 +366,5 @@ module.exports = {
   downloadDocument,
   deleteDocument,
   createExternalDocumentRequest,
+  requestDocumentUpload,
 };
