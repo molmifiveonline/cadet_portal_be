@@ -7,12 +7,16 @@ const getRecentLogs = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const offset = (page - 1) * limit;
     const searchTerm = req.query.search || '';
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = req.query.sortOrder || 'DESC';
 
     // Get logs from last 3 months with search
     const logs = await activityLogDao.getLogsLast3Months(
       limit,
       offset,
       searchTerm,
+      sortBy,
+      sortOrder,
     );
     const total = await activityLogDao.countLogsLast3Months(searchTerm);
 

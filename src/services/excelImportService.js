@@ -1,4 +1,23 @@
 const xlsx = require('xlsx');
+const {
+  getPhoneValidationMessage,
+  sanitizePhoneValue,
+} = require('../utils/validationUtils');
+
+const PHONE_HEADER_KEYWORDS = ['mobile', 'phone', 'whatsapp', 'contact'];
+
+const getPhoneFieldName = (header = '') => {
+  const lowerHeader = String(header).toLowerCase();
+  const matchedKeyword = PHONE_HEADER_KEYWORDS.find((keyword) =>
+    lowerHeader.includes(keyword),
+  );
+
+  if (!matchedKeyword) return '';
+  if (matchedKeyword === 'whatsapp') return 'WhatsApp';
+  return matchedKeyword.charAt(0).toUpperCase() + matchedKeyword.slice(1);
+};
+
+const isPhoneHeader = (header) => !!getPhoneFieldName(header);
 
 const parseExcelFile = (buffer) => {
   const workbook = xlsx.read(buffer, { type: 'buffer' });
@@ -39,12 +58,15 @@ const formatDate = (value) => {
       console.error('Error parsing Excel date code:', err);
     }
   }
-  // If it's a string, try parsing it from expected dd-mm-yyyy
+  // If it's a string, try parsing it from expected day-first formats.
   if (typeof value === 'string') {
     value = value.trim();
-    const parts = value.split('-');
-    if (parts.length === 3) {
-      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    const match = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (match) {
+      const day = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10);
+      if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+      return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
     }
   }
   return null;
@@ -66,8 +88,8 @@ const formatYear = (value) => {
   if (typeof value === 'string') {
     value = value.trim();
     if (value.length === 4 && !isNaN(parseInt(value))) return parseInt(value);
-    const parts = value.split('-');
-    if (parts.length === 3) return parseInt(parts[2]); // Extract year if it's dd-mm-yyyy
+    const match = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (match) return parseInt(match[3], 10);
   }
   return null;
 };
@@ -88,6 +110,24 @@ const findHeaderRow = (rawData, keywords, threshold = 2) => {
     }
   }
   return null;
+};
+
+const validateExcelPhoneFields = (rawData, headers, startRowIndex) => {
+  for (let i = startRowIndex; i < rawData.length; i++) {
+    const rowData = rawData[i];
+    if (isRowEmpty(rowData)) continue;
+
+    for (let index = 0; index < headers.length; index++) {
+      const header = headers[index];
+      if (!isPhoneHeader(header)) continue;
+
+      const fieldName = getPhoneFieldName(header);
+      const message = getPhoneValidationMessage(rowData[index], fieldName);
+      if (message) return message;
+    }
+  }
+
+  return '';
 };
 
 const mapRowToCadetData = (rowData, headers, submission) => {
@@ -117,8 +157,10 @@ const mapRowToCadetData = (rowData, headers, submission) => {
     institute_id: submission.institute_id,
     submission_id: submission.id,
     batch_year: submission.batch_year,
-    status: 'active',
-    cv_form_status: 'pending',
+    status: 'Uploaded',
+    workflow_phase: 'uploaded',
+    workflow_result: 'pending',
+    roll_no: getValue(['Roll No', 'Roll Number', 'Cadet Roll No']),
 
     // Core mapped fields based on user exact excel layout
     course: getValue(['Deck/ Engine', 'Course', 'Stream']) || 'General',
@@ -132,7 +174,7 @@ const mapRowToCadetData = (rowData, headers, submission) => {
     passing_out_date: formatYear(getValue(['Passing Out Date', 'Passing Out'])),
     date_of_birth: formatDate(getValue(['Date of Birth', 'DOB', 'Birth Date'])),
     age_when_passing_out: getValue(['Age when Passing Out', 'Age']),
-    contact_number: getValue(['Contact Number', 'Phone', 'Mobile']),
+    contact_number: sanitizePhoneValue(getValue(['Contact Number', 'Phone', 'Mobile'])),
     email_id: getValue(['Email ID', 'Email']),
     batch_rank_out_of_72_cadets: getValue([
       'BATCH RANK OUT OF 72 CADETS',
@@ -177,6 +219,7 @@ const mapRowToCadetData = (rowData, headers, submission) => {
       'IMU Avg All Semester',
       'IMU Avg All Semester %',
       'IMU Avg All Semester Percentage',
+      'IMU Avg',
     ]),
     imu_sem_1_percentage: getValue(['IMU Sem 1']),
     imu_sem_2_percentage: getValue(['IMU Sem 2']),
@@ -216,4 +259,5 @@ module.exports = {
   mapRowToCadetData,
   formatDate,
   isRowEmpty,
+  validateExcelPhoneFields,
 };

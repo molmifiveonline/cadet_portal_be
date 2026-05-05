@@ -27,6 +27,45 @@ const getRoleByName = async (roleName) => {
   return rows[0];
 };
 
+/* Create a new role */
+const createRole = async (roleData) => {
+  const { name, display_name, description } = roleData;
+  const id = uuidv4();
+
+  const [result] = await db.query(
+    'INSERT INTO roles (id, name, display_name, description, is_system_role) VALUES (?, ?, ?, ?, ?)',
+    [id, name, display_name, description, false],
+  );
+
+  return result.affectedRows > 0 ? { id, name, display_name, description } : null;
+};
+
+/* Update an existing role */
+const updateRole = async (roleId, roleData) => {
+  const { display_name, description } = roleData;
+
+  const [result] = await db.query(
+    'UPDATE roles SET display_name = ?, description = ?, updated_at = NOW() WHERE id = ? AND is_system_role = FALSE',
+    [display_name, description, roleId],
+  );
+
+  return result.affectedRows > 0;
+};
+
+/* Delete a role */
+const deleteRole = async (roleId) => {
+  // First clear permissions linked to this role
+  await clearRolePermissions(roleId);
+
+  // Then delete the role
+  const [result] = await db.query(
+    'DELETE FROM roles WHERE id = ? AND is_system_role = FALSE',
+    [roleId],
+  );
+
+  return result.affectedRows > 0;
+};
+
 /* Get all permissions */
 const getAllPermissions = async () => {
   const [rows] = await db.query(
@@ -190,6 +229,9 @@ module.exports = {
   getAllRoles,
   getRoleById,
   getRoleByName,
+  createRole,
+  updateRole,
+  deleteRole,
 
   // Permissions
   getAllPermissions,

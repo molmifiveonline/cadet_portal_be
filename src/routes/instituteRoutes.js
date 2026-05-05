@@ -21,12 +21,13 @@ const {
 
 const {
   sendInstituteEmail,
+  sendShortlistEmail,
   verifyInstituteToken,
   loginInstitute,
 } = require('../controllers/instituteAuthController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
-const { requirePermission } = require('../middleware/permissionMiddleware');
+const { requirePermission, requireAnyPermission } = require('../middleware/permissionMiddleware');
 const upload = require('../middleware/uploadMiddleware');
 
 // All routes are scoped to /api/institutes by index.js
@@ -95,9 +96,22 @@ router.post(
 router.post(
   '/send-email',
   authMiddleware,
-  requirePermission('institutes', 'create'),
+  requireAnyPermission([
+    ['institutes', 'create'],
+    ['recruitment_drives', 'edit'],
+  ]),
   upload.single('file'),
   sendInstituteEmail,
+);
+
+router.post(
+  '/send-shortlist-email',
+  authMiddleware,
+  requireAnyPermission([
+    ['institutes', 'create'],
+    ['recruitment_drives', 'edit'],
+  ]),
+  sendShortlistEmail,
 );
 router.get(
   '/',

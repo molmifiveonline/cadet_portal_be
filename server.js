@@ -9,6 +9,9 @@ const routes = require('./src/routes');
 // Import middleware
 const errorHandler = require('./src/middleware/errorHandler');
 
+// Import DAOs for background tasks
+const activityLogDao = require('./src/dao/activityLogDao');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -38,6 +41,14 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`API: http://localhost:${PORT}/api`);
   console.log(`Health: http://localhost:${PORT}/health`);
+
+  // Run initial cleanup of old activity logs
+  activityLogDao.deleteOldLogs();
+
+  // Schedule cleanup to run every 24 hours (24 * 60 * 60 * 1000 ms)
+  setInterval(() => {
+    activityLogDao.deleteOldLogs();
+  }, 86400000);
 });
 
 module.exports = app;

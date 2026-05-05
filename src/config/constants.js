@@ -20,7 +20,7 @@ module.exports = {
     EXCEL: 10 * 1024 * 1024, // 10MB
     CV: 5 * 1024 * 1024, // 5MB
     DOCUMENT: 5 * 1024 * 1024, // 5MB
-    IMAGE: 2 * 1024 * 1024, // 2MB
+    IMAGE: 5 * 1024 * 1024, // 5MB
   },
 
   // Allowed File Types
@@ -42,11 +42,13 @@ module.exports = {
 
   // Expiry
   INSTITUTE_CREDENTIAL_EXPIRY_DAYS: 7,
+  INSTITUTE_OTP_EXPIRY_MINUTES: 10,
   CV_TOKEN_EXPIRY_DAYS: 7,
 
   // Submission Status
   SUBMISSION_STATUS: {
     PENDING: 'pending',
+    UPLOADED: 'pending',
     IMPORTED: 'imported',
     REJECTED: 'rejected',
   },
@@ -117,6 +119,7 @@ module.exports = {
 
   // Document Types
   DOCUMENT_TYPES: {
+    CV: 'CV',
     INDOS: 'INDOS',
     PASSPORT: 'PASSPORT',
     CDC: 'CDC',
@@ -134,4 +137,23 @@ module.exports = {
     INTERVIEW_PASSING_PERCENTAGE: 60,
     FINAL_SELECTION_PERCENTAGE: 65,
   },
+
+  // Drive Status
+  DRIVE_STATUS: {
+    DRAFT: 'Draft',
+    REQUESTED: 'Requested',
+    RECEIVED: 'Received',
+    SUBMITTED: 'Submitted',
+    SHORTLISTED: 'Shortlisted',
+    ASSESSMENT_COMPLETED: 'Assessment Completed',
+    INTERVIEW_COMPLETED: 'Interview Completed',
+    MEDICAL_COMPLETED: 'Medical Completed',
+    CLOSED: 'Closed',
+  },
+
+  EXTERNAL_LINK_EXPIRY_HOURS: 168,
+  
+  // Frontend URLs for absolute links
+  FRONTEND_URL: (process.env.FRONTEND_URL || '').split(',')[0].trim() || 'http://localhost:3000',
+  INSTITUTE_FRONTEND_URL: (process.env.FRONTEND_URL || '').split(',')[1]?.trim() || (process.env.FRONTEND_URL || '').split(',')[0].trim() || 'http://localhost:3001',
 };

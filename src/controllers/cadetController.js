@@ -2,18 +2,56 @@ const cadetDao = require('../dao/cadetDao');
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const shortlistService = require('../services/shortlistService');
+const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const {
   DEFAULT_PAGE_SIZE,
   ROLES,
   EXCEL_HEADER_KEYWORDS,
   SUBMISSION_STATUS,
 } = require('../config/constants');
+const { DISPLAY_STATUS, WORKFLOW_PHASES } = require('../services/recruitmentWorkflowService');
 const {
   parseExcelFile,
   findHeaderRow,
   mapRowToCadetData,
   isRowEmpty,
+  validateExcelPhoneFields,
 } = require('../services/excelImportService');
+const {
+  getEmailValidationMessage,
+  getPhoneValidationMessage,
+  sanitizePhoneValue,
+} = require('../utils/validationUtils');
+
+const sanitizeAndValidateCadetPhone = (cadetData) => {
+  if (!cadetData || cadetData.contact_number === undefined) return '';
+
+  cadetData.contact_number = sanitizePhoneValue(cadetData.contact_number);
+  return getPhoneValidationMessage(cadetData.contact_number, 'Phone');
+};
+
+const validateCadetEmail = (cadetData) => {
+  if (!cadetData || cadetData.email_id === undefined) return '';
+  return getEmailValidationMessage(cadetData.email_id);
+};
+
+const formatBytesAsMb = (bytes) => (bytes / (1024 * 1024)).toFixed(1);
+
+const validatePhotoPacketSize = async (file) => {
+  if (!file || !file.size) return null;
+
+  const maxAllowedPacket = await cadetDao.getMaxAllowedPacket();
+  if (!maxAllowedPacket) return null;
+
+  const packetHeadroomBytes = 64 * 1024;
+  const maxSafePhotoSize = Math.max(0, maxAllowedPacket - packetHeadroomBytes);
+
+  if (file.size > maxSafePhotoSize) {
+    return `Photo is too large for the database upload limit. Please upload an image smaller than ${formatBytesAsMb(maxSafePhotoSize)} MB.`;
+  }
+
+  return null;
+};
 
 const getAllCadets = async (req, res) => {
   try {
@@ -26,8 +64,10 @@ const getAllCadets = async (req, res) => {
         ? req.user.instituteId
         : req.query.instituteId;
     const batch = req.query.batch;
-    const batch_year = req.query.batch_year; // Added
-    const course_type = req.query.course_type; // Added
+    const batch_year = req.query.batch_year;
+    const course_type = req.query.course_type;
+    const drive_id = req.query.drive_id;
+    const status = req.query.status;
 
     const offset = (page - 1) * limit;
 
@@ -35,8 +75,10 @@ const getAllCadets = async (req, res) => {
       search,
       instituteId,
       batch,
-      batch_year, // Passed to filters
-      course_type, // Passed to filters
+      batch_year,
+      course_type,
+      drive_id,
+      status,
     };
 
     const { data, total } = await cadetDao.getAllCadets(limit, offset, filters);
@@ -74,9 +116,7 @@ const importCadets = async (req, res) => {
 
     const { rawData } = parseExcelFile(file.buffer);
 
-    // Potential header keywords to look for
     const headerKeywords = EXCEL_HEADER_KEYWORDS;
-
     const headerInfo = findHeaderRow(rawData, headerKeywords);
     if (!headerInfo) {
       return res
@@ -85,12 +125,18 @@ const importCadets = async (req, res) => {
     }
 
     const { rowIndex: headerRowIndex, headers } = headerInfo;
+    const phoneValidationMessage = validateExcelPhoneFields(
+      rawData,
+      headers,
+      headerRowIndex + 1,
+    );
+    if (phoneValidationMessage) {
+      return res.status(400).json({ message: phoneValidationMessage });
+    }
 
-    // Process Data
     let importedCount = 0;
     let failedCount = 0;
 
-    // Create a manual submission record
     const timestamp = Date.now();
     const filename = `${instituteId}_${timestamp}_${file.originalname}`;
 
@@ -101,13 +147,11 @@ const importCadets = async (req, res) => {
       file.buffer,
     );
 
-    // Auto-approve/import status since it's an admin import
     await instituteDao.updateSubmissionStatus(
       submissionId,
       SUBMISSION_STATUS.IMPORTED,
     );
 
-    // Create a mock submission object for mapping compatibility
     const mockSubmission = {
       institute_id: instituteId,
       id: submissionId,
@@ -119,11 +163,13 @@ const importCadets = async (req, res) => {
 
       try {
         const cadetData = mapRowToCadetData(rowData, headers, mockSubmission);
-
-        // Override or fill in manual data
         if (batchName) cadetData.batch = batchName;
 
-        // Minimal requirement: Name
+        const phoneValidationMessage = sanitizeAndValidateCadetPhone(cadetData);
+        if (phoneValidationMessage) {
+          return res.status(400).json({ message: phoneValidationMessage });
+        }
+
         if (cadetData.name_as_in_indos_cert) {
           await cadetDao.createCadet(cadetData);
           importedCount++;
@@ -136,7 +182,6 @@ const importCadets = async (req, res) => {
       }
     }
 
-    // Log Activity
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
         req.user.id,
@@ -164,9 +209,20 @@ const getCadetById = async (req, res) => {
   try {
     const { id } = req.params;
     const cadet = await cadetDao.getCadetById(id);
-
+    
     if (!cadet) {
       return res.status(404).json({ message: 'Cadet not found' });
+    }
+
+    // Dynamic shortlisting check
+    cadet.is_shortlisted = shortlistService.checkShortlistCriteria(cadet);
+
+    if (req.user && req.user.role === ROLES.INSTITUTE && req.user.instituteId) {
+      if (cadet.institute_id !== req.user.instituteId) {
+        return res
+          .status(403)
+          .json({ message: 'Unauthorized access to this cadet data' });
+      }
     }
 
     res.json({ data: cadet });
@@ -178,15 +234,11 @@ const getCadetById = async (req, res) => {
   }
 };
 
-/**
- * Get all shortlisted cadets with pagination and filters
- */
 const getShortlistedCadets = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
-    // Force scoping for Institute users
     const instituteId =
       req.user?.role === ROLES.INSTITUTE
         ? req.user.instituteId
@@ -194,14 +246,15 @@ const getShortlistedCadets = async (req, res) => {
 
     const batch_year = req.query.batch_year;
     const course_type = req.query.course_type;
-
+    const drive_id = req.query.drive_id;
     const offset = (page - 1) * limit;
 
     const filters = {
       search,
       instituteId,
-      batch_year, // Passed to filters
-      course_type, // Passed to filters
+      batch_year,
+      course_type,
+      drive_id,
     };
 
     const { data, total } = await shortlistService.getShortlistedCadets(
@@ -226,9 +279,6 @@ const getShortlistedCadets = async (req, res) => {
   }
 };
 
-/**
- * Get shortlist statistics by institute
- */
 const getShortlistStats = async (req, res) => {
   try {
     const stats = await shortlistService.getShortlistStats();
@@ -242,24 +292,198 @@ const getShortlistStats = async (req, res) => {
   }
 };
 
+const getInstituteShortlistedCadets = async (req, res) => {
+  try {
+    const instituteId = req.user?.instituteId;
+
+    if (!instituteId) {
+      return res.status(403).json({
+        message: 'Access denied. Institute ID not found in token.',
+      });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
+    const search = req.query.search || '';
+    const offset = (page - 1) * limit;
+
+    const filters = {
+      search,
+      instituteId,
+    };
+
+    const { data, total } = await shortlistService.getShortlistedCadets(
+      limit,
+      offset,
+      filters,
+    );
+
+    res.json({
+      data,
+      total,
+      page,
+      limit,
+      last_page: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    console.error('Get Institute Shortlisted Cadets Error:', error);
+    res.status(500).json({
+      message: 'Error fetching shortlisted cadets',
+      error: error.message,
+    });
+  }
+};
+
+const createCadet = async (req, res) => {
+  try {
+    let cadetData = req.body;
+    cadetData.status = cadetData.status || DISPLAY_STATUS.UPLOADED;
+    cadetData.workflow_phase = cadetData.workflow_phase || WORKFLOW_PHASES.UPLOADED;
+    cadetData.workflow_result = cadetData.workflow_result || 'pending';
+    delete cadetData.photo;
+    delete cadetData.photo_data;
+    delete cadetData.photo_mime_type;
+    delete cadetData.photo_name;
+    delete cadetData.created_at;
+    delete cadetData.is_shortlisted;
+    delete cadetData.declaration_accepted;
+
+    const phoneValidationMessage = sanitizeAndValidateCadetPhone(cadetData);
+    if (phoneValidationMessage) {
+      return res.status(400).json({ message: phoneValidationMessage });
+    }
+
+    const emailValidationMessage = validateCadetEmail(cadetData);
+    if (emailValidationMessage) {
+      return res.status(400).json({ message: emailValidationMessage });
+    }
+
+    if (cadetData.institute_id && cadetData.batch_year && cadetData.course) {
+      const drive = await recruitmentDriveDao.getDriveByContext(cadetData.institute_id, cadetData.batch_year, cadetData.course);
+      if (drive) {
+        cadetData.drive_id = drive.id;
+      }
+    }
+
+    if (req.file && req.file.size > 0) {
+      const photoValidationMessage = await validatePhotoPacketSize(req.file);
+      if (photoValidationMessage) {
+        return res.status(413).json({ message: photoValidationMessage });
+      }
+    }
+
+    const newCadetId = await cadetDao.createCadet(cadetData);
+
+    if (req.file && req.file.size > 0) {
+      await cadetDao.saveCadetPhoto(
+        newCadetId,
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname,
+      );
+
+      const photoPath = `${req.protocol}://${req.get('host')}/api/cadets/${newCadetId}/photo`;
+      await cadetDao.updateCadet(newCadetId, { photo_path: photoPath });
+    }
+
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'CREATE_CADET',
+        `Created new cadet: ${cadetData.name_as_in_indos_cert || 'Unknown'}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.status(201).json({
+      message: 'Cadet created successfully',
+      data: { id: newCadetId },
+    });
+  } catch (error) {
+    console.error('Create Cadet Error:', error);
+    if (
+      error.code === 'ER_NET_PACKET_TOO_LARGE' ||
+      error.message?.includes('max_allowed_packet')
+    ) {
+      return res.status(413).json({
+        message:
+          'Photo is too large for the database upload limit. Please upload a smaller image.',
+        error: error.message,
+      });
+    }
+
+    res
+      .status(500)
+      .json({ message: 'Error creating cadet', error: error.message });
+  }
+};
+
 const updateCadet = async (req, res) => {
   try {
     const { id } = req.params;
-    let cadetData = req.body;
+    let cadetData = { ...req.body };
 
-    // Check if cadet exists
+    // Prevent overwriting sensitive or managed fields
+    delete cadetData.id;
+    delete cadetData.photo;
+    delete cadetData.photo_data;
+    delete cadetData.photo_mime_type;
+    delete cadetData.photo_name;
+    delete cadetData.created_at;
+    delete cadetData.is_shortlisted;
+    delete cadetData.declaration_accepted;
+
     const existingCadet = await cadetDao.getCadetById(id);
     if (!existingCadet) {
       return res.status(404).json({ message: 'Cadet not found' });
     }
 
-    // Remove joined/readonly properties that shouldn't be updated in the cadets table
-    delete cadetData.institute_name;
-    delete cadetData.pcm_percentage;
-    delete cadetData.address;
+    if (req.user && req.user.role === ROLES.INSTITUTE && req.user.instituteId) {
+      if (existingCadet.institute_id !== req.user.instituteId) {
+        return res
+          .status(403)
+          .json({ message: 'Unauthorized access to this cadet data' });
+      }
+    }
 
-    // Handle photo upload — save to database
-    if (req.file) {
+    delete cadetData.institute_name;
+
+    // For institute users, only allow editing personal/academic fields
+    if (req.user && req.user.role === ROLES.INSTITUTE) {
+      const protectedFields = [
+        'status',
+        'workflow_phase',
+        'workflow_result',
+        'drive_id',
+        'shortlisted_at',
+        'assessment_invitation_sent_at',
+        'assessment_score',
+        'assessment_result',
+        'interview_score',
+        'interview_result',
+        'medical_result',
+        'medical_date',
+        'final_selection_status',
+      ];
+      protectedFields.forEach((field) => delete cadetData[field]);
+    }
+
+    const phoneValidationMessage = sanitizeAndValidateCadetPhone(cadetData);
+    if (phoneValidationMessage) {
+      return res.status(400).json({ message: phoneValidationMessage });
+    }
+
+    const emailValidationMessage = validateCadetEmail(cadetData);
+    if (emailValidationMessage) {
+      return res.status(400).json({ message: emailValidationMessage });
+    }
+
+    if (req.file && req.file.size > 0) {
+      const photoValidationMessage = await validatePhotoPacketSize(req.file);
+      if (photoValidationMessage) {
+        return res.status(413).json({ message: photoValidationMessage });
+      }
+
       await cadetDao.saveCadetPhoto(
         id,
         req.file.buffer,
@@ -271,9 +495,35 @@ const updateCadet = async (req, res) => {
       cadetData = { ...cadetData, photo_path: photoPath };
     }
 
+    // Check if mandatory fields are filled
+    const mandatoryFields = [
+      'name_as_in_indos_cert',
+      'email_id',
+      'contact_number',
+      'date_of_birth',
+      'gender',
+      'tenth_avg_percentage',
+      'tenth_std_maths',
+      'tenth_std_science',
+      'tenth_std_english',
+      'twelfth_pcm_avg_percentage',
+      'twelfth_std_english',
+      'imu_rank',
+    ];
+
+    const updatedCadet = { ...existingCadet, ...cadetData };
+    const allFilled = mandatoryFields.every(
+      (field) => updatedCadet[field] !== null && updatedCadet[field] !== '',
+    );
+
+    if (allFilled) {
+      cadetData.institute_detail_filled = 1;
+    } else {
+      cadetData.institute_detail_filled = 0;
+    }
+
     await cadetDao.updateCadet(id, cadetData);
 
-    // Log Activity
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
         req.user.id,
@@ -286,6 +536,17 @@ const updateCadet = async (req, res) => {
     res.json({ message: 'Cadet updated successfully' });
   } catch (error) {
     console.error('Update Cadet Error:', error);
+    if (
+      error.code === 'ER_NET_PACKET_TOO_LARGE' ||
+      error.message?.includes('max_allowed_packet')
+    ) {
+      return res.status(413).json({
+        message:
+          'Photo is too large for the database upload limit. Please upload a smaller image.',
+        error: error.message,
+      });
+    }
+
     res
       .status(500)
       .json({ message: 'Error updating cadet', error: error.message });
@@ -301,7 +562,8 @@ const getCadetPhoto = async (req, res) => {
       return res.status(404).json({ message: 'Photo not found' });
     }
 
-    res.set('Content-Type', photo.photo_mime_type);
+    const mimeType = photo.photo_mime_type || 'image/jpeg';
+    res.set('Content-Type', mimeType);
     res.set('Cache-Control', 'public, max-age=86400');
     res.send(photo.photo_data);
   } catch (error) {
@@ -323,12 +585,11 @@ const deleteCadet = async (req, res) => {
 
     await cadetDao.deleteCadet(id);
 
-    // Log Activity
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
         req.user.id,
         'DELETE_CADET',
-        `Deleted cadet ${existingCadet.name}`,
+        `Deleted cadet ${existingCadet.name_as_in_indos_cert || 'Unknown'}`,
         req.ip || req.connection.remoteAddress,
       );
     }
@@ -347,8 +608,9 @@ module.exports = {
   importCadets,
   getCadetById,
   getShortlistedCadets,
-
+  getInstituteShortlistedCadets,
   getShortlistStats,
+  createCadet,
   updateCadet,
   getCadetPhoto,
   deleteCadet,

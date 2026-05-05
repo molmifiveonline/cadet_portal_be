@@ -2,18 +2,40 @@ const db = require('../config/database');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 
-const getUsers = async (limit, offset, search = '') => {
+const getUsers = async (
+  limit,
+  offset,
+  search = '',
+  sortBy = 'created_at',
+  sortOrder = 'DESC',
+) => {
+  // Whitelist columns for sorting to prevent SQL injection
+  const allowedColumns = [
+    'email',
+    'first_name',
+    'last_name',
+    'role',
+    'status',
+    'created_at',
+  ];
+  const validatedSortBy = allowedColumns.includes(sortBy)
+    ? sortBy
+    : 'created_at';
+  const validatedSortOrder =
+    sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
   let query =
-    'SELECT id, email, role, first_name, last_name, created_at FROM users';
+    'SELECT id, email, first_name, last_name, role, status, created_at FROM users';
   let params = [];
 
   if (search) {
     const searchTerm = `%${search}%`;
     query +=
-      ' WHERE id LIKE ? OR email LIKE ? OR role LIKE ? OR first_name LIKE ? OR last_name LIKE ?';
-    params = [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm];
+      ' WHERE id LIKE ? OR email LIKE ? OR first_name LIKE ? OR last_name LIKE ?';
+    params = [searchTerm, searchTerm, searchTerm, searchTerm];
   }
 
+  query += ` ORDER BY ${validatedSortBy} ${validatedSortOrder}`;
   query += ' LIMIT ? OFFSET ?';
   params.push(limit, offset);
 
@@ -28,24 +50,30 @@ const countUsers = async (search = '') => {
   if (search) {
     const searchTerm = `%${search}%`;
     query +=
-      ' WHERE id LIKE ? OR email LIKE ? OR role LIKE ? OR first_name LIKE ? OR last_name LIKE ?';
-    params = [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm];
+      ' WHERE id LIKE ? OR email LIKE ? OR first_name LIKE ? OR last_name LIKE ?';
+    params = [searchTerm, searchTerm, searchTerm, searchTerm];
   }
 
   const [rows] = await db.query(query, params);
   return rows[0].count;
 };
 
-const createUser = async (email, password, role, first_name, last_name) => {
+const createUser = async (email, password, first_name, last_name, role) => {
   const hashedPassword = await bcrypt.hash(password, 10);
   const id = uuidv4();
 
-  // Insert user with first_name and last_name fields
   await db.query(
     'INSERT INTO users (id, email, password, role, first_name, last_name) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, email, hashedPassword, role, first_name || '', last_name || ''],
+    [
+      id,
+      email,
+      hashedPassword,
+      role || 'SuperAdmin',
+      first_name || '',
+      last_name || '',
+    ],
   );
-  return { id, email, role, first_name, last_name };
+  return { id, email, role: role || 'SuperAdmin', first_name, last_name };
 };
 
 const findUserByEmail = async (email) => {
@@ -61,32 +89,32 @@ const findUserById = async (id) => {
 const updateUser = async (
   id,
   email,
-  role,
   first_name,
   last_name,
+  status,
+  role,
   password = null,
 ) => {
   let query;
   let params;
 
   if (password) {
-    // If password is provided, hash it and update
     const hashedPassword = await bcrypt.hash(password, 10);
     query =
-      'UPDATE users SET email = ?, role = ?, first_name = ?, last_name = ?, password = ? WHERE id = ?';
+      'UPDATE users SET email = ?, first_name = ?, last_name = ?, status = ?, role = ?, password = ? WHERE id = ?';
     params = [
       email,
-      role,
       first_name || '',
       last_name || '',
+      status,
+      role,
       hashedPassword,
       id,
     ];
   } else {
-    // Update without changing password
     query =
-      'UPDATE users SET email = ?, role = ?, first_name = ?, last_name = ? WHERE id = ?';
-    params = [email, role, first_name || '', last_name || '', id];
+      'UPDATE users SET email = ?, first_name = ?, last_name = ?, status = ?, role = ? WHERE id = ?';
+    params = [email, first_name || '', last_name || '', status, role, id];
   }
 
   const [result] = await db.query(query, params);
@@ -98,6 +126,14 @@ const deleteUser = async (id) => {
   return result.affectedRows > 0;
 };
 
+const updateUserStatus = async (id, status) => {
+  const [result] = await db.query('UPDATE users SET status = ? WHERE id = ?', [
+    status,
+    id,
+  ]);
+  return result.affectedRows > 0;
+};
+
 module.exports = {
   getUsers,
   countUsers,
@@ -106,4 +142,5 @@ module.exports = {
   findUserById,
   updateUser,
   deleteUser,
+  updateUserStatus,
 };

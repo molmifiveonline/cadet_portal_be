@@ -4,8 +4,9 @@ const {
   getAllCadets,
   getCadetById,
   importCadets,
+  createCadet,
   getShortlistedCadets,
-
+  getInstituteShortlistedCadets,
   getShortlistStats,
   updateCadet,
   getCadetPhoto,
@@ -13,7 +14,20 @@ const {
 } = require('../controllers/cadetController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requirePermission } = require('../middleware/permissionMiddleware');
+const {
+  blockInstitute,
+  isInstituteUser,
+  requireInstituteCadetOwnership,
+} = require('../middleware/instituteOwnershipMiddleware');
 const upload = require('../middleware/uploadMiddleware');
+
+const allowInstituteOrPermission = (module, action) => async (req, res, next) => {
+  if (isInstituteUser(req.user)) {
+    return next();
+  }
+
+  return requirePermission(module, action)(req, res, next);
+};
 
 // All routes are scoped to /api/cadets by index.js
 
@@ -22,6 +36,15 @@ router.get(
   authMiddleware,
   requirePermission('cadets', 'view'),
   getAllCadets,
+);
+
+// Create cadet
+router.post(
+  '/',
+  authMiddleware,
+  requirePermission('cadets', 'create'),
+  upload.single('photo'),
+  createCadet,
 );
 
 router.post(
@@ -40,6 +63,13 @@ router.get(
   getShortlistedCadets,
 );
 
+// Institute-specific shortlist route (auto-scoped by JWT, no permission check needed)
+router.get(
+  '/institute-shortlisted',
+  authMiddleware,
+  getInstituteShortlistedCadets,
+);
+
 router.get(
   '/shortlisted/stats',
   authMiddleware,
@@ -53,7 +83,8 @@ router.get('/:id/photo', getCadetPhoto);
 router.get(
   '/:id',
   authMiddleware,
-  requirePermission('cadets', 'view'),
+  allowInstituteOrPermission('cadets', 'view'),
+  requireInstituteCadetOwnership('id'),
   getCadetById,
 );
 
@@ -61,7 +92,8 @@ router.get(
 router.put(
   '/:id',
   authMiddleware,
-  requirePermission('cadets', 'edit'),
+  allowInstituteOrPermission('cadets', 'edit'),
+  requireInstituteCadetOwnership('id'),
   upload.single('photo'),
   updateCadet,
 );
@@ -70,6 +102,7 @@ router.put(
 router.delete(
   '/:id',
   authMiddleware,
+  blockInstitute('Institute users are not allowed to delete cadets'),
   requirePermission('cadets', 'delete'),
   deleteCadet,
 );

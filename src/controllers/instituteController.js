@@ -1,46 +1,95 @@
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
-const {
-  DEFAULT_PAGE_SIZE,
-  MOBILE_NUMBER_REGEX,
-} = require('../config/constants');
+const { DEFAULT_PAGE_SIZE } = require('../config/constants');
+const { formatDateForDisplay } = require('../utils/dateUtils');
+const { getEmailValidationMessage } = require('../utils/validationUtils');
+
+const normalizeEmail = (email) =>
+  typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+const getContactEmailValues = (contactEmails) =>
+  Array.isArray(contactEmails)
+    ? contactEmails
+        .map((contact) =>
+          normalizeEmail(
+            typeof contact === 'string' ? contact : contact && contact.email,
+          ),
+        )
+        .filter(Boolean)
+    : [];
+
+const hasDuplicateContactEmails = (contactEmails) => {
+  const emails = getContactEmailValues(contactEmails);
+  return new Set(emails).size !== emails.length;
+};
+
+const getInvalidContactEmailMessage = (contactEmails) => {
+  const invalidEmail = getContactEmailValues(contactEmails).find((email) =>
+    getEmailValidationMessage(email),
+  );
+
+  return invalidEmail ? getEmailValidationMessage(invalidEmail) : '';
+};
+
+const ensureDefaultContact = (contactEmails) => {
+  if (!contactEmails.some((contact) => contact.isDefault)) {
+    contactEmails[0].isDefault = true;
+  }
+};
 
 const createInstitute = async (req, res) => {
   try {
     const {
       institute_name,
-      institute_email,
-      mobile_number,
-      address,
       location,
-      contact_person,
+      address,
       institute_type,
+      contact_emails,
+      status,
     } = req.body;
 
     if (
       !institute_name ||
-      !institute_email ||
-      !mobile_number ||
       !address ||
-      !location
+      !location ||
+      !Array.isArray(contact_emails) ||
+      contact_emails.length === 0 ||
+      getContactEmailValues(contact_emails).length === 0
     ) {
-      return res.status(400).json({ message: 'All fields are required' });
+      return res.status(400).json({ message: 'Required fields are missing' });
     }
 
-    if (!MOBILE_NUMBER_REGEX.test(mobile_number)) {
+    if (hasDuplicateContactEmails(contact_emails)) {
       return res
         .status(400)
-        .json({ message: 'Mobile number must be a 10-digit number' });
+        .json({ message: 'Duplicate contact emails are not allowed' });
     }
+
+    const invalidContactEmailMessage =
+      getInvalidContactEmailMessage(contact_emails);
+    if (invalidContactEmailMessage) {
+      return res.status(400).json({ message: invalidContactEmailMessage });
+    }
+
+    const duplicateInstitute = await instituteDao.getInstituteByContactEmails(
+      getContactEmailValues(contact_emails),
+    );
+    if (duplicateInstitute) {
+      return res.status(409).json({
+        message: 'A contact email is already used by another institute',
+        email: duplicateInstitute.duplicate_email,
+      });
+    }
+
+    ensureDefaultContact(contact_emails);
 
     const id = await instituteDao.createInstitute({
       institute_name,
-      institute_email,
-      mobile_number,
       address,
       location,
-      contact_person,
       institute_type,
+      contact_emails,
+      status: status || 'active',
     });
 
     // Log activity
@@ -78,10 +127,10 @@ const getAllInstitutes = async (req, res) => {
     const validColumns = [
       'id',
       'institute_name',
-      'institute_email',
-      'mobile_number',
       'address',
       'location',
+      'institute_type',
+      'status',
       'created_at',
       'updated_at',
     ];
@@ -144,38 +193,56 @@ const updateInstitute = async (req, res) => {
     const { id } = req.params;
     const {
       institute_name,
-      institute_email,
-      mobile_number,
-      address,
       location,
-      contact_person,
+      address,
       institute_type,
+      contact_emails,
+      status,
     } = req.body;
 
     if (
       !institute_name ||
-      !institute_email ||
-      !mobile_number ||
       !address ||
-      !location
+      !location ||
+      !Array.isArray(contact_emails) ||
+      contact_emails.length === 0 ||
+      getContactEmailValues(contact_emails).length === 0
     ) {
-      return res.status(400).json({ message: 'All fields are required' });
+      return res.status(400).json({ message: 'Required fields are missing' });
     }
 
-    if (!MOBILE_NUMBER_REGEX.test(mobile_number)) {
+    if (hasDuplicateContactEmails(contact_emails)) {
       return res
         .status(400)
-        .json({ message: 'Mobile number must be a 10-digit number' });
+        .json({ message: 'Duplicate contact emails are not allowed' });
     }
+
+    const invalidContactEmailMessage =
+      getInvalidContactEmailMessage(contact_emails);
+    if (invalidContactEmailMessage) {
+      return res.status(400).json({ message: invalidContactEmailMessage });
+    }
+
+    const duplicateInstitute = await instituteDao.getInstituteByContactEmails(
+      getContactEmailValues(contact_emails),
+      id,
+    );
+    if (duplicateInstitute) {
+      return res.status(409).json({
+        message: 'A contact email is already used by another institute',
+        email: duplicateInstitute.duplicate_email,
+      });
+    }
+
+    ensureDefaultContact(contact_emails);
 
     const success = await instituteDao.updateInstitute(id, {
       institute_name,
-      institute_email,
-      mobile_number,
       address,
       location,
-      contact_person,
       institute_type,
+      contact_emails,
+      status,
     });
 
     if (!success) {
@@ -239,12 +306,12 @@ const deleteInstitute = async (req, res) => {
 const extendInstituteToken = async (req, res) => {
   try {
     const { id } = req.params;
-    const { additionalDays } = req.body;
+    const { additionalDays, newExpiryDate } = req.body;
 
-    if (!additionalDays || isNaN(additionalDays) || additionalDays <= 0) {
+    if (!additionalDays && !newExpiryDate) {
       return res
         .status(400)
-        .json({ message: 'additionalDays must be a positive number' });
+        .json({ message: 'Must provide newExpiryDate or additionalDays' });
     }
 
     const institute = await instituteDao.getInstituteById(id);
@@ -259,11 +326,26 @@ const extendInstituteToken = async (req, res) => {
       });
     }
 
-    // Calculate new expiry: extend from current expiry (or now if already expired)
-    const currentExpiry = new Date(institute.temp_expiry);
-    const baseDate = currentExpiry > new Date() ? currentExpiry : new Date();
-    baseDate.setDate(baseDate.getDate() + parseInt(additionalDays, 10));
-    const newExpiry = baseDate.toISOString().slice(0, 19).replace('T', ' ');
+    let newExpiry;
+    if (newExpiryDate) {
+      const parsedDate = new Date(newExpiryDate);
+      if (isNaN(parsedDate)) {
+        return res.status(400).json({ message: 'Invalid expiry date format' });
+      }
+      // Ensure date covers the end of the selected day
+      parsedDate.setHours(23, 59, 59, 999);
+      newExpiry = parsedDate.toISOString().slice(0, 19).replace('T', ' ');
+    } else {
+      if (isNaN(additionalDays) || additionalDays <= 0) {
+        return res
+          .status(400)
+          .json({ message: 'additionalDays must be a positive number' });
+      }
+      const currentExpiry = new Date(institute.temp_expiry);
+      const baseDate = currentExpiry > new Date() ? currentExpiry : new Date();
+      baseDate.setDate(baseDate.getDate() + parseInt(additionalDays, 10));
+      newExpiry = baseDate.toISOString().slice(0, 19).replace('T', ' ');
+    }
 
     await instituteDao.extendInstituteExpiry(id, newExpiry);
 
@@ -272,14 +354,14 @@ const extendInstituteToken = async (req, res) => {
       await activityLogDao.createLog(
         req.user.id,
         'EXTEND_INSTITUTE_TOKEN',
-        `Extended token expiry by ${additionalDays} days for institute: ${institute.institute_name}`,
+        `Extended token expiry to ${newExpiry} for institute: ${institute.institute_name}`,
         req.ip || req.connection.remoteAddress,
       );
     }
 
     res.json({
       success: true,
-      message: `Token expiry extended by ${additionalDays} days`,
+      message: `Token expiry extended to ${formatDateForDisplay(newExpiry)}`,
       new_expiry: newExpiry,
     });
   } catch (error) {

@@ -40,4 +40,11 @@ router.delete(
   userManagementController.deleteUser,
 );
 
+router.patch(
+  '/:id/status',
+  authMiddleware,
+  requirePermission('users', 'edit'),
+  userManagementController.updateUserStatus,
+);
+
 module.exports = router;

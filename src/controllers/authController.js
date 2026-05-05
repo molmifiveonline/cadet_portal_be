@@ -8,8 +8,13 @@ const {
   JWT_EXPIRE,
   ROLES,
   BCRYPT_SALT_ROUNDS,
+  FRONTEND_URL,
 } = require('../config/constants');
 const instituteDao = require('../dao/instituteDao');
+const {
+  PASSWORD_LENGTH_MESSAGE,
+  isValidPasswordLength,
+} = require('../utils/validationUtils');
 
 const login = async (req, res) => {
   try {
@@ -25,61 +30,51 @@ const login = async (req, res) => {
     let roleName = ROLES.CADET;
     let instituteId = null;
 
+    // Configuration for Institute temp login prefixes and their intents
+    const INSTITUTE_PREFIX_INTENTS = {
+      'SUB-': 'institute_submit',
+      'SHOR-': 'institute_shortlist',
+      'INST-': 'institute_submit', // Legacy support
+    };
+
     // Check if it's an Institute login (Using temp username)
-    if (!email.includes('@') && email.toUpperCase().startsWith('INST-')) {
-      const institute = await instituteDao.getInstituteByTempUsername(
-        email.toUpperCase(),
-      );
+    const upperEmail = email.toUpperCase();
 
-      if (institute) {
-        if (new Date() > new Date(institute.temp_expiry)) {
-          return res
-            .status(401)
-            .json({ message: 'Institute credentials have expired' });
-        }
+    // Check if the username starts with any of the defined prefixes
+    const matchedPrefix = Object.keys(INSTITUTE_PREFIX_INTENTS).find((prefix) =>
+      upperEmail.startsWith(prefix),
+    );
 
-        const isMatch = await bcrypt.compare(password, institute.temp_password);
-        if (!isMatch) {
-          return res
-            .status(401)
-            .json({ message: 'Invalid User ID or password' });
-        }
+    const isInstituteLogin = !email.includes('@') && !!matchedPrefix;
 
-        user = {
-          id: institute.id, // Using institute ID as user ID for consistent token schema
-          email: institute.institute_email,
-          first_name: institute.institute_name,
-          last_name: '',
-        };
-        roleName = ROLES.INSTITUTE;
-        instituteId = institute.id;
-      } else {
-        console.log(`[AUTH] Institute ${email} NOT found in database.`);
-      }
+    if (isInstituteLogin) {
+      // Return error for institutes to use OTP flow
+      return res.status(400).json({ 
+        message: 'Institute login has been upgraded to OTP-based security. Please use the OTP login flow.',
+        isInstitute: true
+      });
     }
 
-    // If not found as institute, try as regular Admin user
+    // Regular Admin user login
+    user = await UserDao.findUserByEmail(email);
     if (!user) {
-      user = await UserDao.findUserByEmail(email);
-      if (!user) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-
-      if (
-        user.status !== undefined &&
-        user.status !== 1 &&
-        user.status !== 'active'
-      ) {
-        return res.status(403).json({ message: 'Account is inactive' });
-      }
-
-      roleName = user.role || ROLES.CADET;
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    if (
+      user.status !== undefined &&
+      user.status !== 1 &&
+      user.status !== 'active'
+    ) {
+      return res.status(403).json({ message: 'Account is inactive' });
+    }
+
+    roleName = user.role || ROLES.CADET;
 
     const payload = {
       id: user.id,
@@ -88,10 +83,6 @@ const login = async (req, res) => {
       first_name: user.first_name || '',
       last_name: user.last_name || '',
     };
-
-    if (instituteId) {
-      payload.instituteId = instituteId;
-    }
 
     const token = jwt.sign(payload, JWT_SECRET, {
       expiresIn: JWT_EXPIRE,
@@ -114,7 +105,6 @@ const login = async (req, res) => {
         role: roleName,
         first_name: user.first_name || '',
         last_name: user.last_name || '',
-        instituteId: instituteId || undefined,
       },
     });
   } catch (error) {
@@ -139,7 +129,7 @@ const forgotPassword = async (req, res) => {
         .json({ message: 'This email address does not exist.' });
     }
 
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password?id=${user.id}`;
+    const resetLink = `${FRONTEND_URL}/reset-password?id=${user.id}`;
     const template = emailTemplates.forgotPassword({ resetLink });
 
     // Only attempt to send email if SMTP is configured, else just log it for dev
@@ -179,6 +169,10 @@ const resetPassword = async (req, res) => {
 
     if (password !== confirm_password) {
       return res.status(400).json({ message: 'Passwords do not match' });
+    }
+
+    if (!isValidPasswordLength(password)) {
+      return res.status(400).json({ message: PASSWORD_LENGTH_MESSAGE });
     }
 
     const hashedPassword = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);

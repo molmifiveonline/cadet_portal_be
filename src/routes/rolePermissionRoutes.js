@@ -22,15 +22,44 @@ router.get(
   rolePermissionController.getAllRoles,
 );
 
-/* @route   GET /api/role-permissions/roles/:roleId
- * @desc    Get role by ID
- * @access  Super Admin only
- */
 router.get(
   '/roles/:roleId',
   authMiddleware,
   requirePermission('role-permissions', 'manage'),
   rolePermissionController.getRoleById,
+);
+
+/* @route   POST /api/role-permissions/roles
+ * @desc    Create a new role
+ * @access  Super Admin only
+ */
+router.post(
+  '/roles',
+  authMiddleware,
+  requirePermission('role-permissions', 'manage'),
+  rolePermissionController.createRole,
+);
+
+/* @route   PUT /api/role-permissions/roles/:roleId
+ * @desc    Update a role
+ * @access  Super Admin only
+ */
+router.put(
+  '/roles/:roleId',
+  authMiddleware,
+  requirePermission('role-permissions', 'manage'),
+  rolePermissionController.updateRole,
+);
+
+/* @route   DELETE /api/role-permissions/roles/:roleId
+ * @desc    Delete a role
+ * @access  Super Admin only
+ */
+router.delete(
+  '/roles/:roleId',
+  authMiddleware,
+  requirePermission('role-permissions', 'manage'),
+  rolePermissionController.deleteRole,
 );
 
 /* ==================== PERMISSIONS ====================
