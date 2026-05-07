@@ -399,10 +399,19 @@ const getRecruitmentDriveStats = async (driveId) => {
     [driveId],
   );
 
+  const [documentRows] = await db.query(
+    `SELECT COUNT(DISTINCT c.id) AS document_count
+     FROM cadets c
+     JOIN cadet_documents cd ON cd.cadet_id = c.id
+     WHERE c.drive_id = ?`,
+    [driveId],
+  );
+
   return {
     ...rows[0],
     assessment_passed: assessmentRows[0]?.assessment_passed || 0,
     interview_selected: interviewRows[0]?.interview_selected || 0,
+    document_count: documentRows[0]?.document_count || 0,
   };
 };
 
