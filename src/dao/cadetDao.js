@@ -9,6 +9,7 @@ const {
   hasColumn,
   hasTable,
   filterExistingColumns,
+  getTableColumns,
 } = require('../services/schemaCompatibilityService');
 
 const getCadetCompatibility = async () => ({
@@ -44,12 +45,27 @@ const getMedicalCompatibility = async () => ({
   hasInviteRemark: await hasColumn('cadet_medical_results', 'invite_remark'),
 });
 
+const getCadetColumnsSelect = async () => {
+  const columnsSet = await getTableColumns('cadets');
+  if (!columnsSet || columnsSet.size === 0) return 'c.*';
+
+  const exclude = ['photo_data', 'photo_mime_type', 'photo_name'];
+  const selectCols = [];
+  for (const col of columnsSet) {
+    if (!exclude.includes(col)) {
+      selectCols.push(`c.${col}`);
+    }
+  }
+  return selectCols.join(', ');
+};
+
 const buildBaseSelect = async () => {
   const cadetCompat = await getCadetCompatibility();
   const assessmentCompat = await getAssessmentCompatibility();
   const interviewCompat = await getInterviewCompatibility();
   const medicalCompat = await getMedicalCompatibility();
   const hasCadetDocuments = await hasTable('cadet_documents');
+  const cadetCols = await getCadetColumnsSelect();
 
   const hasCvSelect = hasCadetDocuments
     ? `EXISTS (
@@ -62,7 +78,7 @@ const buildBaseSelect = async () => {
 
   return `
     SELECT
-      c.*,
+      ${cadetCols},
       ${cadetCompat.hasRollNo ? 'c.roll_no' : 'NULL AS roll_no'},
       ${cadetCompat.hasWorkflowPhase ? 'c.workflow_phase' : 'NULL AS workflow_phase'},
       ${cadetCompat.hasWorkflowResult ? 'c.workflow_result' : 'NULL AS workflow_result'},
