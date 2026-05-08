@@ -3,6 +3,36 @@ const { JWT_SECRET, ROLES } = require('../config/constants');
 const userDao = require('../dao/userDao');
 const instituteDao = require('../dao/instituteDao');
 
+// Cache for user and institute data to avoid DB lookup on every request
+// Cache TTL: 60 seconds
+const authCache = new Map();
+const CACHE_TTL = 60 * 1000;
+
+const getCachedData = async (id, role) => {
+  const cacheKey = `${role}:${id}`;
+  const cached = authCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+    return cached.data;
+  }
+
+  let data = null;
+  if (role === ROLES.INSTITUTE) {
+    data = await instituteDao.getInstituteById(id);
+  } else {
+    data = await userDao.findUserById(id);
+  }
+
+  if (data) {
+    authCache.set(cacheKey, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+
+  return data;
+};
+
 /**
  * Middleware to verify JWT token and attach user to request
  */
@@ -19,9 +49,9 @@ const authMiddleware = async (req, res, next) => {
 
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    // Verify user/institute status in database
+    // Verify user/institute status in database (with caching)
     if (decoded.role === ROLES.INSTITUTE) {
-      const institute = await instituteDao.getInstituteById(decoded.id);
+      const institute = await getCachedData(decoded.id, ROLES.INSTITUTE);
       if (!institute) {
         return res.status(403).json({ message: 'Institute account not found' });
       }
@@ -36,7 +66,7 @@ const authMiddleware = async (req, res, next) => {
           .json({ message: 'Institute credentials have expired' });
       }
     } else {
-      const user = await userDao.findUserById(decoded.id);
+      const user = await getCachedData(decoded.id, 'user');
       if (!user) {
         return res.status(403).json({ message: 'User account not found' });
       }
