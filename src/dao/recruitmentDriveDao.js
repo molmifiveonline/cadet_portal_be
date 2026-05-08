@@ -355,43 +355,26 @@ const getRecruitmentDriveStats = async (driveId) => {
       SUM(CASE WHEN ${medicalQueueCondition} THEN 1 ELSE 0 END) AS medical_queue_count,
       SUM(CASE WHEN ${rejectedCondition} THEN 1 ELSE 0 END) AS rejected_count,
       SUM(CASE WHEN status = 'CTV Assigned' THEN 1 ELSE 0 END) AS ctv_assigned,
-      SUM(CASE WHEN status = 'Onboarded' THEN 1 ELSE 0 END) AS onboarded
+      SUM(CASE WHEN status = 'Onboarded' THEN 1 ELSE 0 END) AS onboarded,
+      SUM(CASE WHEN EXISTS (
+        SELECT 1 FROM assessments a WHERE a.cadet_id = cadets.id AND LOWER(COALESCE(a.status, '')) = 'pass'
+      ) THEN 1 ELSE 0 END) AS assessment_passed,
+      SUM(CASE WHEN EXISTS (
+        SELECT 1 FROM interviews iv WHERE iv.cadet_id = cadets.id AND LOWER(COALESCE(iv.final_decision, '')) = 'selected'
+      ) THEN 1 ELSE 0 END) AS interview_selected,
+      SUM(CASE WHEN EXISTS (
+        SELECT 1 FROM cadet_documents cd WHERE cd.cadet_id = cadets.id
+      ) THEN 1 ELSE 0 END) AS document_count
      FROM cadets
      WHERE drive_id = ?`,
     [driveId],
   );
 
-  const [assessmentRows] = await db.query(
-    `SELECT COUNT(*) AS assessment_passed
-     FROM cadets c
-     JOIN assessments a ON a.cadet_id = c.id
-     WHERE c.drive_id = ?
-       AND LOWER(COALESCE(a.status, '')) = 'pass'`,
-    [driveId],
-  );
-
-  const [interviewRows] = await db.query(
-    `SELECT COUNT(*) AS interview_selected
-     FROM cadets c
-     JOIN interviews iv ON iv.cadet_id = c.id
-     WHERE c.drive_id = ?
-       AND LOWER(COALESCE(iv.final_decision, '')) = 'selected'`,
-    [driveId],
-  );
-
-  const [documentRows] = await db.query(
-    `SELECT COUNT(DISTINCT c.id) AS document_count
-     FROM cadets c
-     JOIN cadet_documents cd ON cd.cadet_id = c.id
-     WHERE c.drive_id = ?`,
-    [driveId],
-  );
-
   return {
     ...rows[0],
-    assessment_passed: assessmentRows[0]?.assessment_passed || 0,
-    interview_selected: interviewRows[0]?.interview_selected || 0,
-    document_count: documentRows[0]?.document_count || 0,
+    assessment_passed: rows[0]?.assessment_passed || 0,
+    interview_selected: rows[0]?.interview_selected || 0,
+    document_count: rows[0]?.document_count || 0,
   };
 };
 
