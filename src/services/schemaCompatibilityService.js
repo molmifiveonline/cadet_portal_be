@@ -2,42 +2,52 @@ const db = require('../config/database');
 
 const tableCache = new Map();
 const columnCache = new Map();
+let isWarmed = false;
+
+const warmCache = async () => {
+  if (isWarmed) return;
+
+  try {
+    // 1. Get all tables in the current database
+    const [tables] = await db.query(
+      `SELECT TABLE_NAME 
+       FROM INFORMATION_SCHEMA.TABLES 
+       WHERE TABLE_SCHEMA = DATABASE()`
+    );
+    
+    tableCache.clear();
+    tables.forEach(t => tableCache.set(t.TABLE_NAME, true));
+
+    // 2. Get all columns for all tables in the current database
+    const [columns] = await db.query(
+      `SELECT TABLE_NAME, COLUMN_NAME 
+       FROM INFORMATION_SCHEMA.COLUMNS 
+       WHERE TABLE_SCHEMA = DATABASE()`
+    );
+
+    columnCache.clear();
+    columns.forEach(c => {
+      if (!columnCache.has(c.TABLE_NAME)) {
+        columnCache.set(c.TABLE_NAME, new Set());
+      }
+      columnCache.get(c.TABLE_NAME).add(c.COLUMN_NAME);
+    });
+
+    isWarmed = true;
+    console.log('Schema cache warmed successfully');
+  } catch (error) {
+    console.error('Error warming schema cache:', error);
+  }
+};
 
 const getTableColumns = async (tableName) => {
-  if (columnCache.has(tableName)) {
-    return columnCache.get(tableName);
-  }
-
-  const [rows] = await db.query(
-    `SELECT COLUMN_NAME
-     FROM INFORMATION_SCHEMA.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?`,
-    [tableName],
-  );
-
-  const columns = new Set(rows.map((row) => row.COLUMN_NAME));
-  columnCache.set(tableName, columns);
-  return columns;
+  if (!isWarmed) await warmCache();
+  return columnCache.get(tableName) || new Set();
 };
 
 const hasTable = async (tableName) => {
-  if (tableCache.has(tableName)) {
-    return tableCache.get(tableName);
-  }
-
-  const [rows] = await db.query(
-    `SELECT 1
-     FROM INFORMATION_SCHEMA.TABLES
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?
-     LIMIT 1`,
-    [tableName],
-  );
-
-  const exists = rows.length > 0;
-  tableCache.set(tableName, exists);
-  return exists;
+  if (!isWarmed) await warmCache();
+  return tableCache.has(tableName);
 };
 
 const hasColumn = async (tableName, columnName) => {
@@ -62,6 +72,7 @@ const pickExistingColumns = async (tableName, columnNames = []) => {
 const clearSchemaCache = () => {
   tableCache.clear();
   columnCache.clear();
+  isWarmed = false;
 };
 
 module.exports = {
@@ -71,4 +82,5 @@ module.exports = {
   filterExistingColumns,
   pickExistingColumns,
   clearSchemaCache,
+  warmCache,
 };

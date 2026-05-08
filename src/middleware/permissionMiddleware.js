@@ -1,129 +1,117 @@
 const rolePermissionDao = require('../dao/rolePermissionDao');
+const { ROLES } = require('../config/constants');
 
-/* PERMISSION MIDDLEWARE
- * Checks if user has required permission to access route
+// Cache for permission checks
+// Cache TTL: 120 seconds
+const permissionCache = new Map();
+const CACHE_TTL = 120 * 1000;
+
+const getCachedPermission = async (roleName, moduleName, action) => {
+  const cacheKey = `${roleName}:${moduleName}:${action}`;
+  const cached = permissionCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.result;
+  }
+
+  const result = await rolePermissionDao.userHasPermission(
+    roleName,
+    moduleName,
+    action,
+  );
+
+  permissionCache.set(cacheKey, {
+    result,
+    timestamp: Date.now(),
+  });
+
+  return result;
+};
+
+/**
+ * Middleware to check if user has a specific permission
+ * @param {string} moduleName - The module name (e.g., 'cadets')
+ * @param {string} action - The action (e.g., 'view', 'edit', 'delete')
  */
-
-/* Middleware to check if user has specific permission */
-const requirePermission = (module, action) => {
+const requirePermission = (moduleName, action) => {
   return async (req, res, next) => {
     try {
       const user = req.user;
 
       if (!user) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication required',
-        });
+        return res.status(401).json({ message: 'Authentication required' });
       }
 
-      // Super Admin always has access
-      if (user.role === 'SuperAdmin') {
+      // SuperAdmin has all permissions
+      if (user.role === ROLES.SUPER_ADMIN || user.role === 'SuperAdmin') {
         return next();
       }
 
-      // Check if user has the required permission
-      const hasPermission = await rolePermissionDao.userHasPermission(
+      // Check permissions (with caching)
+      const hasPermission = await getCachedPermission(
         user.role,
-        module,
+        moduleName,
         action,
       );
 
       if (!hasPermission) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have permission to perform this action',
-          required: { module, action },
-        });
+        return res
+          .status(403)
+          .json({ message: `Access denied for ${action} on ${moduleName}` });
       }
 
       next();
     } catch (error) {
-      console.error('Permission Check Error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error checking permissions',
-        error: error.message,
-      });
+      console.error('Permission check error:', error);
+      res.status(500).json({ message: 'Error checking permissions' });
     }
   };
 };
 
-/* Middleware to check if user has ANY of the specified permissions */
-const requireAnyPermission = (permissionPairs) => {
+/**
+ * Middleware to check if user has any of the specified permissions
+ * @param {Array<[string, string]>} permissions - Array of [moduleName, action]
+ */
+const requireAnyPermission = (permissions) => {
   return async (req, res, next) => {
     try {
       const user = req.user;
 
       if (!user) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication required',
-        });
+        return res.status(401).json({ message: 'Authentication required' });
       }
 
-      // Super Admin always has access
-      if (user.role === 'SuperAdmin') {
+      // SuperAdmin has all permissions
+      if (user.role === ROLES.SUPER_ADMIN || user.role === 'SuperAdmin') {
         return next();
       }
 
-      // Check if user has any of the required permissions
-      const checks = await Promise.all(
-        permissionPairs.map(([module, action]) =>
-          rolePermissionDao.userHasPermission(user.role, module, action),
-        ),
-      );
-
-      const hasAnyPermission = checks.some((result) => result === true);
-
-      if (!hasAnyPermission) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have permission to perform this action',
-          required: permissionPairs,
-        });
+      // Check each permission (with caching)
+      for (const [moduleName, action] of permissions) {
+        const hasPermission = await getCachedPermission(
+          user.role,
+          moduleName,
+          action,
+        );
+        if (hasPermission) {
+          return next();
+        }
       }
 
-      next();
+      res.status(403).json({ message: 'Access denied' });
     } catch (error) {
-      console.error('Permission Check Error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error checking permissions',
-        error: error.message,
-      });
+      console.error('Any permission check error:', error);
+      res.status(500).json({ message: 'Error checking permissions' });
     }
   };
 };
 
-/* Middleware to restrict access to Super Admin only */
 const requireSuperAdmin = (req, res, next) => {
-  try {
-    const user = req.user;
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required',
-      });
-    }
-
-    if (user.role !== 'SuperAdmin') {
-      return res.status(403).json({
-        success: false,
-        message: 'This action is restricted to Super Administrators only',
-      });
-    }
-
-    next();
-  } catch (error) {
-    console.error('Super Admin Check Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error checking admin status',
-      error: error.message,
-    });
+  const user = req.user;
+  if (user && (user.role === ROLES.SUPER_ADMIN || user.role === 'SuperAdmin')) {
+    return next();
   }
+  return res.status(403).json({ message: 'SuperAdmin access required' });
 };
 
 module.exports = {

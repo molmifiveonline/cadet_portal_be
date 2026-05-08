@@ -11,6 +11,7 @@ const errorHandler = require("./src/middleware/errorHandler");
 
 // Import DAOs for background tasks
 const activityLogDao = require("./src/dao/activityLogDao");
+const { warmCache } = require("./src/services/schemaCompatibilityService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -65,6 +66,9 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`API: http://localhost:${PORT}/api`);
   console.log(`Health: http://localhost:${PORT}/health`);
+
+  // Warm schema cache on startup
+  warmCache();
 
   // Run initial cleanup of old activity logs
   activityLogDao.deleteOldLogs();

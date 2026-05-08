@@ -88,69 +88,27 @@ const buildDriveSelect = async () => {
         THEN 1
         ELSE 0
       END`;
+
   const cadetDataRequestPendingExpression = `CASE
         WHEN (${instituteRequestSentExpression}) = 1
           AND NOT ${matchingSubmissionExistsExpression}
         THEN 1
         ELSE 0
       END`;
-  const documentCountSelect = hasCadetDocuments
-    ? `(
-        SELECT COUNT(DISTINCT c.id)
-        FROM cadets c
-        JOIN cadet_documents cd ON cd.cadet_id = c.id
-        WHERE c.drive_id = rd.id
-      ) AS document_count`
-    : '0 AS document_count';
 
+  // Refactored to use a single subquery for all cadet-related stats to avoid multiple table scans
   return `
     SELECT
       rd.*,
       i.institute_name,
-      (
-        SELECT COUNT(*)
-        FROM cadets c
-        WHERE c.drive_id = rd.id
-      ) AS total_uploaded,
-      (
-        SELECT COUNT(*)
-        FROM cadets c
-        WHERE c.drive_id = rd.id
-          AND ${shortlistedCondition}
-      ) AS shortlisted_count,
-      (
-        SELECT COUNT(*)
-        FROM cadets c
-        JOIN assessments a ON a.cadet_id = c.id
-        WHERE c.drive_id = rd.id
-          AND LOWER(COALESCE(a.status, '')) = 'pass'
-      ) AS assessment_passed,
-      (
-        SELECT COUNT(*)
-        FROM cadets c
-        JOIN interviews iv ON iv.cadet_id = c.id
-        WHERE c.drive_id = rd.id
-          AND LOWER(COALESCE(iv.final_decision, '')) = 'selected'
-      ) AS interview_selected,
-      (
-        SELECT COUNT(*)
-        FROM cadets c
-        WHERE c.drive_id = rd.id
-          AND ${medicalQueueCondition}
-      ) AS medical_queue_count,
-      ${documentCountSelect},
-      (
-        SELECT COUNT(*)
-        FROM cadets c
-        WHERE c.drive_id = rd.id
-          AND c.status = 'CTV Assigned'
-      ) AS ctv_assigned,
-      (
-        SELECT COUNT(*)
-        FROM cadets c
-        WHERE c.drive_id = rd.id
-          AND c.status = 'Onboarded'
-      ) AS onboarded,
+      COALESCE(stats.total_uploaded, 0) AS total_uploaded,
+      COALESCE(stats.shortlisted_count, 0) AS shortlisted_count,
+      COALESCE(stats.assessment_passed, 0) AS assessment_passed,
+      COALESCE(stats.interview_selected, 0) AS interview_selected,
+      COALESCE(stats.medical_queue_count, 0) AS medical_queue_count,
+      COALESCE(stats.document_count, 0) AS document_count,
+      COALESCE(stats.ctv_assigned, 0) AS ctv_assigned,
+      COALESCE(stats.onboarded, 0) AS onboarded,
       ${instituteRequestSentExpression} AS institute_email_sent,
       CASE
         WHEN ${matchingSubmissionExistsExpression}
@@ -170,6 +128,28 @@ const buildDriveSelect = async () => {
       END AS cadet_data_request_message
     FROM recruitment_drives rd
     LEFT JOIN institutes i ON rd.institute_id = i.id
+    LEFT JOIN (
+      SELECT
+        c.drive_id,
+        COUNT(*) AS total_uploaded,
+        SUM(CASE WHEN ${shortlistedCondition} THEN 1 ELSE 0 END) AS shortlisted_count,
+        SUM(CASE WHEN EXISTS (
+          SELECT 1 FROM assessments a WHERE a.cadet_id = c.id AND LOWER(COALESCE(a.status, '')) = 'pass'
+        ) THEN 1 ELSE 0 END) AS assessment_passed,
+        SUM(CASE WHEN EXISTS (
+          SELECT 1 FROM interviews iv WHERE iv.cadet_id = c.id AND LOWER(COALESCE(iv.final_decision, '')) = 'selected'
+        ) THEN 1 ELSE 0 END) AS interview_selected,
+        SUM(CASE WHEN ${medicalQueueCondition} THEN 1 ELSE 0 END) AS medical_queue_count,
+        ${
+          hasCadetDocuments
+            ? 'SUM(CASE WHEN EXISTS (SELECT 1 FROM cadet_documents cd WHERE cd.cadet_id = c.id) THEN 1 ELSE 0 END)'
+            : '0'
+        } AS document_count,
+        SUM(CASE WHEN c.status = 'CTV Assigned' THEN 1 ELSE 0 END) AS ctv_assigned,
+        SUM(CASE WHEN c.status = 'Onboarded' THEN 1 ELSE 0 END) AS onboarded
+      FROM cadets c
+      GROUP BY c.drive_id
+    ) AS stats ON rd.id = stats.drive_id
   `;
 };
 
