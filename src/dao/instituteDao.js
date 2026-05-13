@@ -197,6 +197,7 @@ const createSubmission = async (
   batch_year,
   course_type,
   remarks = null,
+  drive_id = null,
 ) => {
   const id = uuidv4();
 
@@ -209,6 +210,7 @@ const createSubmission = async (
     batch_year,
     course_type,
     remarks,
+    drive_id,
   });
 
   const fields = Object.keys(filteredData);
@@ -230,10 +232,12 @@ const getAllSubmissions = async (
   instituteId = '',
   batchYear = '',
   courseType = '',
+  driveId = '',
 ) => {
   // Exclude file_data from this query for performance
   const hasBatchYear = await hasColumn('institute_submissions', 'batch_year');
   const hasCourseType = await hasColumn('institute_submissions', 'course_type');
+  const hasDriveId = await hasColumn('institute_submissions', 'drive_id');
   const hasRemarks = await hasColumn('institute_submissions', 'remarks');
   const hasSubmissionNotifiedAt = await hasColumn(
     'institute_submissions',
@@ -250,6 +254,7 @@ const getAllSubmissions = async (
     SELECT isub.id, isub.institute_id, isub.file_name, isub.original_name, isub.status, isub.created_at,
            ${hasBatchYear ? 'isub.batch_year' : 'NULL AS batch_year'},
            ${hasCourseType ? 'isub.course_type' : 'NULL AS course_type'},
+           ${hasDriveId ? 'isub.drive_id' : 'NULL AS drive_id'},
            ${selectExtras}, i.institute_name 
     FROM institute_submissions isub
     LEFT JOIN institutes i ON isub.institute_id = i.id
@@ -275,6 +280,21 @@ const getAllSubmissions = async (
   if (courseType && courseType !== 'all' && hasCourseType) {
     whereClauses.push('isub.course_type = ?');
     queryParams.push(courseType);
+  }
+
+  if (driveId && hasDriveId) {
+    whereClauses.push(`(
+      isub.drive_id = ?
+      OR (
+        isub.drive_id IS NULL
+        AND isub.created_at >= (
+          SELECT rd.created_at
+          FROM recruitment_drives rd
+          WHERE rd.id = ?
+        )
+      )
+    )`);
+    queryParams.push(driveId, driveId);
   }
 
   if (search) {
@@ -333,20 +353,54 @@ const getActiveSubmissionForContext = async (
   instituteId,
   batchYear,
   courseType,
+  driveId = null,
 ) => {
   const hasBatchYear = await hasColumn('institute_submissions', 'batch_year');
   const hasCourseType = await hasColumn('institute_submissions', 'course_type');
-  const whereClauses = ['institute_id = ?', 'status <> ?'];
-  const params = [instituteId, 'rejected'];
+  const hasDriveId = await hasColumn('institute_submissions', 'drive_id');
+  const whereClauses = ['status <> ?'];
+  const params = ['rejected'];
 
-  if (batchYear && hasBatchYear) {
-    whereClauses.push('batch_year = ?');
-    params.push(batchYear);
-  }
+  if (driveId && hasDriveId) {
+    const legacyClauses = ['institute_id = ?'];
+    const legacyParams = [instituteId];
 
-  if (courseType && hasCourseType) {
-    whereClauses.push('course_type = ?');
-    params.push(courseType);
+    if (batchYear && hasBatchYear) {
+      legacyClauses.push('batch_year = ?');
+      legacyParams.push(batchYear);
+    }
+
+    if (courseType && hasCourseType) {
+      legacyClauses.push('course_type = ?');
+      legacyParams.push(courseType);
+    }
+
+    whereClauses.push(`(
+      drive_id = ?
+      OR (
+        drive_id IS NULL
+        AND created_at >= (
+          SELECT rd.created_at
+          FROM recruitment_drives rd
+          WHERE rd.id = ?
+        )
+        AND ${legacyClauses.join(' AND ')}
+      )
+    )`);
+    params.push(driveId, driveId, ...legacyParams);
+  } else {
+    whereClauses.push('institute_id = ?');
+    params.push(instituteId);
+
+    if (batchYear && hasBatchYear) {
+      whereClauses.push('batch_year = ?');
+      params.push(batchYear);
+    }
+
+    if (courseType && hasCourseType) {
+      whereClauses.push('course_type = ?');
+      params.push(courseType);
+    }
   }
 
   const [rows] = await db.query(
@@ -364,6 +418,7 @@ const getActiveSubmissionForContext = async (
 const getSubmissionById = async (id) => {
   const hasBatchYear = await hasColumn('institute_submissions', 'batch_year');
   const hasCourseType = await hasColumn('institute_submissions', 'course_type');
+  const hasDriveId = await hasColumn('institute_submissions', 'drive_id');
   const hasRemarks = await hasColumn('institute_submissions', 'remarks');
   const hasSubmissionNotifiedAt = await hasColumn(
     'institute_submissions',
@@ -373,6 +428,7 @@ const getSubmissionById = async (id) => {
     `SELECT id, institute_id, file_name, original_name, status, created_at,
             ${hasBatchYear ? 'batch_year' : 'NULL AS batch_year'},
             ${hasCourseType ? 'course_type' : 'NULL AS course_type'},
+            ${hasDriveId ? 'drive_id' : 'NULL AS drive_id'},
             ${hasRemarks ? 'remarks' : 'NULL AS remarks'},
             ${hasSubmissionNotifiedAt ? 'submission_notified_at' : 'NULL AS submission_notified_at'}
      FROM institute_submissions

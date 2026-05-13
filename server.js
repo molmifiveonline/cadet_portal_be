@@ -12,6 +12,9 @@ const errorHandler = require("./src/middleware/errorHandler");
 // Import DAOs for background tasks
 const activityLogDao = require("./src/dao/activityLogDao");
 const { warmCache } = require("./src/services/schemaCompatibilityService");
+const {
+  ensureSubmissionDriveContext,
+} = require("./src/services/schemaUpgradeService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -67,8 +70,13 @@ app.listen(PORT, () => {
   console.log(`API: http://localhost:${PORT}/api`);
   console.log(`Health: http://localhost:${PORT}/health`);
 
-  // Warm schema cache on startup
-  warmCache();
+  // Ensure lightweight schema upgrades are applied before warming compatibility cache.
+  ensureSubmissionDriveContext()
+    .then(() => warmCache())
+    .catch((error) => {
+      console.error("Schema upgrade failed:", error.message);
+      warmCache();
+    });
 
   // Run initial cleanup of old activity logs
   activityLogDao.deleteOldLogs();

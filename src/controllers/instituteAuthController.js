@@ -1,4 +1,6 @@
 const instituteDao = require('../dao/instituteDao');
+const fs = require('fs');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const activityLogDao = require('../dao/activityLogDao');
@@ -20,6 +22,26 @@ const { ROLES } = require('../config/constants');
 const { formatDateForDisplay } = require('../utils/dateUtils');
 
 const INSTITUTE_RECRUITMENT_DRIVES_ROUTE = '/drives';
+const INSTITUTE_LOGIN_ROUTE = '/institute-login';
+
+const buildInstituteEmailLoginLink = (redirectPath = INSTITUTE_RECRUITMENT_DRIVES_ROUTE) =>
+  `${INSTITUTE_FRONTEND_URL}${INSTITUTE_LOGIN_ROUTE}?redirect=${encodeURIComponent(redirectPath)}`;
+
+const STATIC_INSTITUTE_REQUEST_EMAIL = {
+  subject: 'Action Required: Submit Excel Data - MOLMI',
+  description:
+    'Please submit the requested cadet details using the attached Excel format. Fill in all required fields and upload the completed file through the MOLMI Institute Portal.',
+  remarks: 'Cadet data request email sent with static Excel format.',
+  attachmentFilename:
+    'TME-B.Tech(ME)-IMU Chennai -2026 Passing out-MOL-Revised.xlsx',
+  attachmentPath: path.join(
+    __dirname,
+    '..',
+    'assets',
+    'email-attachments',
+    'TME-B.Tech(ME)-IMU Chennai -2026 Passing out-MOL-Revised.xlsx',
+  ),
+};
 
 const normalizeCourseType = (value) => {
   if (!value) return null;
@@ -31,19 +53,16 @@ const normalizeCourseType = (value) => {
 
 const sendInstituteEmail = async (req, res) => {
   try {
-    const { instituteIds, subject, description, remarks, batch_year, course_type } =
-      req.body;
-    const file = req.file;
+    const { instituteIds, batch_year, course_type } = req.body;
     const resolvedCourseType = normalizeCourseType(course_type);
+    const resolvedSubject = STATIC_INSTITUTE_REQUEST_EMAIL.subject;
+    const resolvedDescription = STATIC_INSTITUTE_REQUEST_EMAIL.description;
+    const resolvedRemarks = STATIC_INSTITUTE_REQUEST_EMAIL.remarks;
 
-    if (!instituteIds || !subject || !description || !remarks) {
+    if (!instituteIds) {
       return res.status(400).json({
-        message: 'Institute IDs, subject, description, and remarks are required',
+        message: 'Institute IDs are required',
       });
-    }
-
-    if (!file) {
-      return res.status(400).json({ message: 'Excel format file is required' });
     }
 
     if (!resolvedCourseType) {
@@ -51,6 +70,16 @@ const sendInstituteEmail = async (req, res) => {
         message: 'Course type is required and must be Deck or Engine',
       });
     }
+
+    if (!fs.existsSync(STATIC_INSTITUTE_REQUEST_EMAIL.attachmentPath)) {
+      return res.status(500).json({
+        message: 'Static Excel format file is missing',
+      });
+    }
+
+    const staticAttachment = fs.readFileSync(
+      STATIC_INSTITUTE_REQUEST_EMAIL.attachmentPath,
+    );
 
     // Parse instituteIds if it's a string (from FormData)
     let ids = [];
@@ -121,7 +150,7 @@ const sendInstituteEmail = async (req, res) => {
       );
 
       // Generate Link (No token needed now)
-      const link = `${INSTITUTE_FRONTEND_URL}${INSTITUTE_RECRUITMENT_DRIVES_ROUTE}`;
+      const link = buildInstituteEmailLoginLink();
       let drive = null;
 
       try {
@@ -137,8 +166,8 @@ const sendInstituteEmail = async (req, res) => {
       // Prepare Email
       const emailContent = emailTemplates.instituteExcelSubmission({
         instituteName: institute.institute_name,
-        subject,
-        description: `${description}<br/><br/><strong>Remarks:</strong><br/>${remarks}`,
+        subject: resolvedSubject,
+        description: resolvedDescription,
         link,
         expiryDate: expiryDateString,
         tempUsername,
@@ -176,21 +205,21 @@ const sendInstituteEmail = async (req, res) => {
           template: () => emailContent,
           templateData: {
             instituteName: institute.institute_name,
-            subject,
-            description,
-            remarks,
+            subject: resolvedSubject,
+            description: resolvedDescription,
+            remarks: resolvedRemarks,
             batch_year: batch_year || new Date().getFullYear(),
             course_type: resolvedCourseType,
           },
           drive_id: drive?.id || null,
           institute_id: id,
           communication_type: COMMUNICATION_TYPES.INSTITUTE_REQUEST,
-          remarks,
+          remarks: resolvedRemarks,
           sent_by: req.user?.id || null,
           attachments: [
             {
-              filename: file.originalname,
-              content: file.buffer,
+              filename: STATIC_INSTITUTE_REQUEST_EMAIL.attachmentFilename,
+              content: staticAttachment,
             },
           ],
         });
@@ -379,7 +408,7 @@ const sendShortlistEmail = async (req, res) => {
       );
 
       // Generate Link
-      const link = `${INSTITUTE_FRONTEND_URL}${INSTITUTE_RECRUITMENT_DRIVES_ROUTE}`;
+      const link = buildInstituteEmailLoginLink();
 
       // Prepare Email
       const emailContent = emailTemplates.instituteShortlistView({

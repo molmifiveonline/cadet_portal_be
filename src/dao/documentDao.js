@@ -93,6 +93,8 @@ const getDocumentsByDrive = async (driveId) => {
     'cadet_documents',
     'last_reupload_requested_at',
   );
+  const { hasTable } = require('../services/schemaCompatibilityService');
+  const hasRecruitmentCommunications = await hasTable('recruitment_communications');
 
   const [rows] = await db.query(
     `SELECT
@@ -115,6 +117,7 @@ const getDocumentsByDrive = async (driveId) => {
       ${hasRequestedAt ? 'cd.requested_at' : 'NULL AS requested_at'},
       ${hasRequestExpiresAt ? 'cd.request_expires_at' : 'NULL AS request_expires_at'},
       ${hasLastReuploadRequestedAt ? 'cd.last_reupload_requested_at' : 'NULL AS last_reupload_requested_at'},
+      ${hasRecruitmentCommunications ? "(SELECT MAX(sent_at) FROM recruitment_communications rc WHERE rc.cadet_id = c.id AND rc.communication_type = 'document_request' AND rc.send_status = 'sent')" : 'NULL'} AS document_email_date,
       cd.created_at,
       cd.updated_at
      FROM cadets c

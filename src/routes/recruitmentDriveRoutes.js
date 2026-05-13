@@ -51,11 +51,13 @@ router.get('/:id/stats', allowInstituteOrPermission('recruitment_drives', 'view'
 router.get('/:id/cadets', allowInstituteOrPermission('recruitment_drives', 'view'), getDriveCadetQueue);
 router.get('/:id/communications', requirePermission('recruitment_drives', 'view'), getDriveCommunications);
 
+const upload = require('../middleware/uploadMiddleware');
+
 // Workflow Action Routes
 router.get('/:id/preview-submit-cadets', requirePermission('recruitment_drives', 'view'), previewSubmitCadets);
 router.post('/:id/submit-cadets', requirePermission('recruitment_drives', 'edit'), submitCadetDetails);
 router.post('/:id/shortlist', requirePermission('recruitment_drives', 'edit'), shortlistCadets);
-router.post('/:id/send-assessment-invites', requirePermission('recruitment_drives', 'edit'), sendAssessmentInvites);
+router.post('/:id/send-assessment-invites', requirePermission('recruitment_drives', 'edit'), upload.single('assessment_document'), sendAssessmentInvites);
 router.post('/:id/send-interview-invites', requirePermission('recruitment_drives', 'edit'), sendInterviewInvites);
 router.post('/:id/send-medical-invites', requirePermission('recruitment_drives', 'edit'), sendMedicalInvites);
 router.post('/:id/finalize-shortlist', requirePermission('recruitment_drives', 'edit'), finalizeShortlist);

@@ -76,6 +76,28 @@ const buildBaseSelect = async () => {
       ) AS has_cv`
     : '0 AS has_cv';
 
+  const hasRecruitmentCommunications = await hasTable('recruitment_communications');
+
+  const commSelects = hasRecruitmentCommunications
+    ? `,
+      (SELECT MAX(rc.sent_at) FROM recruitment_communications rc WHERE rc.cadet_id = c.id AND rc.communication_type = 'shortlist' AND rc.send_status = 'sent') AS shortlist_email_date,
+      (SELECT MAX(rc.sent_at) FROM recruitment_communications rc WHERE rc.cadet_id = c.id AND rc.communication_type = 'assessment_invite' AND rc.send_status = 'sent') AS assessment_email_date,
+      (SELECT MAX(rc.sent_at) FROM recruitment_communications rc WHERE rc.cadet_id = c.id AND rc.communication_type = 'interview_invite' AND rc.send_status = 'sent') AS interview_email_date,
+      (SELECT MAX(rc.sent_at) FROM recruitment_communications rc WHERE rc.cadet_id = c.id AND rc.communication_type = 'medical_invite' AND rc.send_status = 'sent') AS medical_email_date,
+      (SELECT MAX(rc.sent_at) FROM recruitment_communications rc WHERE rc.cadet_id = c.id AND rc.communication_type = 'document_request' AND rc.send_status = 'sent') AS document_email_date,
+      (SELECT MAX(rc.sent_at) FROM recruitment_communications rc WHERE rc.cadet_id = c.id AND rc.send_status = 'sent') AS last_email_date,
+      (SELECT rc.communication_type FROM recruitment_communications rc WHERE rc.cadet_id = c.id AND rc.send_status = 'sent' ORDER BY rc.sent_at DESC LIMIT 1) AS last_email_type
+      `
+    : `,
+      NULL AS shortlist_email_date,
+      NULL AS assessment_email_date,
+      NULL AS interview_email_date,
+      NULL AS medical_email_date,
+      NULL AS document_email_date,
+      NULL AS last_email_date,
+      NULL AS last_email_type
+      `;
+
   return `
     SELECT
       ${cadetCols},
@@ -127,7 +149,7 @@ const buildBaseSelect = async () => {
       ${medicalCompat.hasInviteRemark ? 'mr.invite_remark' : 'NULL AS medical_invite_remark'},
       mc.center_name AS medical_center_name,
       ${hasCvSelect},
-      COALESCE(c.imu_avg_all_semester_percentage, c.twelfth_pcm_avg_percentage, c.tenth_avg_percentage) AS cadet_percentage
+      COALESCE(c.imu_avg_all_semester_percentage, c.twelfth_pcm_avg_percentage, c.tenth_avg_percentage) AS cadet_percentage${commSelects}
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
     LEFT JOIN recruitment_drives rd ON c.drive_id = rd.id

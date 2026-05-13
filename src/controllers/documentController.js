@@ -19,6 +19,7 @@ const groupDocumentsByCadet = (rows = []) => {
         email_id: row.email_id,
         status: row.status,
         workflow_phase: row.workflow_phase,
+        document_email_date: row.document_email_date,
         documents: [],
       });
     }
