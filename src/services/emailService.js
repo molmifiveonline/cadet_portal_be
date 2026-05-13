@@ -140,48 +140,14 @@ const emailTemplates = {
 
                     <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">${data.description}</p>
 
-                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">Please use the secure credentials below to access the portal and submit the requested Excel data for the <strong>${data.batch_year}</strong> administrative year.</p>
-                  </td>
-                </tr>
-
-
-                <!-- Credentials Card -->
-                <tr>
-                  <td style="padding: 0 32px;">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f0f7ff; border: 1px solid #d4e5fc; border-left: 5px solid #1a73e8; border-radius: 8px; overflow: hidden;">
-                      <tr>
-                        <td style="padding: 20px 24px;">
-                          <p style="margin: 0 0 4px; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Your Login Credentials</p>
-                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 12px;">
-                            <tr>
-                              <td style="padding: 6px 0; font-size: 16px; color: #0047AB; font-weight: 600; width: 100px;">User ID:</td>
-                              <td style="padding: 6px 0; font-size: 16px; color: #1f2937; font-weight: 500; letter-spacing: 0.5px;">${data.tempUsername}</td>
-                            </tr>
-                          </table>
-                          <p style="margin: 12px 0 0; font-size: 14px; color: #4b5563;">An OTP (One-Time Password) will be sent to your email each time you attempt to login.</p>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-
-                <!-- Warning -->
-                <tr>
-                  <td style="padding: 20px 32px 0;" align="center">
-                    <table role="presentation" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td style="background-color: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #ef4444; border-radius: 6px; padding: 12px 20px;">
-                          <p style="margin: 0; font-size: 14px; color: #b91c1c; font-weight: 600;">⚠️ Do not share these credentials with anyone.</p>
-                          <p style="margin: 4px 0 0; font-size: 13px; color: #dc2626;">⏰ Credentials expire on <strong>${data.expiryDate}</strong> (7 days)</p>
-                        </td>
-                      </tr>
-                    </table>
+                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">Use the portal link below and sign in with your registered institute email so you can submit the requested Excel data for the <strong>${data.batch_year}</strong> administrative year.</p>
+                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">An OTP (One-Time Password) will be sent to your email each time you attempt to login.</p>
                   </td>
                 </tr>
 
                 <!-- Instructions -->
                 <tr>
-                  <td style="padding: 24px 32px 8px;">
+                  <td style="padding: 6px 32px 8px;">
                     <p style="margin: 0; font-size: 16px; color: #444444; line-height: 1.6;">Please download the attached Excel format, fill in the required cadet details, and upload it via the portal:</p>
                   </td>
                 </tr>
@@ -263,36 +229,9 @@ const emailTemplates = {
                       </tr>
                     </table>
 
-                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">Please use your Institute User ID to login. An OTP will be sent to your registered email each time you attempt to login.</p>
+                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">Use the portal link below and sign in with your registered institute email.</p>
+                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">An OTP (One-Time Password) will be sent to your email each time you attempt to login.</p>
 
-                    <!-- Credentials Card -->
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 24px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #059669; border-radius: 8px; overflow: hidden;">
-                      <tr>
-                        <td style="padding: 20px 24px;">
-                          <p style="margin: 0 0 4px; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Your Login Credentials</p>
-                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 12px;">
-                            <tr>
-                              <td style="padding: 6px 0; font-size: 16px; color: #334155; font-weight: 600; width: 100px;">User ID:</td>
-                              <td style="padding: 6px 0; font-size: 16px; color: #0f172a; font-weight: 600; letter-spacing: 0.5px;">${data.tempUsername}</td>
-                            </tr>
-                          </table>
-                          <p style="margin: 12px 0 0; font-size: 14px; color: #4b5563;">An OTP (One-Time Password) will be sent to your email each time you attempt to login.</p>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-
-                <!-- Warning -->
-                <tr>
-                  <td style="padding: 0 32px 24px;">
-                    <div style="padding: 16px; background-color: #fffbeb; border-radius: 8px; border-left: 4px solid #f59e0b;">
-                      <p style="margin: 0 0 8px; font-size: 14px; color: #b45309; font-weight: 600;">⚠️ Security Notice</p>
-                      <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #92400e; line-height: 1.5;">
-                        <li>Do not share your User ID with anyone.</li>
-                        <li>These credentials will expire on <strong>${data.expiryDate}</strong> (7 days).</li>
-                      </ul>
-                    </div>
                   </td>
                 </tr>
 

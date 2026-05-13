@@ -74,8 +74,25 @@ const submitInstituteExcel = async (req, res) => {
         return res.status(404).json({ message: 'Institute not found' });
       }
 
-      const batch_year = req.body.batch_year || institute.batch_year;
-      const requestedCourseType = req.body.course_type || institute.submission_course_type;
+      const requestedDriveId = req.body.drive_id || req.body.driveId || null;
+      let drive = null;
+
+      if (requestedDriveId) {
+        drive = await recruitmentDriveDao.getRecruitmentDriveById(requestedDriveId);
+
+        if (!drive) {
+          return res.status(404).json({ message: 'Recruitment drive not found' });
+        }
+
+        if (drive.institute_id !== instituteId) {
+          return res.status(400).json({
+            message: 'Recruitment drive does not belong to the selected institute.',
+          });
+        }
+      }
+
+      const batch_year = req.body.batch_year || drive?.year || institute.batch_year;
+      const requestedCourseType = req.body.course_type || drive?.course_type || institute.submission_course_type;
       const course_type = normalizeCourseType(requestedCourseType);
 
       if (!batch_year) {
@@ -109,11 +126,24 @@ const submitInstituteExcel = async (req, res) => {
         return res.status(400).json({ message: phoneValidationMessage });
       }
 
-      const drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
-        instituteId,
-        batch_year,
-        course_type,
-      );
+      if (
+        drive &&
+        (String(drive.year) !== String(batch_year) ||
+          normalizeCourseType(drive.course_type) !== course_type)
+      ) {
+        return res.status(400).json({
+          message:
+            'Recruitment drive, batch year, and course type do not match.',
+        });
+      }
+
+      if (!drive) {
+        drive = await recruitmentDriveDao.getDriveByInstituteYearCourseType(
+          instituteId,
+          batch_year,
+          course_type,
+        );
+      }
 
       if (!isAdmin) {
         const activeSubmission =
@@ -121,6 +151,7 @@ const submitInstituteExcel = async (req, res) => {
             instituteId,
             batch_year,
             course_type,
+            drive?.id || null,
           );
 
         if (
@@ -147,6 +178,7 @@ const submitInstituteExcel = async (req, res) => {
         batch_year,
         course_type,
         submissionRemarks,
+        drive?.id || null,
       );
 
       // Notify MOLMI team after institute submission
@@ -236,6 +268,7 @@ const getAllSubmissions = async (req, res) => {
     const instituteId = req.query.instituteId || '';
     const batchYear = req.query.batchYear || '';
     const courseType = normalizeCourseType(req.query.courseType) || '';
+    const driveId = req.query.driveId || req.query.drive_id || '';
 
     const offset = (page - 1) * limit;
 
@@ -247,6 +280,7 @@ const getAllSubmissions = async (req, res) => {
       instituteId,
       batchYear,
       courseType,
+      driveId,
     );
 
     res.json({
@@ -297,7 +331,8 @@ const parseSubmissionData = async (submissionId, driveId = null) => {
     if (isRowEmpty(rowData)) continue;
     try {
       const cadetData = mapRowToCadetData(rowData, headers, submission);
-      if (driveId) cadetData.drive_id = driveId;
+      const resolvedDriveId = driveId || submission.drive_id || null;
+      if (resolvedDriveId) cadetData.drive_id = resolvedDriveId;
       cadets.push(cadetData);
     } catch (err) {
       console.error('Error parsing row:', i, err);
@@ -309,8 +344,9 @@ const parseSubmissionData = async (submissionId, driveId = null) => {
 // Helper function for import logic
 const processImport = async (id, userId, clientIp, driveId = null) => {
   const { cadets, submission } = await parseSubmissionData(id, driveId);
-  const drive = driveId
-    ? await recruitmentDriveDao.getRecruitmentDriveById(driveId)
+  const resolvedDriveId = driveId || submission?.drive_id || null;
+  const drive = resolvedDriveId
+    ? await recruitmentDriveDao.getRecruitmentDriveById(resolvedDriveId)
     : null;
   
   if (submission.status === SUBMISSION_STATUS.IMPORTED)
@@ -338,7 +374,7 @@ const processImport = async (id, userId, clientIp, driveId = null) => {
   if (userId) {
     const submissionLabel =
       submission?.original_name || submission?.file_name || submission?.id || id;
-    const driveLabel = drive?.drive_name || driveId;
+    const driveLabel = drive?.drive_name || resolvedDriveId;
     await activityLogDao.createLog(
       userId,
       'IMPORT_SUBMISSION',

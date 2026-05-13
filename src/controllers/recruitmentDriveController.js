@@ -46,6 +46,7 @@ const previewSubmitCadets = async (req, res) => {
       drive.institute_id,
       drive.year,
       drive.course_type,
+      drive.id,
     );
 
     if (!submissions || submissions.length === 0) {
@@ -179,6 +180,7 @@ const getAllRecruitmentDrives = async (req, res) => {
     let institute_id = req.query.institute_id;
     const course_type = req.query.course_type;
     const status = req.query.status;
+    const year = req.query.year || req.query.batch_year;
 
     if (req.user && req.user.role === "Institute") {
       institute_id = req.user.instituteId || req.user.id;
@@ -190,6 +192,7 @@ const getAllRecruitmentDrives = async (req, res) => {
       institute_id,
       course_type,
       status,
+      year,
       search,
     };
 
@@ -396,10 +399,24 @@ const deleteRecruitmentDrive = async (req, res) => {
 
     const { id } = req.params;
 
-    const success = await recruitmentDriveDao.deleteRecruitmentDrive(id);
+    const deleteResult = await recruitmentDriveDao.deleteRecruitmentDrive(id);
 
-    if (!success) {
+    if (deleteResult.reason === "not_found") {
       return res.status(404).json({ message: "Recruitment drive not found" });
+    }
+
+    if (deleteResult.reason === "has_cadets") {
+      return res.status(409).json({
+        message:
+          "This recruitment drive has cadets/progress. Close the drive instead of deleting it.",
+        cadetCount: deleteResult.cadetCount,
+      });
+    }
+
+    if (!deleteResult.success) {
+      return res.status(500).json({
+        message: "Recruitment drive could not be deleted",
+      });
     }
 
     // Log activity
@@ -407,12 +424,16 @@ const deleteRecruitmentDrive = async (req, res) => {
       await activityLogDao.createLog(
         req.user.id,
         "DELETE_RECRUITMENT_DRIVE",
-        `Deleted recruitment drive: ${id}`,
+        `Deleted recruitment drive: ${deleteResult.driveName || id}`,
         req.ip || req.connection.remoteAddress,
       );
     }
 
-    res.json({ message: "Recruitment drive deleted successfully" });
+    res.json({
+      message: "Recruitment drive deleted successfully",
+      detachedSubmissions: deleteResult.detachedSubmissions,
+      detachedCommunications: deleteResult.detachedCommunications,
+    });
   } catch (error) {
     console.error("Delete Recruitment Drive Error:", error);
     res.status(500).json({
@@ -514,6 +535,7 @@ const submitCadetDetails = async (req, res) => {
       drive.institute_id,
       drive.year,
       drive.course_type,
+      drive.id,
     );
 
     if (!submissions || submissions.length === 0) {
@@ -613,9 +635,20 @@ const shortlistCadets = async (req, res) => {
 const sendAssessmentInvites = async (req, res) => {
   try {
     const { id } = req.params;
-    const { cadets = [] } = req.body;
+    let { cadets = [] } = req.body;
 
+    // Handle FormData stringified cadets
+    if (typeof cadets === 'string') {
+      try {
+        cadets = JSON.parse(cadets);
+      } catch (e) {
+        return res.status(400).json({ success: false, message: 'Invalid cadets data' });
+      }
+    }
+
+    const assessmentFile = req.file;
     const pendingDetailsNames = [];
+
     for (const cadetInvite of cadets) {
       const cadet = await cadetDao.getCadetById(cadetInvite.cadet_id);
       if (!cadet || cadet.drive_id !== id || !cadet.email_id) continue;
@@ -625,12 +658,31 @@ const sendAssessmentInvites = async (req, res) => {
         continue;
       }
 
+      let documentLink = cadetInvite.document_link;
+
+      // If a file was uploaded, save it as a document for this cadet
+      if (assessmentFile) {
+        const documentId = await documentDao.createDocument({
+          cadet_id: cadet.id,
+          document_name: 'Assessment Instructions',
+          document_type: 'OTHER',
+          document_data: assessmentFile.buffer,
+          document_mime_type: assessmentFile.mimetype,
+          original_filename: assessmentFile.originalname,
+          status: 'pending',
+          source: 'portal',
+        });
+        
+        // Generate download link for the email
+        documentLink = `${FRONTEND_URL || ''}/api/documents/download/${documentId}`;
+      }
+
       await assessmentDao.createOrUpdateAssessment({
         cadet_id: cadet.id,
         assessment_date: cadetInvite.assessment_date,
         assessment_time: cadetInvite.assessment_time,
         invite_remark: cadetInvite.remarks,
-        invite_document_link: cadetInvite.document_link,
+        invite_document_link: documentLink,
       });
 
       await cadetDao.updateCadet(
@@ -655,7 +707,7 @@ const sendAssessmentInvites = async (req, res) => {
           date: cadetInvite.assessment_date,
           time: cadetInvite.assessment_time,
           remarks: cadetInvite.remarks,
-          documentLink: cadetInvite.document_link,
+          documentLink: documentLink,
         },
         drive_id: id,
         cadet_id: cadet.id,
@@ -666,17 +718,12 @@ const sendAssessmentInvites = async (req, res) => {
       });
     }
 
-    // Advance drive status: once assessment invites are sent, the drive is at least at Shortlisted stage.
-    // (No dedicated "Assessment In Progress" status exists, so we leave the drive at Shortlisted
-    // until assessment is finalised via finalizeAssessment.)
-    // Nothing extra needed here – status remains Shortlisted until finalized.
-
     if (pendingDetailsNames.length > 0) {
       return res.json({
         success: true,
         message: `Assessment invites sent, but ${pendingDetailsNames.length} cadets were skipped because their details are still pending from the institute: ${pendingDetailsNames.join(', ')}.`,
         skippedCount: pendingDetailsNames.length,
-        skippedCadets: pendingDetailsNames
+        skippedCadets: pendingDetailsNames,
       });
     }
 

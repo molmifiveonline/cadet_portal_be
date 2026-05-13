@@ -7,6 +7,10 @@ const {
   isValidPasswordLength,
 } = require('../utils/validationUtils');
 
+const USER_STATUSES = ['active', 'inactive'];
+
+const isValidUserStatus = (status) => USER_STATUSES.includes(status);
+
 const getUsers = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -63,7 +67,8 @@ const getUserById = async (req, res, next) => {
 
 const createUser = async (req, res, next) => {
   try {
-    const { email, password, first_name, last_name, role } = req.body;
+    const { email, password, first_name, last_name, role, status } = req.body;
+    const userStatus = status || 'active';
 
     if (!email || !password) {
       return res
@@ -86,6 +91,12 @@ const createUser = async (req, res, next) => {
         .json({ message: 'First name and last name are required' });
     }
 
+    if (!isValidUserStatus(userStatus)) {
+      return res
+        .status(400)
+        .json({ message: 'Status must be active or inactive' });
+    }
+
     const existingUser = await userManagementDao.findUserByEmail(email);
     if (existingUser) {
       return res.status(409).json({ message: 'User already exists' });
@@ -97,6 +108,7 @@ const createUser = async (req, res, next) => {
       first_name,
       last_name,
       role,
+      userStatus,
     );
 
     // Log activity
@@ -155,12 +167,19 @@ const updateUser = async (req, res, next) => {
       return res.status(400).json({ message: PASSWORD_LENGTH_MESSAGE });
     }
 
+    const userStatus = status || existingUser.status || 'active';
+    if (!isValidUserStatus(userStatus)) {
+      return res
+        .status(400)
+        .json({ message: 'Status must be active or inactive' });
+    }
+
     const updated = await userManagementDao.updateUser(
       id,
       email,
       first_name,
       last_name,
-      status || existingUser.status || 'active',
+      userStatus,
       role || existingUser.role || 'Admin',
       shouldUpdatePassword ? password : null,
     );

@@ -9,6 +9,7 @@ const getCadetCompatibility = async () => ({
 const getSubmissionCompatibility = async () => ({
   hasBatchYear: await hasColumn('institute_submissions', 'batch_year'),
   hasCourseType: await hasColumn('institute_submissions', 'course_type'),
+  hasDriveId: await hasColumn('institute_submissions', 'drive_id'),
 });
 
 const buildDriveSelect = async () => {
@@ -51,10 +52,15 @@ const buildDriveSelect = async () => {
     revertedExcelFilters.length > 0
       ? ` AND ${revertedExcelFilters.join(' AND ')}`
       : '';
+  const legacySubmissionMatchExpression = `isub.institute_id = rd.institute_id${revertedExcelWhere}
+            AND isub.created_at >= rd.created_at`;
+  const submissionMatchExpression = submissionCompat.hasDriveId
+    ? `(isub.drive_id = rd.id OR (isub.drive_id IS NULL AND ${legacySubmissionMatchExpression}))`
+    : legacySubmissionMatchExpression;
   const matchingSubmissionExistsExpression = `EXISTS (
           SELECT 1
           FROM institute_submissions isub
-          WHERE isub.institute_id = rd.institute_id${revertedExcelWhere}
+          WHERE ${submissionMatchExpression}
         )`;
 
   const progressedDriveStatuses = [
@@ -196,6 +202,11 @@ const getAllRecruitmentDrives = async (limit = 10, offset = 0, filters = {}) => 
     queryParams.push(filters.status);
   }
 
+  if (filters.year) {
+    whereClauses.push('rd.year = ?');
+    queryParams.push(filters.year);
+  }
+
   if (filters.search) {
     whereClauses.push('(rd.drive_name LIKE ? OR i.institute_name LIKE ?)');
     const searchTerm = `%${filters.search}%`;
@@ -311,8 +322,83 @@ const updateRecruitmentDrive = async (id, driveData) => {
 };
 
 const deleteRecruitmentDrive = async (id) => {
-  const [result] = await db.query('DELETE FROM recruitment_drives WHERE id = ?', [id]);
-  return result.affectedRows > 0;
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [driveRows] = await connection.query(
+      'SELECT id, drive_name FROM recruitment_drives WHERE id = ? FOR UPDATE',
+      [id],
+    );
+
+    const drive = driveRows[0];
+    if (!drive) {
+      await connection.rollback();
+      return { success: false, reason: 'not_found' };
+    }
+
+    const [[{ cadet_count: cadetCount }]] = await connection.query(
+      'SELECT COUNT(*) AS cadet_count FROM cadets WHERE drive_id = ?',
+      [id],
+    );
+
+    if (Number(cadetCount) > 0) {
+      await connection.rollback();
+      return {
+        success: false,
+        reason: 'has_cadets',
+        cadetCount: Number(cadetCount),
+        driveName: drive.drive_name,
+      };
+    }
+
+    const hasSubmissionDriveId = await hasColumn(
+      'institute_submissions',
+      'drive_id',
+    );
+    let detachedSubmissions = 0;
+
+    if (hasSubmissionDriveId) {
+      const [submissionResult] = await connection.query(
+        'UPDATE institute_submissions SET drive_id = NULL WHERE drive_id = ?',
+        [id],
+      );
+      detachedSubmissions = submissionResult.affectedRows || 0;
+    }
+
+    const hasRecruitmentCommunications = await hasTable(
+      'recruitment_communications',
+    );
+    let detachedCommunications = 0;
+
+    if (hasRecruitmentCommunications) {
+      const [communicationResult] = await connection.query(
+        'UPDATE recruitment_communications SET drive_id = NULL WHERE drive_id = ?',
+        [id],
+      );
+      detachedCommunications = communicationResult.affectedRows || 0;
+    }
+
+    const [result] = await connection.query(
+      'DELETE FROM recruitment_drives WHERE id = ?',
+      [id],
+    );
+
+    await connection.commit();
+
+    return {
+      success: result.affectedRows > 0,
+      detachedSubmissions,
+      detachedCommunications,
+      driveName: drive.drive_name,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 const getRecruitmentDriveStats = async (driveId) => {
@@ -397,6 +483,11 @@ const getPendingDriveCount = async (instituteId) => {
     submissionFilters.length > 0
       ? ` AND ${submissionFilters.join(' AND ')}`
       : '';
+  const legacySubmissionMatchExpression = `isub.institute_id = rd.institute_id${submissionWhere}
+            AND isub.created_at >= rd.created_at`;
+  const submissionMatchExpression = submissionCompat.hasDriveId
+    ? `(isub.drive_id = rd.id OR (isub.drive_id IS NULL AND ${legacySubmissionMatchExpression}))`
+    : legacySubmissionMatchExpression;
   const requestCondition = hasRecruitmentCommunications
     ? `(rd.status = 'Requested'
        OR EXISTS (
@@ -416,7 +507,7 @@ const getPendingDriveCount = async (instituteId) => {
        AND NOT EXISTS (
          SELECT 1
          FROM institute_submissions isub
-         WHERE isub.institute_id = rd.institute_id${submissionWhere}
+         WHERE ${submissionMatchExpression}
        )`,
     [instituteId],
   );

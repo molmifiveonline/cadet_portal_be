@@ -58,12 +58,19 @@ const countUsers = async (search = '') => {
   return rows[0].count;
 };
 
-const createUser = async (email, password, first_name, last_name, role) => {
+const createUser = async (
+  email,
+  password,
+  first_name,
+  last_name,
+  role,
+  status = 'active',
+) => {
   const hashedPassword = await bcrypt.hash(password, 10);
   const id = uuidv4();
 
   await db.query(
-    'INSERT INTO users (id, email, password, role, first_name, last_name) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO users (id, email, password, role, first_name, last_name, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [
       id,
       email,
@@ -71,9 +78,17 @@ const createUser = async (email, password, first_name, last_name, role) => {
       role || 'SuperAdmin',
       first_name || '',
       last_name || '',
+      status,
     ],
   );
-  return { id, email, role: role || 'SuperAdmin', first_name, last_name };
+  return {
+    id,
+    email,
+    role: role || 'SuperAdmin',
+    first_name,
+    last_name,
+    status,
+  };
 };
 
 const findUserByEmail = async (email) => {
