@@ -40,11 +40,13 @@ const getAllInstitutes = async (
   sortOrder,
   search,
   hasSubmissions = false,
+  courseType = '',
 ) => {
   let query = 'SELECT DISTINCT i.* FROM institutes i';
   let countQuery = 'SELECT COUNT(DISTINCT i.id) as total FROM institutes i';
   let queryParams = [];
   let countParams = [];
+  const whereClauses = [];
 
   if (hasSubmissions) {
     // Only return institutes that have cadets in the system (i.e. present in the table)
@@ -55,16 +57,13 @@ const getAllInstitutes = async (
   if (search) {
     const searchPattern = `%${search}%`;
 
-    const whereClause = ` WHERE (
+    whereClauses.push(`(
       i.institute_name LIKE ? OR 
       i.address LIKE ? OR 
       i.location LIKE ? OR
       i.institute_type LIKE ? OR
       i.contact_emails LIKE ?
-    )`;
-
-    query += whereClause;
-    countQuery += whereClause;
+    )`);
     const searchParams = [
       searchPattern,
       searchPattern,
@@ -74,6 +73,18 @@ const getAllInstitutes = async (
     ];
     queryParams.push(...searchParams);
     countParams.push(...searchParams);
+  }
+
+  if (['Deck', 'Engine'].includes(courseType)) {
+    whereClauses.push('i.institute_type IN (?, ?)');
+    queryParams.push(courseType, 'Both');
+    countParams.push(courseType, 'Both');
+  }
+
+  if (whereClauses.length > 0) {
+    const whereClause = ` WHERE ${whereClauses.join(' AND ')}`;
+    query += whereClause;
+    countQuery += whereClause;
   }
 
   query += ` ORDER BY i.${sortBy} ${sortOrder}`;

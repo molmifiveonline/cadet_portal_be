@@ -7,6 +7,15 @@ const { getEmailValidationMessage } = require('../utils/validationUtils');
 const normalizeEmail = (email) =>
   typeof email === 'string' ? email.trim().toLowerCase() : '';
 
+const normalizeCourseType = (courseType) => {
+  const normalized =
+    typeof courseType === 'string' ? courseType.trim().toLowerCase() : '';
+
+  if (normalized === 'deck') return 'Deck';
+  if (normalized === 'engine') return 'Engine';
+  return '';
+};
+
 const getContactEmailValues = (contactEmails) =>
   Array.isArray(contactEmails)
     ? contactEmails
@@ -120,6 +129,9 @@ const getAllInstitutes = async (req, res) => {
     const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
     const hasSubmissions = req.query.hasSubmissions === 'true';
+    const courseType = normalizeCourseType(
+      req.query.course_type || req.query.courseType,
+    );
     let sortBy = req.query.sortBy || 'created_at';
     let sortOrder = req.query.sortOrder || 'DESC';
 
@@ -153,6 +165,7 @@ const getAllInstitutes = async (req, res) => {
       sortOrder,
       search,
       hasSubmissions,
+      courseType,
     );
 
     res.json({
