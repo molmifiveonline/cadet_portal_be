@@ -5,6 +5,7 @@ const cadetDao = require("../dao/cadetDao");
 const assessmentDao = require("../dao/assessmentDao");
 const interviewDao = require("../dao/interviewDao");
 const medicalDao = require("../dao/cadetMedicalResultsDao");
+const documentDao = require("../dao/documentDao");
 const recruitmentCommunicationDao = require("../dao/recruitmentCommunicationDao");
 const {
   DEFAULT_PAGE_SIZE,
@@ -26,6 +27,31 @@ const {
   logAndSendEmail,
   emailTemplates,
 } = require("../services/recruitmentCommunicationService");
+
+const FRONTEND_URL = process.env.FRONTEND_URL || "";
+const INVITE_CONCURRENCY = 5;
+
+const mapById = (items = []) =>
+  new Map(items.map((item) => [String(item.id), item]));
+
+const runWithConcurrency = async (items, limit, worker) => {
+  const results = [];
+  let index = 0;
+
+  const runners = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (index < items.length) {
+        const currentIndex = index;
+        index += 1;
+        results[currentIndex] = await worker(items[currentIndex], currentIndex);
+      }
+    },
+  );
+
+  await Promise.all(runners);
+  return results;
+};
 
 // ... (skipping to the function implementation later in the file)
 
@@ -221,55 +247,10 @@ const getAllRecruitmentDrives = async (req, res) => {
 const getRecruitmentDriveById = async (req, res) => {
   try {
     const { id } = req.params;
-    let drive = await recruitmentDriveDao.getRecruitmentDriveById(id);
+    const drive = await recruitmentDriveDao.getRecruitmentDriveById(id);
 
     if (!drive) {
       return res.status(404).json({ message: "Recruitment drive not found" });
-    }
-
-    // Self-healing: Sync status if it's lagging behind actual data flags.
-    // We compute the highest stage the data justifies and advance the drive
-    // status to that stage if the stored status is behind.
-    const STATUS_ORDER = [
-      DRIVE_STATUS.DRAFT,
-      DRIVE_STATUS.REQUESTED,
-      DRIVE_STATUS.RECEIVED,
-      DRIVE_STATUS.SUBMITTED,
-      DRIVE_STATUS.SHORTLISTED,
-      DRIVE_STATUS.ASSESSMENT_COMPLETED,
-      DRIVE_STATUS.INTERVIEW_COMPLETED,
-      DRIVE_STATUS.MEDICAL_COMPLETED,
-      DRIVE_STATUS.CLOSED,
-    ];
-
-    const currentStatusIndex = STATUS_ORDER.indexOf(drive.status);
-
-    // Determine the highest stage justified by the live data
-    let justifiedStatus = drive.status;
-
-    if (Number(drive.medical_queue_count) > 0) {
-      justifiedStatus = DRIVE_STATUS.MEDICAL_COMPLETED;
-    } else if (Number(drive.interview_selected) > 0) {
-      justifiedStatus = DRIVE_STATUS.INTERVIEW_COMPLETED;
-    } else if (Number(drive.assessment_passed) > 0) {
-      justifiedStatus = DRIVE_STATUS.ASSESSMENT_COMPLETED;
-    } else if (Number(drive.shortlisted_count) > 0) {
-      justifiedStatus = DRIVE_STATUS.SHORTLISTED;
-    } else if (Number(drive.total_uploaded) > 0) {
-      justifiedStatus = DRIVE_STATUS.SUBMITTED;
-    } else if (Number(drive.institute_reverted_excel)) {
-      justifiedStatus = DRIVE_STATUS.RECEIVED;
-    }
-
-    const justifiedStatusIndex = STATUS_ORDER.indexOf(justifiedStatus);
-    const needsUpdate = justifiedStatusIndex > currentStatusIndex;
-
-    if (needsUpdate) {
-      await recruitmentDriveDao.updateRecruitmentDrive(id, {
-        status: justifiedStatus,
-      });
-      // Re-fetch to get updated state (including updated_at etc)
-      drive = await recruitmentDriveDao.getRecruitmentDriveById(id);
     }
 
     if (
@@ -477,6 +458,17 @@ const getDriveCadetQueue = async (req, res) => {
     const { id } = req.params;
     const queue = req.query.queue || "all";
     const search = req.query.search || "";
+    const status = req.query.status || "all";
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit, 10) || DEFAULT_PAGE_SIZE, 1),
+      100,
+    );
+    const offset = (page - 1) * limit;
+    const sortBy = req.query.sortBy || "created_at";
+    const sortOrder = req.query.sortOrder || "DESC";
+    const excludeUploaded =
+      req.query.excludeUploaded === "true" || req.query.exclude_uploaded === "true";
 
     if (req.user && req.user.role === "Institute") {
       const drive = await recruitmentDriveDao.getRecruitmentDriveById(id);
@@ -491,8 +483,38 @@ const getDriveCadetQueue = async (req, res) => {
       }
     }
 
-    const data = await cadetDao.getDriveCadets(id, { queue, search });
-    res.json({ success: true, data });
+    const [data, total] = await Promise.all([
+      cadetDao.getDriveCadets(id, {
+        queue,
+        search,
+        status,
+        limit,
+        offset,
+        sortBy,
+        sortOrder,
+        excludeUploaded,
+      }),
+      cadetDao.getDriveCadetsCount(id, {
+        queue,
+        search,
+        status,
+        excludeUploaded,
+      }),
+    ]);
+
+    res.json({
+      success: true,
+      data,
+      total,
+      page,
+      limit,
+      pagination: {
+        current_page: page,
+        per_page: limit,
+        total,
+        last_page: Math.max(1, Math.ceil(total / limit)),
+      },
+    });
   } catch (error) {
     console.error("Get Drive Cadet Queue Error:", error);
     res.status(500).json({
@@ -648,14 +670,16 @@ const sendAssessmentInvites = async (req, res) => {
 
     const assessmentFile = req.file;
     const pendingDetailsNames = [];
+    const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
+    const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
 
-    for (const cadetInvite of cadets) {
-      const cadet = await cadetDao.getCadetById(cadetInvite.cadet_id);
-      if (!cadet || cadet.drive_id !== id || !cadet.email_id) continue;
+    await runWithConcurrency(cadets, INVITE_CONCURRENCY, async (cadetInvite) => {
+      const cadet = cadetMap.get(String(cadetInvite.cadet_id));
+      if (!cadet || cadet.drive_id !== id || !cadet.email_id) return;
 
       if (!Number(cadet.institute_detail_filled || 0)) {
         pendingDetailsNames.push(cadet.name_as_in_indos_cert);
-        continue;
+        return;
       }
 
       let documentLink = cadetInvite.document_link;
@@ -672,7 +696,7 @@ const sendAssessmentInvites = async (req, res) => {
           status: 'pending',
           source: 'portal',
         });
-        
+
         // Generate download link for the email
         documentLink = `${FRONTEND_URL || ''}/api/documents/download/${documentId}`;
       }
@@ -716,7 +740,7 @@ const sendAssessmentInvites = async (req, res) => {
         remarks: cadetInvite.remarks,
         sent_by: req.user?.id || null,
       });
-    }
+    });
 
     if (pendingDetailsNames.length > 0) {
       return res.json({
@@ -747,10 +771,12 @@ const sendInterviewInvites = async (req, res) => {
   try {
     const { id } = req.params;
     const { cadets = [] } = req.body;
+    const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
+    const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
 
-    for (const cadetInvite of cadets) {
-      const cadet = await cadetDao.getCadetById(cadetInvite.cadet_id);
-      if (!cadet || cadet.drive_id !== id || !cadet.email_id) continue;
+    await runWithConcurrency(cadets, INVITE_CONCURRENCY, async (cadetInvite) => {
+      const cadet = cadetMap.get(String(cadetInvite.cadet_id));
+      if (!cadet || cadet.drive_id !== id || !cadet.email_id) return;
 
       await interviewDao.createOrUpdateInterview({
         cadet_id: cadet.id,
@@ -791,7 +817,7 @@ const sendInterviewInvites = async (req, res) => {
         remarks: cadetInvite.remarks,
         sent_by: req.user?.id || null,
       });
-    }
+    });
 
     // Advance drive status to Assessment Completed when interview invites go out.
     const driveForInterview =
@@ -834,10 +860,12 @@ const sendMedicalInvites = async (req, res) => {
   try {
     const { id } = req.params;
     const { cadets = [] } = req.body;
+    const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
+    const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
 
-    for (const cadetInvite of cadets) {
-      const cadet = await cadetDao.getCadetById(cadetInvite.cadet_id);
-      if (!cadet || cadet.drive_id !== id || !cadet.email_id) continue;
+    await runWithConcurrency(cadets, INVITE_CONCURRENCY, async (cadetInvite) => {
+      const cadet = cadetMap.get(String(cadetInvite.cadet_id));
+      if (!cadet || cadet.drive_id !== id || !cadet.email_id) return;
 
       await medicalDao.createOrUpdateMedicalResult({
         cadet_id: cadet.id,
@@ -882,7 +910,7 @@ const sendMedicalInvites = async (req, res) => {
         remarks: cadetInvite.remarks,
         sent_by: req.user?.id || null,
       });
-    }
+    });
 
     // Advance drive status to Interview Completed when medical invites go out.
     const driveForMedical =

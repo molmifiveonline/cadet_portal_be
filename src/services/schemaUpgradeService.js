@@ -54,6 +54,63 @@ const runSchemaChange = async (query, duplicateCodes = []) => {
   }
 };
 
+const ensureIndexIfColumns = async (tableName, indexName, columns = []) => {
+  const hasTable = await tableExists(tableName);
+  if (!hasTable) return;
+
+  const columnChecks = await Promise.all(
+    columns.map((columnName) => columnExists(tableName, columnName)),
+  );
+  if (columnChecks.some((exists) => !exists)) return;
+
+  const hasIndex = await indexExists(tableName, indexName);
+  if (hasIndex) return;
+
+  await runSchemaChange(
+    `ALTER TABLE ${tableName} ADD INDEX ${indexName} (${columns.join(', ')})`,
+    ['ER_DUP_KEYNAME'],
+  );
+};
+
+const ensurePerformanceIndexes = async () => {
+  await Promise.all([
+    ensureIndexIfColumns('cadets', 'idx_cadets_drive_status_phase_created', [
+      'drive_id',
+      'status',
+      'workflow_phase',
+      'created_at',
+    ]),
+    ensureIndexIfColumns('recruitment_drives', 'idx_rd_filters_created', [
+      'institute_id',
+      'status',
+      'course_type',
+      'year',
+      'created_at',
+    ]),
+    ensureIndexIfColumns(
+      'institute_submissions',
+      'idx_isub_drive_context_created',
+      ['drive_id', 'institute_id', 'batch_year', 'course_type', 'created_at'],
+    ),
+    ensureIndexIfColumns(
+      'recruitment_communications',
+      'idx_rc_drive_type_status',
+      ['drive_id', 'communication_type', 'send_status'],
+    ),
+    ensureIndexIfColumns('assessments', 'idx_assessments_cadet_status', [
+      'cadet_id',
+      'status',
+    ]),
+    ensureIndexIfColumns('interviews', 'idx_interviews_cadet_decision', [
+      'cadet_id',
+      'final_decision',
+    ]),
+    ensureIndexIfColumns('cadet_documents', 'idx_cadet_documents_cadet', [
+      'cadet_id',
+    ]),
+  ]);
+};
+
 const ensureSubmissionDriveContext = async () => {
   const hasDriveId = await columnExists('institute_submissions', 'drive_id');
 
@@ -158,4 +215,5 @@ const ensureSubmissionDriveContext = async () => {
 
 module.exports = {
   ensureSubmissionDriveContext,
+  ensurePerformanceIndexes,
 };

@@ -19,8 +19,8 @@ const buildDriveSelect = async () => {
   const hasCadetDocuments = await hasTable('cadet_documents');
 
   const shortlistedCondition = cadetCompat.hasWorkflowPhase
-    ? "c.workflow_phase = 'shortlisted'"
-    : "c.status IN ('Shortlisted', 'Eligible for Assessment')";
+    ? "c.workflow_phase IN ('shortlisted', 'assessment', 'interview', 'medical', 'selected') OR (c.workflow_phase = 'rejected' AND c.rejection_stage IN ('assessment', 'interview', 'medical', 'selected'))"
+    : "c.status IN ('Shortlisted', 'Eligible for Assessment', 'Assessment Passed', 'Assessment Failed', 'Interviewed', 'Eligible for Interview', 'Interview Selected', 'Interview Failed', 'Selected', 'Eligible for Medical', 'Medical Completed', 'Medical Failed', 'CTV Assigned', 'Onboarded')";
 
   const medicalQueueCondition = cadetCompat.hasWorkflowPhase
     ? `(c.workflow_phase = 'medical'
@@ -405,8 +405,8 @@ const getRecruitmentDriveStats = async (driveId) => {
   const cadetCompat = await getCadetCompatibility();
 
   const shortlistedCondition = cadetCompat.hasWorkflowPhase
-    ? "workflow_phase = 'shortlisted'"
-    : "status IN ('Shortlisted', 'Eligible for Assessment')";
+    ? "workflow_phase IN ('shortlisted', 'assessment', 'interview', 'medical', 'selected') OR (workflow_phase = 'rejected' AND rejection_stage IN ('assessment', 'interview', 'medical', 'selected'))"
+    : "status IN ('Shortlisted', 'Eligible for Assessment', 'Assessment Passed', 'Assessment Failed', 'Interviewed', 'Eligible for Interview', 'Interview Selected', 'Interview Failed', 'Selected', 'Eligible for Medical', 'Medical Completed', 'Medical Failed', 'CTV Assigned', 'Onboarded')";
   const assessmentQueueCondition = cadetCompat.hasWorkflowPhase
     ? "workflow_phase = 'assessment'"
     : "status IN ('Assessment', 'Eligible for Assessment')";

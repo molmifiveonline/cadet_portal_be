@@ -14,6 +14,7 @@ const activityLogDao = require("./src/dao/activityLogDao");
 const { warmCache } = require("./src/services/schemaCompatibilityService");
 const {
   ensureSubmissionDriveContext,
+  ensurePerformanceIndexes,
 } = require("./src/services/schemaUpgradeService");
 
 const app = express();
@@ -72,6 +73,7 @@ app.listen(PORT, () => {
 
   // Ensure lightweight schema upgrades are applied before warming compatibility cache.
   ensureSubmissionDriveContext()
+    .then(() => ensurePerformanceIndexes())
     .then(() => warmCache())
     .catch((error) => {
       console.error("Schema upgrade failed:", error.message);
