@@ -359,6 +359,24 @@ const getCadetById = async (id) => {
   return mapCadetRow(cadet);
 };
 
+const getCadetsByIds = async (ids = []) => {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+
+  const baseSelect = await buildBaseSelect();
+  const placeholders = ids.map(() => '?').join(', ');
+  const [rows] = await db.query(
+    `${baseSelect} WHERE c.id IN (${placeholders})`,
+    ids,
+  );
+
+  return rows.map((row) => {
+    delete row.photo_data;
+    delete row.photo_mime_type;
+    delete row.photo_name;
+    return mapCadetRow(row);
+  });
+};
+
 const getLegacyQueueCondition = (queue) => {
   switch (queue) {
     case 'assessment':
@@ -391,9 +409,11 @@ const getLegacyQueueCondition = (queue) => {
   }
 };
 
-const getDriveCadets = async (driveId, { queue = 'all', search = '', limit = 1000, offset = 0 } = {}) => {
+const buildDriveCadetsWhere = async (
+  driveId,
+  { queue = 'all', search = '', status, excludeUploaded = false } = {},
+) => {
   const cadetCompat = await getCadetCompatibility();
-  const baseSelect = await buildBaseSelect();
   const queryParams = [driveId];
   const whereClauses = ['c.drive_id = ?'];
   const searchColumns = [
@@ -408,6 +428,13 @@ const getDriveCadets = async (driveId, { queue = 'all', search = '', limit = 100
 
   if (cadetCompat.hasWorkflowPhase) {
     switch (queue) {
+      case 'shortlist':
+        whereClauses.push(`(
+          c.workflow_phase IN (?, ?)
+          OR LOWER(COALESCE(a.status, '')) IN ('pass', 'fail')
+        )`);
+        queryParams.push(WORKFLOW_PHASES.UPLOADED, WORKFLOW_PHASES.SHORTLISTED);
+        break;
       case 'assessment':
         whereClauses.push(`(
           c.workflow_phase IN (?, ?, ?)
@@ -449,10 +476,30 @@ const getDriveCadets = async (driveId, { queue = 'all', search = '', limit = 100
         break;
     }
   } else {
-    const legacyQueue = getLegacyQueueCondition(queue);
+    const legacyQueue =
+      queue === 'shortlist'
+        ? {
+            clause: "c.status IN ('Uploaded', 'Shortlisted', 'Assessment Passed', 'Assessment Failed')",
+            params: [],
+          }
+        : getLegacyQueueCondition(queue);
     if (legacyQueue) {
       whereClauses.push(legacyQueue.clause);
       queryParams.push(...legacyQueue.params);
+    }
+  }
+
+  if (status && status !== 'all') {
+    whereClauses.push('c.status = ?');
+    queryParams.push(status);
+  }
+
+  if (excludeUploaded) {
+    if (cadetCompat.hasWorkflowPhase) {
+      whereClauses.push('(c.workflow_phase IS NULL OR c.workflow_phase <> ?)');
+      queryParams.push(WORKFLOW_PHASES.UPLOADED);
+    } else {
+      whereClauses.push("c.status <> 'Uploaded'");
     }
   }
 
@@ -462,12 +509,69 @@ const getDriveCadets = async (driveId, { queue = 'all', search = '', limit = 100
     queryParams.push(...new Array(searchColumns.length).fill(searchTerm));
   }
 
+  return { whereClauses, queryParams };
+};
+
+const getDriveCadets = async (
+  driveId,
+  {
+    queue = 'all',
+    search = '',
+    status,
+    sortBy = 'created_at',
+    sortOrder = 'DESC',
+    limit = 1000,
+    offset = 0,
+    excludeUploaded = false,
+  } = {},
+) => {
+  const baseSelect = await buildBaseSelect();
+  const { whereClauses, queryParams } = await buildDriveCadetsWhere(driveId, {
+    queue,
+    search,
+    status,
+    excludeUploaded,
+  });
+  const sortColumns = {
+    created_at: 'c.created_at',
+    name_as_in_indos_cert: 'c.name_as_in_indos_cert',
+    cadet_unique_id: 'c.cadet_unique_id',
+    status: 'c.status',
+    workflow_updated_at: 'c.workflow_updated_at',
+  };
+  const orderBy = sortColumns[sortBy] || sortColumns.created_at;
+  const orderDirection = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
   const [rows] = await db.query(
-    `${baseSelect} WHERE ${whereClauses.join(' AND ')} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`,
+    `${baseSelect} WHERE ${whereClauses.join(' AND ')} ORDER BY ${orderBy} ${orderDirection} LIMIT ? OFFSET ?`,
     [...queryParams, limit, offset],
   );
 
   return rows.map(mapCadetRow);
+};
+
+const getDriveCadetsCount = async (
+  driveId,
+  { queue = 'all', search = '', status, excludeUploaded = false } = {},
+) => {
+  const { whereClauses, queryParams } = await buildDriveCadetsWhere(driveId, {
+    queue,
+    search,
+    status,
+    excludeUploaded,
+  });
+
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(DISTINCT c.id) AS total
+     FROM cadets c
+     LEFT JOIN assessments a ON c.id = a.cadet_id
+     LEFT JOIN interviews iv ON c.id = iv.cadet_id
+     LEFT JOIN cadet_medical_results mr ON c.id = mr.cadet_id
+     WHERE ${whereClauses.join(' AND ')}`,
+    queryParams,
+  );
+
+  return total || 0;
 };
 
 const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
@@ -638,7 +742,9 @@ module.exports = {
   findDuplicateCadet,
   getAllCadets,
   getCadetById,
+  getCadetsByIds,
   getDriveCadets,
+  getDriveCadetsCount,
   getShortlistedCadets,
   getShortlistCountByInstitute,
   updateCadet,
