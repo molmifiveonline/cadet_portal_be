@@ -1,5 +1,18 @@
 const rolePermissionDao = require('../dao/rolePermissionDao');
 const activityLogDao = require('../dao/activityLogDao');
+const { clearPermissionCache } = require('../middleware/permissionMiddleware');
+const { ROLES } = require('../config/constants');
+
+const isSuperAdmin = (user) =>
+  user?.role === ROLES.SUPER_ADMIN || user?.role === 'SuperAdmin';
+
+const hasValidPermissionPayload = (permissions) =>
+  permissions.every(
+    (permission) =>
+      permission &&
+      permission.permissionId &&
+      typeof permission.granted === 'boolean',
+  );
 
 /* Get all roles */
 const getAllRoles = async (req, res) => {
@@ -196,6 +209,8 @@ const deleteRole = async (req, res) => {
     const deleted = await rolePermissionDao.deleteRole(roleId);
 
     if (deleted) {
+      clearPermissionCache();
+
       // Log activity
       const user = req.user;
       if (user) {
@@ -297,6 +312,14 @@ const updateRolePermissions = async (req, res) => {
       });
     }
 
+    if (!hasValidPermissionPayload(permissions)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Each permission must include permissionId and boolean granted status',
+      });
+    }
+
     // Validate role exists
     const role = await rolePermissionDao.getRoleById(roleId);
     if (!role) {
@@ -308,6 +331,7 @@ const updateRolePermissions = async (req, res) => {
 
     // Update permissions
     await rolePermissionDao.updateRolePermissions(roleId, permissions);
+    clearPermissionCache();
 
     // Log activity
     const user = req.user;
@@ -347,6 +371,14 @@ const setRolePermission = async (req, res) => {
       });
     }
 
+    const role = await rolePermissionDao.getRoleById(roleId);
+    if (!role) {
+      return res.status(404).json({
+        success: false,
+        message: 'Role not found',
+      });
+    }
+
     const success = await rolePermissionDao.setRolePermission(
       roleId,
       permissionId,
@@ -354,6 +386,8 @@ const setRolePermission = async (req, res) => {
     );
 
     if (success) {
+      clearPermissionCache();
+
       // Log activity
       const user = req.user;
       if (user) {
@@ -395,6 +429,13 @@ const checkUserPermission = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Module and action are required',
+      });
+    }
+
+    if (isSuperAdmin(user)) {
+      return res.json({
+        success: true,
+        hasPermission: true,
       });
     }
 

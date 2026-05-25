@@ -6,6 +6,10 @@ const { ROLES } = require('../config/constants');
 const permissionCache = new Map();
 const CACHE_TTL = 120 * 1000;
 
+const clearPermissionCache = () => {
+  permissionCache.clear();
+};
+
 const getCachedPermission = async (roleName, moduleName, action) => {
   const cacheKey = `${roleName}:${moduleName}:${action}`;
   const cached = permissionCache.get(cacheKey);
@@ -118,4 +122,5 @@ module.exports = {
   requirePermission,
   requireAnyPermission,
   requireSuperAdmin,
+  clearPermissionCache,
 };
