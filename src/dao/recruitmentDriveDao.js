@@ -148,7 +148,7 @@ const buildDriveSelect = async () => {
         SUM(CASE WHEN ${medicalQueueCondition} THEN 1 ELSE 0 END) AS medical_queue_count,
         ${
           hasCadetDocuments
-            ? 'SUM(CASE WHEN EXISTS (SELECT 1 FROM cadet_documents cd WHERE cd.cadet_id = c.id) THEN 1 ELSE 0 END)'
+            ? "SUM(CASE WHEN (c.workflow_result IN ('medical_passed', 'ctv_assigned', 'onboarded') OR c.status IN ('Selected', 'CTV Assigned', 'Onboarded')) THEN 1 ELSE 0 END)"
             : '0'
         } AS document_count,
         SUM(CASE WHEN c.status = 'CTV Assigned' THEN 1 ELSE 0 END) AS ctv_assigned,
@@ -448,8 +448,9 @@ const getRecruitmentDriveStats = async (driveId) => {
       SUM(CASE WHEN EXISTS (
         SELECT 1 FROM interviews iv WHERE iv.cadet_id = cadets.id AND LOWER(COALESCE(iv.final_decision, '')) = 'selected'
       ) THEN 1 ELSE 0 END) AS interview_selected,
-      SUM(CASE WHEN EXISTS (
-        SELECT 1 FROM cadet_documents cd WHERE cd.cadet_id = cadets.id
+      SUM(CASE WHEN (
+        workflow_result IN ('medical_passed', 'ctv_assigned', 'onboarded')
+        OR status IN ('Selected', 'CTV Assigned', 'Onboarded')
       ) THEN 1 ELSE 0 END) AS document_count
      FROM cadets
      WHERE drive_id = ?`,
