@@ -125,7 +125,7 @@ const getMedicalResult = async (req, res) => {
 
 const bulkConfirmCandidates = async (req, res) => {
   try {
-    const { drive_id, remarks } = req.body;
+    const { drive_id, remarks, cadet_ids } = req.body;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -135,7 +135,12 @@ const bulkConfirmCandidates = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Recruitment drive not found' });
     }
 
-    const selectedCadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
+    let selectedCadets;
+    if (Array.isArray(cadet_ids) && cadet_ids.length > 0) {
+      selectedCadets = await cadetDao.getCadetsByIds(cadet_ids);
+    } else {
+      selectedCadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
+    }
     const institute = await instituteDao.getInstituteById(drive.institute_id);
 
     let targetEmail = '';
@@ -185,7 +190,7 @@ const bulkConfirmCandidates = async (req, res) => {
 
 const bulkCollectAcademicData = async (req, res) => {
   try {
-    const { drive_id, remarks, form_link } = req.body;
+    const { drive_id, remarks, form_link, cadet_ids } = req.body;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -193,6 +198,13 @@ const bulkCollectAcademicData = async (req, res) => {
     const drive = await recruitmentDriveDao.getRecruitmentDriveById(drive_id);
     if (!drive) {
       return res.status(404).json({ success: false, message: 'Recruitment drive not found' });
+    }
+
+    let selectedCadets;
+    if (Array.isArray(cadet_ids) && cadet_ids.length > 0) {
+      selectedCadets = await cadetDao.getCadetsByIds(cadet_ids);
+    } else {
+      selectedCadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
     }
 
     const institute = await instituteDao.getInstituteById(drive.institute_id);
@@ -241,12 +253,17 @@ const bulkCollectAcademicData = async (req, res) => {
 
 const bulkCollectDocuments = async (req, res) => {
   try {
-    const { drive_id, remarks, document_link } = req.body;
+    const { drive_id, remarks, document_link, cadet_ids } = req.body;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
 
-    const cadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
+    let cadets;
+    if (Array.isArray(cadet_ids) && cadet_ids.length > 0) {
+      cadets = await cadetDao.getCadetsByIds(cadet_ids);
+    } else {
+      cadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
+    }
 
     for (const cadet of cadets) {
       const candidateLink =

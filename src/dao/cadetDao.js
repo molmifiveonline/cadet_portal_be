@@ -142,7 +142,7 @@ const buildBaseSelect = async () => {
       mr.appointment_date AS medical_date,
       mr.appointment_time AS medical_time,
       mr.status AS fit_status,
-      ${medicalCompat.hasFinalDecision ? 'mr.final_decision' : 'NULL AS medical_final_decision'},
+      ${medicalCompat.hasFinalDecision ? 'mr.final_decision AS medical_final_decision' : 'NULL AS medical_final_decision'},
       ${medicalCompat.hasPsychometricStatus ? 'mr.psychometric_status' : 'NULL AS psychometric_status'},
       ${medicalCompat.hasProfilingStatus ? 'mr.profiling_status' : 'NULL AS profiling_status'},
       mr.remarks AS medical_remarks,
