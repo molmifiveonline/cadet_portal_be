@@ -219,6 +219,7 @@ const emailTemplates = {
                   <td style="padding: 36px 32px 24px;">
                     <p style="margin: 0 0 18px; font-size: 16px; color: #333333; line-height: 1.6;">Dear <strong style="color: #059669;">${data.instituteName}</strong>,</p>
                     <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">We are pleased to inform you that cadet(s) from your institute have been shortlisted for further processing.</p>
+                    <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">Please log in to the portal to view the shortlisted cadets and ensure all their pending details are updated.</p>
 
                     <!-- Highlight Box -->
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0; background-color: #ecfdf5; border-radius: 8px; border: 1px solid #a7f3d0;">
