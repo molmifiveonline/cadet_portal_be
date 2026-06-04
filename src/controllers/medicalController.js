@@ -55,12 +55,9 @@ const saveMedicalResult = async (req, res) => {
       await cadetDao.updateCadet(
         cadet_id,
         buildWorkflowUpdate({
-          phase: WORKFLOW_PHASES.SELECTED,
+          phase: WORKFLOW_PHASES.MEDICAL,
           result: 'medical_passed',
           status: DISPLAY_STATUS.SELECTED,
-          extraFields: {
-            selected_at: new Date(),
-          },
         }),
       );
     } else {
@@ -125,7 +122,7 @@ const getMedicalResult = async (req, res) => {
 
 const bulkConfirmCandidates = async (req, res) => {
   try {
-    const { drive_id, remarks, cadet_ids } = req.body;
+    const { drive_id, remarks = '', cadet_ids } = req.body;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -151,6 +148,17 @@ const bulkConfirmCandidates = async (req, res) => {
     }
     if (Array.isArray(institute.contact_emails) && institute.contact_emails.length > 0) {
       targetEmail = institute.contact_emails.find((contact) => contact.isDefault)?.email || institute.contact_emails[0].email;
+    }
+
+    if (selectedCadets.length > 0) {
+      await cadetDao.bulkUpdateCadets(
+        selectedCadets.map((c) => c.id),
+        buildWorkflowUpdate({
+          phase: WORKFLOW_PHASES.MEDICAL,
+          result: 'confirmed',
+          status: DISPLAY_STATUS.SELECTED,
+        }),
+      );
     }
 
     if (targetEmail) {
@@ -190,7 +198,7 @@ const bulkConfirmCandidates = async (req, res) => {
 
 const bulkCollectAcademicData = async (req, res) => {
   try {
-    const { drive_id, remarks, form_link, cadet_ids } = req.body;
+    const { drive_id, remarks = '', form_link = '', cadet_ids } = req.body;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -253,7 +261,7 @@ const bulkCollectAcademicData = async (req, res) => {
 
 const bulkCollectDocuments = async (req, res) => {
   try {
-    const { drive_id, remarks, document_link, cadet_ids } = req.body;
+    const { drive_id, remarks = '', document_link = '', cadet_ids } = req.body;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -298,6 +306,20 @@ const bulkCollectDocuments = async (req, res) => {
           sent_by: req.user?.id || null,
         });
       }
+    }
+
+    if (cadets.length > 0) {
+      await cadetDao.bulkUpdateCadets(
+        cadets.map((c) => c.id),
+        buildWorkflowUpdate({
+          phase: WORKFLOW_PHASES.SELECTED,
+          result: 'medical_passed',
+          status: DISPLAY_STATUS.SELECTED,
+          extraFields: {
+            selected_at: new Date(),
+          },
+        }),
+      );
     }
 
     res.status(200).json({

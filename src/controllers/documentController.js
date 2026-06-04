@@ -292,7 +292,7 @@ const createExternalDocumentRequest = async ({ cadet, documentType = 'OTHER', li
 
 const requestDocumentUpload = async (req, res) => {
   try {
-    const { drive_id, cadet_links, remarks } = req.body;
+    const { drive_id, cadet_links, remarks, document_name, document_type } = req.body;
 
     if (!drive_id || !cadet_links || !cadet_links.length) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
@@ -309,7 +309,7 @@ const requestDocumentUpload = async (req, res) => {
 
     let successCount = 0;
 
-    for (const { cadet_id: cadetId, onedrive_link } of cadet_links) {
+    for (const { cadet_id: cadetId, onedrive_link, remark } of cadet_links) {
       if (!cadetId || !onedrive_link) continue;
 
       const cadet = await cadetDao.getCadetById(cadetId);
@@ -318,13 +318,13 @@ const requestDocumentUpload = async (req, res) => {
       // Create document record with cadet-specific OneDrive link
       await documentDao.createDocument({
         cadet_id: cadetId,
-        document_name: 'Required Documents',
-        document_type: 'OTHER',
+        document_name: document_name || 'Required Documents',
+        document_type: document_type || 'OTHER',
         status: 'pending',
         source: 'onedrive',
         external_upload_link: onedrive_link,
         requested_at: new Date(),
-        admin_remarks: remarks || null,
+        admin_remarks: remark || remarks || null,
         reviewed_by: req.user?.id || null,
       });
 
@@ -337,13 +337,13 @@ const requestDocumentUpload = async (req, res) => {
               subject: `Action Required: Document Upload - MOLMI`,
               recipientName: cadet.name_as_in_indos_cert,
               onedriveLink: onedrive_link,
-              remarks: remarks,
+              remarks: remark || remarks,
             },
             drive_id,
             cadet_id: cadetId,
             institute_id: cadet.institute_id,
             communication_type: COMMUNICATION_TYPES.DOCUMENT_REQUEST,
-            remarks: remarks,
+            remarks: remark || remarks,
             sent_by: req.user?.id || null,
           });
           successCount++;
