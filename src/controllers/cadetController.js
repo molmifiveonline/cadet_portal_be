@@ -16,6 +16,7 @@ const {
   mapRowToCadetData,
   isRowEmpty,
   validateExcelPhoneFields,
+  validateExcelGenderFields,
 } = require('../services/excelImportService');
 const {
   getEmailValidationMessage,
@@ -132,6 +133,15 @@ const importCadets = async (req, res) => {
     );
     if (phoneValidationMessage) {
       return res.status(400).json({ message: phoneValidationMessage });
+    }
+
+    const genderValidationMessage = validateExcelGenderFields(
+      rawData,
+      headers,
+      headerRowIndex + 1,
+    );
+    if (genderValidationMessage) {
+      return res.status(400).json({ message: genderValidationMessage });
     }
 
     let importedCount = 0;
@@ -353,6 +363,14 @@ const createCadet = async (req, res) => {
       return res.status(400).json({ message: phoneValidationMessage });
     }
 
+    if (!cadetData.gender || String(cadetData.gender).trim() === '') {
+      return res.status(400).json({ message: 'Gender is a mandatory field' });
+    }
+    const genderVal = String(cadetData.gender).trim().toLowerCase();
+    if (genderVal !== 'male' && genderVal !== 'female') {
+      return res.status(400).json({ message: 'Gender must be either Male or Female' });
+    }
+
     const emailValidationMessage = validateCadetEmail(cadetData);
     if (emailValidationMessage) {
       return res.status(400).json({ message: emailValidationMessage });
@@ -471,6 +489,16 @@ const updateCadet = async (req, res) => {
     const phoneValidationMessage = sanitizeAndValidateCadetPhone(cadetData);
     if (phoneValidationMessage) {
       return res.status(400).json({ message: phoneValidationMessage });
+    }
+
+    if (cadetData.gender !== undefined) {
+      if (!cadetData.gender || String(cadetData.gender).trim() === '') {
+        return res.status(400).json({ message: 'Gender is a mandatory field' });
+      }
+      const genderVal = String(cadetData.gender).trim().toLowerCase();
+      if (genderVal !== 'male' && genderVal !== 'female') {
+        return res.status(400).json({ message: 'Gender must be either Male or Female' });
+      }
     }
 
     const emailValidationMessage = validateCadetEmail(cadetData);

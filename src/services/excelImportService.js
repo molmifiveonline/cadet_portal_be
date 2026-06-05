@@ -130,6 +130,35 @@ const validateExcelPhoneFields = (rawData, headers, startRowIndex) => {
   return '';
 };
 
+const validateExcelGenderFields = (rawData, headers, startRowIndex) => {
+  const genderKeywords = ['gender', 'sex'];
+  const genderColIndex = headers.findIndex((h) => {
+    if (!h) return false;
+    const hStr = String(h).toLowerCase().trim();
+    return genderKeywords.some((kw) => hStr === kw || hStr.includes(kw));
+  });
+
+  if (genderColIndex === -1) {
+    return 'Gender / Sex column is missing from the Excel file.';
+  }
+
+  for (let i = startRowIndex; i < rawData.length; i++) {
+    const rowData = rawData[i];
+    if (isRowEmpty(rowData)) continue;
+
+    const value = rowData[genderColIndex];
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return `Row ${i + 1}: Gender is a mandatory field and cannot be empty.`;
+    }
+    const valLower = String(value).trim().toLowerCase();
+    if (valLower !== 'male' && valLower !== 'female') {
+      return `Row ${i + 1}: Gender must be either "Male" or "Female" (found: "${value}").`;
+    }
+  }
+
+  return '';
+};
+
 const mapRowToCadetData = (rowData, headers, submission) => {
   const row = {};
   headers.forEach((header, index) => {
@@ -260,4 +289,5 @@ module.exports = {
   formatDate,
   isRowEmpty,
   validateExcelPhoneFields,
+  validateExcelGenderFields,
 };

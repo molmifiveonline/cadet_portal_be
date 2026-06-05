@@ -15,6 +15,7 @@ const {
 } = require('../config/constants');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const shortlistService = require('../services/shortlistService');
+const recruitmentCommunicationDao = require('../dao/recruitmentCommunicationDao');
 const { logAndSendEmail } = require('../services/recruitmentCommunicationService');
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
 const notificationService = require('../services/notificationService');
@@ -176,18 +177,7 @@ const sendInstituteEmail = async (req, res) => {
       });
 
       // Determine target Email
-      let targetEmail = '';
-      if (typeof institute.contact_emails === 'string') {
-        try {
-          institute.contact_emails = JSON.parse(institute.contact_emails);
-        } catch (e) {}
-      }
-      if (institute.contact_emails && Array.isArray(institute.contact_emails)) {
-        const defaultContact =
-          institute.contact_emails.find((c) => c.isDefault) ||
-          institute.contact_emails[0];
-        targetEmail = defaultContact ? defaultContact.email : '';
-      }
+      const targetEmail = instituteDao.getDefaultContactEmail(institute);
 
       if (!targetEmail) {
         results.push({
@@ -421,18 +411,7 @@ const sendShortlistEmail = async (req, res) => {
       });
 
       // Determine target Email
-      let targetEmail = '';
-      if (typeof institute.contact_emails === 'string') {
-        try {
-          institute.contact_emails = JSON.parse(institute.contact_emails);
-        } catch (e) {}
-      }
-      if (institute.contact_emails && Array.isArray(institute.contact_emails)) {
-        const defaultContact =
-          institute.contact_emails.find((c) => c.isDefault) ||
-          institute.contact_emails[0];
-        targetEmail = defaultContact ? defaultContact.email : '';
-      }
+      const targetEmail = instituteDao.getDefaultContactEmail(institute);
 
       if (!targetEmail) {
         results.push({
@@ -470,13 +449,36 @@ const sendShortlistEmail = async (req, res) => {
           email: targetEmail,
           cadetCount,
         });
+
+        for (const cadet of instituteCadets) {
+          await recruitmentCommunicationDao.createCommunication({
+            drive_id: drive?.id || cadet.drive_id || null,
+            cadet_id: cadet.id,
+            institute_id: id,
+            communication_type: COMMUNICATION_TYPES.SHORTLIST,
+            recipient_email: targetEmail,
+            subject: emailContent.subject,
+            remarks,
+            payload_json: {
+              instituteName: institute.institute_name,
+              cadetCount,
+              cadetId: cadet.id,
+              cadetName: cadet.name_as_in_indos_cert,
+              driveName: drive?.drive_name,
+              batch_year: resolvedBatchYear,
+            },
+            send_status: 'sent',
+            sent_by: req.user?.id || null,
+          });
+        }
+
         // Notify Institute
         await notificationService.notify({
           recipient_type: ROLES.INSTITUTE,
           recipient_id: id,
           title: 'Shortlist Notification',
           message: `Admin has shortlisted ${cadetCount} cadet(s) for your institute (${resolvedBatchYear}). Please provide pending details.`,
-          url: drive?.id ? `${INSTITUTE_RECRUITMENT_DRIVES_ROUTE}/${drive.id}?tab=shortlist` : INSTITUTE_RECRUITMENT_DRIVES_ROUTE,
+          url: drive?.id ? `${INSTITUTE_RECRUITMENT_DRIVES_ROUTE}/${drive.id}?tab=cadets` : INSTITUTE_RECRUITMENT_DRIVES_ROUTE,
         });
 
         // Update cadet status for specifically shortlisted cadets

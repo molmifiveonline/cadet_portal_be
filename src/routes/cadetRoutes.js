@@ -18,6 +18,7 @@ const {
   blockInstitute,
   isInstituteUser,
   requireInstituteCadetOwnership,
+  requireInstitutePendingDetailEditAccess,
 } = require('../middleware/instituteOwnershipMiddleware');
 const upload = require('../middleware/uploadMiddleware');
 
@@ -94,6 +95,7 @@ router.put(
   authMiddleware,
   allowInstituteOrPermission('cadets', 'edit'),
   requireInstituteCadetOwnership('id'),
+  requireInstitutePendingDetailEditAccess('id'),
   upload.single('photo'),
   updateCadet,
 );

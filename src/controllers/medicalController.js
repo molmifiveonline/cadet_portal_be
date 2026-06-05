@@ -14,6 +14,24 @@ const {
 const { FRONTEND_URL } = require('../config/constants');
 const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
 
+const getCadetDisplayName = (cadet = {}) =>
+  cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || 'Cadet';
+
+const getInstituteRecipient = async (instituteId, instituteCache = new Map()) => {
+  if (!instituteId) return null;
+
+  const cacheKey = String(instituteId);
+  if (!instituteCache.has(cacheKey)) {
+    instituteCache.set(cacheKey, instituteDao.getInstituteById(instituteId));
+  }
+
+  const institute = await instituteCache.get(cacheKey);
+  const email = instituteDao.getDefaultContactEmail(institute);
+  if (!institute || !email) return null;
+
+  return { institute, email };
+};
+
 const saveMedicalResult = async (req, res) => {
   try {
     const { cadet_id } = req.params;
@@ -138,17 +156,7 @@ const bulkConfirmCandidates = async (req, res) => {
     } else {
       selectedCadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
     }
-    const institute = await instituteDao.getInstituteById(drive.institute_id);
-
-    let targetEmail = '';
-    if (typeof institute.contact_emails === 'string') {
-      try {
-        institute.contact_emails = JSON.parse(institute.contact_emails);
-      } catch (error) {}
-    }
-    if (Array.isArray(institute.contact_emails) && institute.contact_emails.length > 0) {
-      targetEmail = institute.contact_emails.find((contact) => contact.isDefault)?.email || institute.contact_emails[0].email;
-    }
+    const recipient = await getInstituteRecipient(drive.institute_id);
 
     if (selectedCadets.length > 0) {
       await cadetDao.bulkUpdateCadets(
@@ -161,12 +169,12 @@ const bulkConfirmCandidates = async (req, res) => {
       );
     }
 
-    if (targetEmail) {
+    if (recipient) {
       await logAndSendEmail({
-        to: targetEmail,
+        to: recipient.email,
         template: emailTemplates.instituteSelectionConfirmation,
         templateData: {
-          instituteName: institute.institute_name,
+          instituteName: recipient.institute.institute_name,
           driveName: drive.drive_name,
           cadets: selectedCadets,
           remarks,
@@ -215,24 +223,15 @@ const bulkCollectAcademicData = async (req, res) => {
       selectedCadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
     }
 
-    const institute = await instituteDao.getInstituteById(drive.institute_id);
-    let targetEmail = '';
-    if (typeof institute.contact_emails === 'string') {
-      try {
-        institute.contact_emails = JSON.parse(institute.contact_emails);
-      } catch (error) {}
-    }
-    if (Array.isArray(institute.contact_emails) && institute.contact_emails.length > 0) {
-      targetEmail = institute.contact_emails.find((contact) => contact.isDefault)?.email || institute.contact_emails[0].email;
-    }
+    const recipient = await getInstituteRecipient(drive.institute_id);
 
-    if (targetEmail) {
+    if (recipient) {
       await logAndSendEmail({
-        to: targetEmail,
+        to: recipient.email,
         template: emailTemplates.stageInvite,
         templateData: {
           subject: `Pending academic data request for ${drive.drive_name}`,
-          recipientName: institute.institute_name,
+          recipientName: recipient.institute.institute_name,
           message: 'Please share the pending academic data for the selected candidates using the link below.',
           documentLink: form_link || process.env.PENDING_ACADEMIC_DATA_LINK || '',
           remarks,
@@ -273,6 +272,8 @@ const bulkCollectDocuments = async (req, res) => {
       cadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
     }
 
+    const instituteCache = new Map();
+
     for (const cadet of cadets) {
       const candidateLink =
         document_link ||
@@ -287,16 +288,19 @@ const bulkCollectDocuments = async (req, res) => {
         remarks,
       });
 
-      if (cadet.email_id) {
+      const recipient = await getInstituteRecipient(cadet.institute_id, instituteCache);
+      if (recipient) {
         await logAndSendEmail({
-          to: cadet.email_id,
+          to: recipient.email,
           template: emailTemplates.stageInvite,
           templateData: {
             subject: `Document upload requested for ${cadet.name_as_in_indos_cert}`,
-            recipientName: cadet.name_as_in_indos_cert,
-            message: 'Please upload the requested candidate documents using the link below.',
+            recipientName: recipient.institute.institute_name,
+            message: `Please upload the requested candidate documents for cadet ${getCadetDisplayName(cadet)} using the link below.`,
             documentLink: candidateLink,
-            remarks,
+            remarks: [`Cadet: ${getCadetDisplayName(cadet)} (${cadet.cadet_unique_id || cadet.id})`, remarks]
+              .filter(Boolean)
+              .join('\n\n'),
           },
           drive_id,
           cadet_id: cadet.id,

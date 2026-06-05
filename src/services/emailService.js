@@ -471,7 +471,7 @@ const emailTemplates = {
     subject: data.subject || "Action Required: Document Upload - MOLMI",
     html: `
       <p>Dear ${data.recipientName},</p>
-      <p>Please upload the required documents for your recruitment process to the following OneDrive folder:</p>
+      <p>Please upload the required documents${data.cadetName ? ` for cadet <strong>${data.cadetName}</strong>` : ''} to the following OneDrive folder:</p>
       <p><a href="${data.onedriveLink}" target="_blank" style="padding: 10px 20px; background-color: #0047AB; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Open OneDrive Folder</a></p>
       ${data.remarks ? `<p><strong>Remarks from Admin:</strong><br/>${data.remarks}</p>` : ''}
       <p>Instructions: Please ensure all documents are clearly scanned and named appropriately.</p>
@@ -484,7 +484,7 @@ const emailTemplates = {
     subject: data.subject || "Document Status Update - MOLMI",
     html: `
       <p>Dear ${data.recipientName},</p>
-      <p>The status of your uploaded documents has been updated by the MOLMI team.</p>
+      <p>The status of uploaded documents${data.cadetName ? ` for cadet <strong>${data.cadetName}</strong>` : ''} has been updated by the MOLMI team.</p>
       <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%; max-width: 600px;">
         <thead>
           <tr style="background-color: #f0f4f8;">

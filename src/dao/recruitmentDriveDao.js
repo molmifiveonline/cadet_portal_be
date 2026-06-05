@@ -108,6 +108,8 @@ const buildDriveSelect = async () => {
       rd.*,
       i.institute_name,
       COALESCE(stats.total_uploaded, 0) AS total_uploaded,
+      COALESCE(stats.male_count, 0) AS male_count,
+      COALESCE(stats.female_count, 0) AS female_count,
       COALESCE(stats.shortlisted_count, 0) AS shortlisted_count,
       COALESCE(stats.assessment_passed, 0) AS assessment_passed,
       COALESCE(stats.interview_selected, 0) AS interview_selected,
@@ -138,6 +140,8 @@ const buildDriveSelect = async () => {
       SELECT
         c.drive_id,
         COUNT(*) AS total_uploaded,
+        SUM(CASE WHEN LOWER(c.gender) = 'male' OR c.gender IS NULL OR c.gender = '' THEN 1 ELSE 0 END) AS male_count,
+        SUM(CASE WHEN LOWER(c.gender) = 'female' THEN 1 ELSE 0 END) AS female_count,
         SUM(CASE WHEN ${shortlistedCondition} THEN 1 ELSE 0 END) AS shortlisted_count,
         SUM(CASE WHEN EXISTS (
           SELECT 1 FROM assessments a WHERE a.cadet_id = c.id AND LOWER(COALESCE(a.status, '')) = 'pass'
@@ -435,6 +439,8 @@ const getRecruitmentDriveStats = async (driveId) => {
   const [rows] = await db.query(
     `SELECT
       COUNT(*) AS total_uploaded,
+      SUM(CASE WHEN LOWER(gender) = 'male' OR gender IS NULL OR gender = '' THEN 1 ELSE 0 END) AS male_count,
+      SUM(CASE WHEN LOWER(gender) = 'female' THEN 1 ELSE 0 END) AS female_count,
       SUM(CASE WHEN ${shortlistedCondition} THEN 1 ELSE 0 END) AS shortlisted_count,
       SUM(CASE WHEN ${assessmentQueueCondition} THEN 1 ELSE 0 END) AS assessment_queue_count,
       SUM(CASE WHEN ${interviewQueueCondition} THEN 1 ELSE 0 END) AS interview_queue_count,
@@ -459,6 +465,8 @@ const getRecruitmentDriveStats = async (driveId) => {
 
   return {
     ...rows[0],
+    male_count: rows[0]?.male_count || 0,
+    female_count: rows[0]?.female_count || 0,
     assessment_passed: rows[0]?.assessment_passed || 0,
     interview_selected: rows[0]?.interview_selected || 0,
     document_count: rows[0]?.document_count || 0,

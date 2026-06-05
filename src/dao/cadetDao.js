@@ -160,7 +160,17 @@ const buildBaseSelect = async () => {
   `;
 };
 
-const mapCadetRow = (row) => hydrateCadetWorkflow(row);
+const canEditPendingDetails = (cadet = {}) =>
+  Number(cadet.shortlist_email_sent || 0) === 1 &&
+  Number(cadet.institute_detail_filled || 0) !== 1;
+
+const mapCadetRow = (row) => {
+  const cadet = hydrateCadetWorkflow(row);
+  return {
+    ...cadet,
+    can_edit_pending_details: canEditPendingDetails(cadet),
+  };
+};
 
 const generateUniqueCadetId = async () => {
   const currentYear = new Date().getFullYear();

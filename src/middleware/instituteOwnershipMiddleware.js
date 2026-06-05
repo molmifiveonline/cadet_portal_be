@@ -36,6 +36,46 @@ const requireInstituteCadetOwnership = (paramName = 'cadet_id') => async (req, r
   }
 };
 
+const requireInstitutePendingDetailEditAccess = (paramName = 'cadet_id') =>
+  async (req, res, next) => {
+    try {
+      if (!isInstituteUser(req.user)) {
+        return next();
+      }
+
+      const cadetId = req.params[paramName] || req.params.id;
+      const cadet = req.cadet || await cadetDao.getCadetById(cadetId);
+
+      if (!cadet) {
+        return res.status(404).json({ message: 'Cadet not found' });
+      }
+
+      if (!userOwnsCadet(req.user, cadet)) {
+        return res.status(403).json({ message: 'Unauthorized access to this cadet data' });
+      }
+
+      const hasPendingDetailAccess =
+        Number(cadet.shortlist_email_sent || 0) === 1 &&
+        Number(cadet.institute_detail_filled || 0) !== 1;
+
+      if (!hasPendingDetailAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'This cadet is not open for pending detail edits',
+        });
+      }
+
+      req.cadet = cadet;
+      return next();
+    } catch (error) {
+      console.error('Institute Pending Detail Edit Access Check Error:', error);
+      return res.status(500).json({
+        message: 'Error checking institute edit access',
+        error: error.message,
+      });
+    }
+  };
+
 const requireSuperAdminOrInstituteCadetRead = (paramName = 'cadet_id') =>
   async (req, res, next) => {
     if (req.user?.role === ROLES.SUPER_ADMIN) {
@@ -65,6 +105,7 @@ module.exports = {
   getInstituteId,
   isInstituteUser,
   requireInstituteCadetOwnership,
+  requireInstitutePendingDetailEditAccess,
   requireSuperAdminOrInstituteCadetRead,
   blockInstitute,
   userOwnsCadet,

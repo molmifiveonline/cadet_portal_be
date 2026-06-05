@@ -53,6 +53,29 @@ const runWithConcurrency = async (items, limit, worker) => {
   return results;
 };
 
+const getCadetDisplayName = (cadet = {}) =>
+  cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || "Cadet";
+
+const getInstituteRecipientForCadet = async (cadet = {}, instituteCache) => {
+  if (!cadet.institute_id) return null;
+
+  const instituteId = String(cadet.institute_id);
+  if (!instituteCache.has(instituteId)) {
+    instituteCache.set(instituteId, instituteDao.getInstituteById(cadet.institute_id));
+  }
+
+  const institute = await instituteCache.get(instituteId);
+  const email = instituteDao.getDefaultContactEmail(institute);
+  if (!institute || !email) return null;
+
+  return { institute, email };
+};
+
+const appendCadetRemark = (remarks, cadet = {}) => {
+  const cadetLine = `Cadet: ${getCadetDisplayName(cadet)} (${cadet.cadet_unique_id || cadet.id})`;
+  return [cadetLine, remarks].filter(Boolean).join("\n\n");
+};
+
 // ... (skipping to the function implementation later in the file)
 
 const previewSubmitCadets = async (req, res) => {
@@ -672,10 +695,14 @@ const sendAssessmentInvites = async (req, res) => {
     const pendingDetailsNames = [];
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
+    const instituteCache = new Map();
 
     await runWithConcurrency(cadets, INVITE_CONCURRENCY, async (cadetInvite) => {
       const cadet = cadetMap.get(String(cadetInvite.cadet_id));
-      if (!cadet || cadet.drive_id !== id || !cadet.email_id) return;
+      if (!cadet || cadet.drive_id !== id) return;
+
+      const recipient = await getInstituteRecipientForCadet(cadet, instituteCache);
+      if (!recipient) return;
 
       if (!Number(cadet.institute_detail_filled || 0)) {
         pendingDetailsNames.push(cadet.name_as_in_indos_cert);
@@ -719,18 +746,18 @@ const sendAssessmentInvites = async (req, res) => {
       );
 
       await logAndSendEmail({
-        to: cadet.email_id,
+        to: recipient.email,
         template: emailTemplates.stageInvite,
         templateData: {
           subject:
             cadetInvite.subject ||
             `Assessment invite for ${cadet.name_as_in_indos_cert}`,
-          recipientName: cadet.name_as_in_indos_cert,
+          recipientName: recipient.institute.institute_name,
           message:
-            "You are eligible for the assessment stage. Please review the assessment schedule below.",
+            `Cadet ${getCadetDisplayName(cadet)} is eligible for the assessment stage. Please review the assessment schedule below.`,
           date: cadetInvite.assessment_date,
           time: cadetInvite.assessment_time,
-          remarks: cadetInvite.remarks,
+          remarks: appendCadetRemark(cadetInvite.remarks, cadet),
           documentLink: documentLink,
         },
         drive_id: id,
@@ -773,10 +800,14 @@ const sendInterviewInvites = async (req, res) => {
     const { cadets = [] } = req.body;
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
+    const instituteCache = new Map();
 
     await runWithConcurrency(cadets, INVITE_CONCURRENCY, async (cadetInvite) => {
       const cadet = cadetMap.get(String(cadetInvite.cadet_id));
-      if (!cadet || cadet.drive_id !== id || !cadet.email_id) return;
+      if (!cadet || cadet.drive_id !== id) return;
+
+      const recipient = await getInstituteRecipientForCadet(cadet, instituteCache);
+      if (!recipient) return;
 
       await interviewDao.createOrUpdateInterview({
         cadet_id: cadet.id,
@@ -796,18 +827,18 @@ const sendInterviewInvites = async (req, res) => {
       );
 
       await logAndSendEmail({
-        to: cadet.email_id,
+        to: recipient.email,
         template: emailTemplates.stageInvite,
         templateData: {
           subject:
             cadetInvite.subject ||
             `Interview invite for ${cadet.name_as_in_indos_cert}`,
-          recipientName: cadet.name_as_in_indos_cert,
+          recipientName: recipient.institute.institute_name,
           message:
-            "You are eligible for the face-to-face interview stage. Please review the interview schedule below.",
+            `Cadet ${getCadetDisplayName(cadet)} is eligible for the face-to-face interview stage. Please review the interview schedule below.`,
           date: cadetInvite.interview_date,
           time: cadetInvite.interview_time,
-          remarks: cadetInvite.remarks,
+          remarks: appendCadetRemark(cadetInvite.remarks, cadet),
           documentLink: cadetInvite.document_link,
         },
         drive_id: id,
@@ -862,10 +893,14 @@ const sendMedicalInvites = async (req, res) => {
     const { cadets = [] } = req.body;
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
+    const instituteCache = new Map();
 
     await runWithConcurrency(cadets, INVITE_CONCURRENCY, async (cadetInvite) => {
       const cadet = cadetMap.get(String(cadetInvite.cadet_id));
-      if (!cadet || cadet.drive_id !== id || !cadet.email_id) return;
+      if (!cadet || cadet.drive_id !== id) return;
+
+      const recipient = await getInstituteRecipientForCadet(cadet, instituteCache);
+      if (!recipient) return;
 
       await medicalDao.createOrUpdateMedicalResult({
         cadet_id: cadet.id,
@@ -885,15 +920,15 @@ const sendMedicalInvites = async (req, res) => {
       );
 
       await logAndSendEmail({
-        to: cadet.email_id,
+        to: recipient.email,
         template: emailTemplates.stageInvite,
         templateData: {
           subject:
             cadetInvite.subject ||
             `Medical invite for ${cadet.name_as_in_indos_cert}`,
-          recipientName: cadet.name_as_in_indos_cert,
+          recipientName: recipient.institute.institute_name,
           message:
-            "You are eligible for the medical / profiling stage. Please review the appointment details below.",
+            `Cadet ${getCadetDisplayName(cadet)} is eligible for the medical / profiling stage. Please review the appointment details below.`,
           date: cadetInvite.medical_date,
           time: cadetInvite.medical_time,
           location:
@@ -901,7 +936,7 @@ const sendMedicalInvites = async (req, res) => {
             cadetInvite.medical_center_name ||
             "Medical Center",
           locationLabel: "Medical Location",
-          remarks: cadetInvite.remarks,
+          remarks: appendCadetRemark(cadetInvite.remarks, cadet),
         },
         drive_id: id,
         cadet_id: cadet.id,

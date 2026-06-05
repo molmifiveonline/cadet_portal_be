@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const documentDao = require('../dao/documentDao');
 const cadetDao = require('../dao/cadetDao');
+const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
@@ -69,6 +70,21 @@ const canInstituteUploadDocument = async (cadetId) => {
   );
 
   return !hasCv || hasPendingUpload;
+};
+
+const getInstituteRecipient = async (instituteId, instituteCache = new Map()) => {
+  if (!instituteId) return null;
+
+  const cacheKey = String(instituteId);
+  if (!instituteCache.has(cacheKey)) {
+    instituteCache.set(cacheKey, instituteDao.getInstituteById(instituteId));
+  }
+
+  const institute = await instituteCache.get(cacheKey);
+  const email = instituteDao.getDefaultContactEmail(institute);
+  if (!institute || !email) return null;
+
+  return { institute, email };
 };
 
 const getDriveDocuments = async (req, res) => {
@@ -180,7 +196,8 @@ const reviewDocument = async (req, res) => {
       last_reupload_requested_at: status === 'reupload_requested' ? new Date() : document.last_reupload_requested_at,
     });
 
-    if (document.email_id) {
+    const recipient = await getInstituteRecipient(document.institute_id);
+    if (recipient) {
       const documentLink =
         document.external_upload_link ||
         `${FRONTEND_URL || ''}/drives/${document.drive_id}`;
@@ -189,11 +206,12 @@ const reviewDocument = async (req, res) => {
       const requiresReupload = allCadetDocuments.some(doc => doc.status === 'reupload_requested');
 
       await logAndSendEmail({
-        to: document.email_id,
+        to: recipient.email,
         template: emailTemplates.documentStatusReport,
         templateData: {
           subject: `Document Status Update - MOLMI`,
-          recipientName: document.name_as_in_indos_cert,
+          recipientName: recipient.institute.institute_name,
+          cadetName: document.name_as_in_indos_cert,
           documents: allCadetDocuments,
           requiresReupload,
           onedriveLink: documentLink,
@@ -308,12 +326,14 @@ const requestDocumentUpload = async (req, res) => {
     }
 
     let successCount = 0;
+    const instituteCache = new Map();
 
     for (const { cadet_id: cadetId, onedrive_link, remark } of cadet_links) {
       if (!cadetId || !onedrive_link) continue;
 
       const cadet = await cadetDao.getCadetById(cadetId);
       if (!cadet || cadet.drive_id !== drive_id) continue;
+      const recipient = await getInstituteRecipient(cadet.institute_id, instituteCache);
 
       // Create document record with cadet-specific OneDrive link
       await documentDao.createDocument({
@@ -328,14 +348,15 @@ const requestDocumentUpload = async (req, res) => {
         reviewed_by: req.user?.id || null,
       });
 
-      if (cadet.email_id) {
+      if (recipient) {
         try {
           await logAndSendEmail({
-            to: cadet.email_id,
+            to: recipient.email,
             template: emailTemplates.documentUploadRequest,
             templateData: {
               subject: `Action Required: Document Upload - MOLMI`,
-              recipientName: cadet.name_as_in_indos_cert,
+              recipientName: recipient.institute.institute_name,
+              cadetName: cadet.name_as_in_indos_cert,
               onedriveLink: onedrive_link,
               remarks: remark || remarks,
             },
@@ -348,7 +369,10 @@ const requestDocumentUpload = async (req, res) => {
           });
           successCount++;
         } catch (emailError) {
-          console.error(`Failed to send email to cadet ${cadetId}:`, emailError);
+          console.error(
+            `Failed to send document request email for cadet ${cadetId} to institute ${cadet.institute_id}:`,
+            emailError,
+          );
         }
       }
     }

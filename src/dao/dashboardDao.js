@@ -16,6 +16,7 @@ const getDashboardStats = async () => {
   const [
     totalInstitutesRows,
     totalCandidatesRows,
+    genderCountRows,
     stageWiseRows,
     pendingDocsRows,
     ctvReadyRows,
@@ -27,6 +28,16 @@ const getDashboardStats = async () => {
 
     // 2. Total Candidates
     safeQuery('SELECT COUNT(*) as total FROM cadets', [], [{ total: 0 }]),
+
+    // 2b. Gender Counts
+    safeQuery(
+      `SELECT 
+        SUM(CASE WHEN LOWER(gender) = 'male' OR gender IS NULL OR gender = '' THEN 1 ELSE 0 END) as maleCount,
+        SUM(CASE WHEN LOWER(gender) = 'female' THEN 1 ELSE 0 END) as femaleCount
+       FROM cadets`,
+      [],
+      [{ maleCount: 0, femaleCount: 0 }]
+    ),
 
     // 3. Stage-wise Candidate Count
     safeQuery(
@@ -98,6 +109,8 @@ const getDashboardStats = async () => {
   return {
     totalInstitutes: totalInstitutesRows[0]?.total ?? 0,
     totalCandidates: totalCandidatesRows[0]?.total ?? 0,
+    maleCount: genderCountRows[0]?.maleCount ?? 0,
+    femaleCount: genderCountRows[0]?.femaleCount ?? 0,
     stageWiseCounts: stageWiseRows,
     pendingDocuments: pendingDocsRows,
     ctvReadyCandidates: ctvReadyRows,
