@@ -5,7 +5,11 @@ const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
-const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
+const {
+  logAndSendEmail,
+  logAndSendBatchEmail,
+  emailTemplates,
+} = require('../services/recruitmentCommunicationService');
 const { EXTERNAL_LINK_EXPIRY_HOURS, FRONTEND_URL, ROLES } = require('../config/constants');
 
 const groupDocumentsByCadet = (rows = []) => {
@@ -85,6 +89,20 @@ const getInstituteRecipient = async (instituteId, instituteCache = new Map()) =>
   if (!institute || !email) return null;
 
   return { institute, email };
+};
+
+const getCadetDisplayName = (cadet = {}) =>
+  cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || 'Cadet';
+
+const addDocumentRequestBatchItem = (batches, recipient, item) => {
+  const key = `${recipient.email}|${item.institute_id}`;
+  if (!batches.has(key)) {
+    batches.set(key, {
+      recipient,
+      items: [],
+    });
+  }
+  batches.get(key).items.push(item);
 };
 
 const getDriveDocuments = async (req, res) => {
@@ -327,6 +345,7 @@ const requestDocumentUpload = async (req, res) => {
 
     let successCount = 0;
     const instituteCache = new Map();
+    const emailBatches = new Map();
 
     for (const { cadet_id: cadetId, onedrive_link, remark } of cadet_links) {
       if (!cadetId || !onedrive_link) continue;
@@ -349,31 +368,49 @@ const requestDocumentUpload = async (req, res) => {
       });
 
       if (recipient) {
-        try {
-          await logAndSendEmail({
-            to: recipient.email,
-            template: emailTemplates.documentUploadRequest,
-            templateData: {
-              subject: `Action Required: Document Upload - MOLMI`,
-              recipientName: recipient.institute.institute_name,
-              cadetName: cadet.name_as_in_indos_cert,
-              onedriveLink: onedrive_link,
-              remarks: remark || remarks,
-            },
-            drive_id,
-            cadet_id: cadetId,
-            institute_id: cadet.institute_id,
+        addDocumentRequestBatchItem(emailBatches, recipient, {
+          drive_id,
+          cadetId,
+          cadetName: getCadetDisplayName(cadet),
+          cadetUniqueId: cadet.cadet_unique_id,
+          institute_id: cadet.institute_id,
+          documentLink: onedrive_link,
+          remarks: remark || remarks,
+          documentName: document_name || 'Required Documents',
+          documentType: document_type || 'OTHER',
+        });
+      }
+    }
+
+    for (const batch of emailBatches.values()) {
+      try {
+        const result = await logAndSendBatchEmail({
+          to: batch.recipient.email,
+          template: emailTemplates.documentUploadRequestBatch,
+          templateData: {
+            subject: 'Action Required: Document Upload - MOLMI',
+            recipientName: batch.recipient.institute.institute_name,
+            cadets: batch.items,
+          },
+          communications: batch.items.map((item) => ({
+            drive_id: item.drive_id,
+            cadet_id: item.cadetId,
+            institute_id: item.institute_id,
             communication_type: COMMUNICATION_TYPES.DOCUMENT_REQUEST,
-            remarks: remark || remarks,
+            remarks: item.remarks,
             sent_by: req.user?.id || null,
-          });
-          successCount++;
-        } catch (emailError) {
-          console.error(
-            `Failed to send document request email for cadet ${cadetId} to institute ${cadet.institute_id}:`,
-            emailError,
-          );
-        }
+            payload_json: {
+              subject: 'Action Required: Document Upload - MOLMI',
+              ...item,
+            },
+          })),
+        });
+        successCount += result.sentCount;
+      } catch (emailError) {
+        console.error(
+          `Failed to send document request batch email to institute ${batch.items[0]?.institute_id}:`,
+          emailError,
+        );
       }
     }
 

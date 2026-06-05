@@ -24,7 +24,7 @@ const {
   COMMUNICATION_TYPES,
 } = require("../services/recruitmentWorkflowService");
 const {
-  logAndSendEmail,
+  logAndSendBatchEmail,
   emailTemplates,
 } = require("../services/recruitmentCommunicationService");
 
@@ -74,6 +74,56 @@ const getInstituteRecipientForCadet = async (cadet = {}, instituteCache) => {
 const appendCadetRemark = (remarks, cadet = {}) => {
   const cadetLine = `Cadet: ${getCadetDisplayName(cadet)} (${cadet.cadet_unique_id || cadet.id})`;
   return [cadetLine, remarks].filter(Boolean).join("\n\n");
+};
+
+const addInstituteBatchItem = (batches, recipient, item) => {
+  const key = `${recipient.email}|${item.institute_id}`;
+  if (!batches.has(key)) {
+    batches.set(key, {
+      recipient,
+      items: [],
+    });
+  }
+  batches.get(key).items.push(item);
+};
+
+const sendStageInviteBatches = async ({
+  batches,
+  subject,
+  message,
+  dateLabel = "Date",
+  timeLabel = "Time",
+  locationLabel = "Location",
+  communicationType,
+  sentBy,
+}) => {
+  for (const batch of batches.values()) {
+    await logAndSendBatchEmail({
+      to: batch.recipient.email,
+      template: emailTemplates.stageInviteBatch,
+      templateData: {
+        subject,
+        recipientName: batch.recipient.institute.institute_name,
+        message,
+        dateLabel,
+        timeLabel,
+        locationLabel,
+        cadets: batch.items,
+      },
+      communications: batch.items.map((item) => ({
+        drive_id: item.drive_id,
+        cadet_id: item.cadetId,
+        institute_id: item.institute_id,
+        communication_type: communicationType,
+        remarks: item.remarks,
+        sent_by: sentBy,
+        payload_json: {
+          subject,
+          ...item,
+        },
+      })),
+    });
+  }
 };
 
 // ... (skipping to the function implementation later in the file)
@@ -696,6 +746,7 @@ const sendAssessmentInvites = async (req, res) => {
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
     const instituteCache = new Map();
+    const emailBatches = new Map();
 
     await runWithConcurrency(cadets, INVITE_CONCURRENCY, async (cadetInvite) => {
       const cadet = cadetMap.get(String(cadetInvite.cadet_id));
@@ -745,28 +796,26 @@ const sendAssessmentInvites = async (req, res) => {
         }),
       );
 
-      await logAndSendEmail({
-        to: recipient.email,
-        template: emailTemplates.stageInvite,
-        templateData: {
-          subject:
-            cadetInvite.subject ||
-            `Assessment invite for ${cadet.name_as_in_indos_cert}`,
-          recipientName: recipient.institute.institute_name,
-          message:
-            `Cadet ${getCadetDisplayName(cadet)} is eligible for the assessment stage. Please review the assessment schedule below.`,
-          date: cadetInvite.assessment_date,
-          time: cadetInvite.assessment_time,
-          remarks: appendCadetRemark(cadetInvite.remarks, cadet),
-          documentLink: documentLink,
-        },
+      addInstituteBatchItem(emailBatches, recipient, {
         drive_id: id,
-        cadet_id: cadet.id,
+        cadetId: cadet.id,
+        cadetName: getCadetDisplayName(cadet),
+        cadetUniqueId: cadet.cadet_unique_id,
         institute_id: cadet.institute_id,
-        communication_type: COMMUNICATION_TYPES.ASSESSMENT_INVITE,
-        remarks: cadetInvite.remarks,
-        sent_by: req.user?.id || null,
+        date: cadetInvite.assessment_date,
+        time: cadetInvite.assessment_time,
+        remarks: appendCadetRemark(cadetInvite.remarks, cadet),
+        documentLink,
       });
+    });
+
+    await sendStageInviteBatches({
+      batches: emailBatches,
+      subject: "Assessment invites - MOLMI",
+      message:
+        "The following cadet(s) are eligible for the assessment stage. Please review the assessment schedule below.",
+      communicationType: COMMUNICATION_TYPES.ASSESSMENT_INVITE,
+      sentBy: req.user?.id || null,
     });
 
     if (pendingDetailsNames.length > 0) {
@@ -801,6 +850,7 @@ const sendInterviewInvites = async (req, res) => {
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
     const instituteCache = new Map();
+    const emailBatches = new Map();
 
     await runWithConcurrency(cadets, INVITE_CONCURRENCY, async (cadetInvite) => {
       const cadet = cadetMap.get(String(cadetInvite.cadet_id));
@@ -826,28 +876,26 @@ const sendInterviewInvites = async (req, res) => {
         }),
       );
 
-      await logAndSendEmail({
-        to: recipient.email,
-        template: emailTemplates.stageInvite,
-        templateData: {
-          subject:
-            cadetInvite.subject ||
-            `Interview invite for ${cadet.name_as_in_indos_cert}`,
-          recipientName: recipient.institute.institute_name,
-          message:
-            `Cadet ${getCadetDisplayName(cadet)} is eligible for the face-to-face interview stage. Please review the interview schedule below.`,
-          date: cadetInvite.interview_date,
-          time: cadetInvite.interview_time,
-          remarks: appendCadetRemark(cadetInvite.remarks, cadet),
-          documentLink: cadetInvite.document_link,
-        },
+      addInstituteBatchItem(emailBatches, recipient, {
         drive_id: id,
-        cadet_id: cadet.id,
+        cadetId: cadet.id,
+        cadetName: getCadetDisplayName(cadet),
+        cadetUniqueId: cadet.cadet_unique_id,
         institute_id: cadet.institute_id,
-        communication_type: COMMUNICATION_TYPES.INTERVIEW_INVITE,
-        remarks: cadetInvite.remarks,
-        sent_by: req.user?.id || null,
+        date: cadetInvite.interview_date,
+        time: cadetInvite.interview_time,
+        remarks: appendCadetRemark(cadetInvite.remarks, cadet),
+        documentLink: cadetInvite.document_link,
       });
+    });
+
+    await sendStageInviteBatches({
+      batches: emailBatches,
+      subject: "Interview invites - MOLMI",
+      message:
+        "The following cadet(s) are eligible for the face-to-face interview stage. Please review the interview schedule below.",
+      communicationType: COMMUNICATION_TYPES.INTERVIEW_INVITE,
+      sentBy: req.user?.id || null,
     });
 
     // Advance drive status to Assessment Completed when interview invites go out.
@@ -894,6 +942,7 @@ const sendMedicalInvites = async (req, res) => {
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
     const instituteCache = new Map();
+    const emailBatches = new Map();
 
     await runWithConcurrency(cadets, INVITE_CONCURRENCY, async (cadetInvite) => {
       const cadet = cadetMap.get(String(cadetInvite.cadet_id));
@@ -919,32 +968,30 @@ const sendMedicalInvites = async (req, res) => {
         }),
       );
 
-      await logAndSendEmail({
-        to: recipient.email,
-        template: emailTemplates.stageInvite,
-        templateData: {
-          subject:
-            cadetInvite.subject ||
-            `Medical invite for ${cadet.name_as_in_indos_cert}`,
-          recipientName: recipient.institute.institute_name,
-          message:
-            `Cadet ${getCadetDisplayName(cadet)} is eligible for the medical / profiling stage. Please review the appointment details below.`,
-          date: cadetInvite.medical_date,
-          time: cadetInvite.medical_time,
-          location:
-            cadetInvite.medical_location ||
-            cadetInvite.medical_center_name ||
-            "Medical Center",
-          locationLabel: "Medical Location",
-          remarks: appendCadetRemark(cadetInvite.remarks, cadet),
-        },
+      addInstituteBatchItem(emailBatches, recipient, {
         drive_id: id,
-        cadet_id: cadet.id,
+        cadetId: cadet.id,
+        cadetName: getCadetDisplayName(cadet),
+        cadetUniqueId: cadet.cadet_unique_id,
         institute_id: cadet.institute_id,
-        communication_type: COMMUNICATION_TYPES.MEDICAL_INVITE,
-        remarks: cadetInvite.remarks,
-        sent_by: req.user?.id || null,
+        date: cadetInvite.medical_date,
+        time: cadetInvite.medical_time,
+        location:
+          cadetInvite.medical_location ||
+          cadetInvite.medical_center_name ||
+          "Medical Center",
+        remarks: appendCadetRemark(cadetInvite.remarks, cadet),
       });
+    });
+
+    await sendStageInviteBatches({
+      batches: emailBatches,
+      subject: "Medical invites - MOLMI",
+      message:
+        "The following cadet(s) are eligible for the medical / profiling stage. Please review the appointment details below.",
+      locationLabel: "Medical Location",
+      communicationType: COMMUNICATION_TYPES.MEDICAL_INVITE,
+      sentBy: req.user?.id || null,
     });
 
     // Advance drive status to Interview Completed when medical invites go out.

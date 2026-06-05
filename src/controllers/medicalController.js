@@ -12,7 +12,11 @@ const {
   COMMUNICATION_TYPES,
 } = require('../services/recruitmentWorkflowService');
 const { FRONTEND_URL } = require('../config/constants');
-const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
+const {
+  logAndSendEmail,
+  logAndSendBatchEmail,
+  emailTemplates,
+} = require('../services/recruitmentCommunicationService');
 
 const getCadetDisplayName = (cadet = {}) =>
   cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || 'Cadet';
@@ -30,6 +34,17 @@ const getInstituteRecipient = async (instituteId, instituteCache = new Map()) =>
   if (!institute || !email) return null;
 
   return { institute, email };
+};
+
+const addDocumentRequestBatchItem = (batches, recipient, item) => {
+  const key = `${recipient.email}|${item.institute_id}`;
+  if (!batches.has(key)) {
+    batches.set(key, {
+      recipient,
+      items: [],
+    });
+  }
+  batches.get(key).items.push(item);
 };
 
 const saveMedicalResult = async (req, res) => {
@@ -273,6 +288,7 @@ const bulkCollectDocuments = async (req, res) => {
     }
 
     const instituteCache = new Map();
+    const emailBatches = new Map();
 
     for (const cadet of cadets) {
       const candidateLink =
@@ -290,26 +306,40 @@ const bulkCollectDocuments = async (req, res) => {
 
       const recipient = await getInstituteRecipient(cadet.institute_id, instituteCache);
       if (recipient) {
-        await logAndSendEmail({
-          to: recipient.email,
-          template: emailTemplates.stageInvite,
-          templateData: {
-            subject: `Document upload requested for ${cadet.name_as_in_indos_cert}`,
-            recipientName: recipient.institute.institute_name,
-            message: `Please upload the requested candidate documents for cadet ${getCadetDisplayName(cadet)} using the link below.`,
-            documentLink: candidateLink,
-            remarks: [`Cadet: ${getCadetDisplayName(cadet)} (${cadet.cadet_unique_id || cadet.id})`, remarks]
-              .filter(Boolean)
-              .join('\n\n'),
-          },
+        addDocumentRequestBatchItem(emailBatches, recipient, {
           drive_id,
-          cadet_id: cadet.id,
+          cadetId: cadet.id,
+          cadetName: getCadetDisplayName(cadet),
+          cadetUniqueId: cadet.cadet_unique_id,
           institute_id: cadet.institute_id,
-          communication_type: COMMUNICATION_TYPES.DOCUMENT_REQUEST,
+          documentLink: candidateLink,
           remarks,
-          sent_by: req.user?.id || null,
         });
       }
+    }
+
+    for (const batch of emailBatches.values()) {
+      await logAndSendBatchEmail({
+        to: batch.recipient.email,
+        template: emailTemplates.documentUploadRequestBatch,
+        templateData: {
+          subject: 'Document upload requested - MOLMI',
+          recipientName: batch.recipient.institute.institute_name,
+          cadets: batch.items,
+        },
+        communications: batch.items.map((item) => ({
+          drive_id: item.drive_id,
+          cadet_id: item.cadetId,
+          institute_id: item.institute_id,
+          communication_type: COMMUNICATION_TYPES.DOCUMENT_REQUEST,
+          remarks: item.remarks,
+          sent_by: req.user?.id || null,
+          payload_json: {
+            subject: 'Document upload requested - MOLMI',
+            ...item,
+          },
+        })),
+      });
     }
 
     if (cadets.length > 0) {

@@ -101,6 +101,50 @@ const sendBulkEmails = async (emailList) => {
   return results;
 };
 
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const buildLink = (url, label = "Open Link") =>
+  url
+    ? `<a href="${escapeHtml(url)}" target="_blank">${escapeHtml(label)}</a>`
+    : "-";
+
+const buildStageInviteRows = (items = []) =>
+  items
+    .map(
+      (item) => `
+        <tr>
+          <td>${escapeHtml(item.cadetName || "Cadet")}</td>
+          <td>${escapeHtml(item.cadetUniqueId || item.cadetId || "-")}</td>
+          <td>${escapeHtml(formatDateForDisplay(item.date) || item.date || "TBD")}</td>
+          <td>${escapeHtml(item.time || "TBD")}</td>
+          <td>${escapeHtml(item.location || "-")}</td>
+          <td>${buildLink(item.documentLink)}</td>
+          <td>${escapeHtml(item.remarks || "-")}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
+const buildDocumentRequestRows = (items = []) =>
+  items
+    .map(
+      (item) => `
+        <tr>
+          <td>${escapeHtml(item.cadetName || "Cadet")}</td>
+          <td>${escapeHtml(item.cadetUniqueId || item.cadetId || "-")}</td>
+          <td>${buildLink(item.documentLink || item.onedriveLink, "Open Folder")}</td>
+          <td>${escapeHtml(item.remarks || "-")}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
 // Email templates
 const emailTemplates = {
   instituteExcelSubmission: (data) => ({
@@ -360,6 +404,31 @@ const emailTemplates = {
     `,
   }),
 
+  stageInviteBatch: (data) => ({
+    subject: data.subject,
+    html: `
+      <p>Dear ${escapeHtml(data.recipientName || "Institute")},</p>
+      <p>${escapeHtml(data.message)}</p>
+      <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; width: 100%; max-width: 900px;">
+        <thead>
+          <tr style="background-color: #f0f4f8;">
+            <th align="left">Cadet</th>
+            <th align="left">Cadet ID</th>
+            <th align="left">${escapeHtml(data.dateLabel || "Date")}</th>
+            <th align="left">${escapeHtml(data.timeLabel || "Time")}</th>
+            <th align="left">${escapeHtml(data.locationLabel || "Location")}</th>
+            <th align="left">Link</th>
+            <th align="left">Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${buildStageInviteRows(data.cadets || [])}
+        </tbody>
+      </table>
+      <p>Regards,<br/>MOLMI Recruitment Team</p>
+    `,
+  }),
+
   instituteSelectionConfirmation: (data) => ({
     subject:
       data.subject ||
@@ -477,6 +546,29 @@ const emailTemplates = {
       <p>Instructions: Please ensure all documents are clearly scanned and named appropriately.</p>
       <p>Best regards,<br/>MOLMI Administration</p>
     `
+  }),
+
+  documentUploadRequestBatch: (data) => ({
+    subject: data.subject || "Action Required: Document Upload - MOLMI",
+    html: `
+      <p>Dear ${escapeHtml(data.recipientName || "Institute")},</p>
+      <p>Please upload the required documents for the following cadet(s):</p>
+      <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; width: 100%; max-width: 800px;">
+        <thead>
+          <tr style="background-color: #f0f4f8;">
+            <th align="left">Cadet</th>
+            <th align="left">Cadet ID</th>
+            <th align="left">Upload Link</th>
+            <th align="left">Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${buildDocumentRequestRows(data.cadets || [])}
+        </tbody>
+      </table>
+      <p>Instructions: Please ensure all documents are clearly scanned and named appropriately.</p>
+      <p>Best regards,<br/>MOLMI Administration</p>
+    `,
   }),
 
   // Document status report email template
