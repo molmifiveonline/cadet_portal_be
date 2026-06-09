@@ -96,6 +96,9 @@ const sendStageInviteBatches = async ({
   locationLabel = "Location",
   communicationType,
   sentBy,
+  attachments = [],
+  showLocation = true,
+  showLink = true,
 }) => {
   for (const batch of batches.values()) {
     await logAndSendBatchEmail({
@@ -109,7 +112,10 @@ const sendStageInviteBatches = async ({
         timeLabel,
         locationLabel,
         cadets: batch.items,
+        showLocation,
+        showLink,
       },
+      attachments,
       communications: batch.items.map((item) => ({
         drive_id: item.drive_id,
         cadet_id: item.cadetId,
@@ -809,6 +815,15 @@ const sendAssessmentInvites = async (req, res) => {
       });
     });
 
+    const attachments = [];
+    if (assessmentFile) {
+      attachments.push({
+        filename: assessmentFile.originalname,
+        content: assessmentFile.buffer,
+        contentType: assessmentFile.mimetype,
+      });
+    }
+
     await sendStageInviteBatches({
       batches: emailBatches,
       subject: "Assessment invites - MOLMI",
@@ -816,6 +831,9 @@ const sendAssessmentInvites = async (req, res) => {
         "The following cadet(s) are eligible for the assessment stage. Please review the assessment schedule below.",
       communicationType: COMMUNICATION_TYPES.ASSESSMENT_INVITE,
       sentBy: req.user?.id || null,
+      attachments,
+      showLocation: false,
+      showLink: false,
     });
 
     if (pendingDetailsNames.length > 0) {
@@ -896,6 +914,7 @@ const sendInterviewInvites = async (req, res) => {
         "The following cadet(s) are eligible for the face-to-face interview stage. Please review the interview schedule below.",
       communicationType: COMMUNICATION_TYPES.INTERVIEW_INVITE,
       sentBy: req.user?.id || null,
+      showLocation: false,
     });
 
     // Advance drive status to Assessment Completed when interview invites go out.

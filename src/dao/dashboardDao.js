@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { hasColumn, hasTable } = require('../services/schemaCompatibilityService');
 
 // Helper: run a query safely, returning a fallback on error (e.g. missing table)
 const safeQuery = async (query, params = [], fallback = []) => {
@@ -11,13 +12,61 @@ const safeQuery = async (query, params = [], fallback = []) => {
   }
 };
 
-const getDashboardStats = async () => {
+const getDashboardStats = async (driveId) => {
+  const cadetCompat = await hasColumn('cadets', 'workflow_phase');
+  const hasCadetDocuments = await hasTable('cadet_documents');
+
+  const shortlistedCondition = cadetCompat
+    ? "c.workflow_phase IN ('shortlisted', 'assessment', 'interview', 'medical', 'selected') OR (c.workflow_phase = 'rejected' AND c.rejection_stage IN ('assessment', 'interview', 'medical', 'selected'))"
+    : "c.status IN ('Shortlisted', 'Eligible for Assessment', 'Assessment Passed', 'Assessment Failed', 'Interviewed', 'Eligible for Interview', 'Interview Selected', 'Interview Failed', 'Selected', 'Eligible for Medical', 'Medical Completed', 'Medical Failed', 'CTV Assigned', 'Onboarded')";
+
+  const medicalQueueCondition = cadetCompat
+    ? `(c.workflow_phase = 'medical'
+        OR c.status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')
+        OR EXISTS (
+          SELECT 1
+          FROM interviews iv
+          WHERE iv.cadet_id = c.id
+            AND LOWER(COALESCE(iv.final_decision, '')) IN ('selected', 'pass')
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM cadet_medical_results mr
+          WHERE mr.cadet_id = c.id
+        ))`
+    : "c.status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')";
+
+  const documentCondition = hasCadetDocuments
+    ? "(c.workflow_result IN ('medical_passed', 'ctv_assigned', 'onboarded') OR c.status IN ('Selected', 'CTV Assigned', 'Onboarded'))"
+    : "0";
+
+  let stageQuery = `
+    SELECT 
+      COALESCE(SUM(1), 0) AS \`Cadets\`,
+      COALESCE(SUM(CASE WHEN ${shortlistedCondition} THEN 1 ELSE 0 END), 0) AS \`Shortlisted\`,
+      COALESCE(SUM(CASE WHEN EXISTS (
+        SELECT 1 FROM assessments a WHERE a.cadet_id = c.id AND LOWER(COALESCE(a.status, '')) = 'pass'
+      ) THEN 1 ELSE 0 END), 0) AS \`Assessment\`,
+      COALESCE(SUM(CASE WHEN EXISTS (
+        SELECT 1 FROM interviews iv WHERE iv.cadet_id = c.id AND LOWER(COALESCE(iv.final_decision, '')) = 'selected'
+      ) THEN 1 ELSE 0 END), 0) AS \`Interview\`,
+      COALESCE(SUM(CASE WHEN ${medicalQueueCondition} THEN 1 ELSE 0 END), 0) AS \`Medical\`,
+      COALESCE(SUM(CASE WHEN ${documentCondition} THEN 1 ELSE 0 END), 0) AS \`Documents\`
+    FROM cadets c
+  `;
+
+  const queryParams = [];
+  if (driveId && driveId !== 'all') {
+    stageQuery += ' WHERE c.drive_id = ?';
+    queryParams.push(driveId);
+  }
+
   // Run all queries in parallel — each is independently safe
   const [
     totalInstitutesRows,
     totalCandidatesRows,
     genderCountRows,
-    stageWiseRows,
+    stageWiseRawRows,
     pendingDocsRows,
     ctvReadyRows,
     onboardingPendingRows,
@@ -39,15 +88,8 @@ const getDashboardStats = async () => {
       [{ maleCount: 0, femaleCount: 0 }]
     ),
 
-    // 3. Stage-wise Candidate Count
-    safeQuery(
-      `SELECT 
-        COALESCE(status, 'unknown') as stage, 
-        COUNT(*) as count 
-       FROM cadets 
-       GROUP BY status 
-       ORDER BY count DESC`,
-    ),
+    // 3. Stage-wise Candidate Count (using computed fields mapped to 6 stages)
+    safeQuery(stageQuery, queryParams),
 
     // 4. Pending Documents (with cadet name)
     safeQuery(
@@ -105,6 +147,16 @@ const getDashboardStats = async () => {
        ORDER BY temp_expiry ASC`,
     ),
   ]);
+
+  const stageRow = stageWiseRawRows[0] || {};
+  const stageWiseRows = [
+    { stage: 'Cadets', count: Number(stageRow.Cadets || 0) },
+    { stage: 'Shortlisted', count: Number(stageRow.Shortlisted || 0) },
+    { stage: 'Assessment', count: Number(stageRow.Assessment || 0) },
+    { stage: 'Interview', count: Number(stageRow.Interview || 0) },
+    { stage: 'Medical', count: Number(stageRow.Medical || 0) },
+    { stage: 'Documents', count: Number(stageRow.Documents || 0) },
+  ];
 
   return {
     totalInstitutes: totalInstitutesRows[0]?.total ?? 0,

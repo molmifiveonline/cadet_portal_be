@@ -114,7 +114,7 @@ const buildLink = (url, label = "Open Link") =>
     ? `<a href="${escapeHtml(url)}" target="_blank">${escapeHtml(label)}</a>`
     : "-";
 
-const buildStageInviteRows = (items = []) =>
+const buildStageInviteRows = (items = [], showLocation = true, showLink = true) =>
   items
     .map(
       (item) => `
@@ -123,8 +123,8 @@ const buildStageInviteRows = (items = []) =>
           <td>${escapeHtml(item.cadetUniqueId || item.cadetId || "-")}</td>
           <td>${escapeHtml(formatDateForDisplay(item.date) || item.date || "TBD")}</td>
           <td>${escapeHtml(item.time || "TBD")}</td>
-          <td>${escapeHtml(item.location || "-")}</td>
-          <td>${buildLink(item.documentLink)}</td>
+          ${showLocation ? `<td>${escapeHtml(item.location || "-")}</td>` : ""}
+          ${showLink ? `<td>${buildLink(item.documentLink)}</td>` : ""}
           <td>${escapeHtml(item.remarks || "-")}</td>
         </tr>
       `,
@@ -404,30 +404,34 @@ const emailTemplates = {
     `,
   }),
 
-  stageInviteBatch: (data) => ({
-    subject: data.subject,
-    html: `
-      <p>Dear ${escapeHtml(data.recipientName || "Institute")},</p>
-      <p>${escapeHtml(data.message)}</p>
-      <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; width: 100%; max-width: 900px;">
-        <thead>
-          <tr style="background-color: #f0f4f8;">
-            <th align="left">Cadet</th>
-            <th align="left">Cadet ID</th>
-            <th align="left">${escapeHtml(data.dateLabel || "Date")}</th>
-            <th align="left">${escapeHtml(data.timeLabel || "Time")}</th>
-            <th align="left">${escapeHtml(data.locationLabel || "Location")}</th>
-            <th align="left">Link</th>
-            <th align="left">Remarks</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${buildStageInviteRows(data.cadets || [])}
-        </tbody>
-      </table>
-      <p>Regards,<br/>MOLMI Recruitment Team</p>
-    `,
-  }),
+  stageInviteBatch: (data) => {
+    const showLocation = data.showLocation !== false;
+    const showLink = data.showLink !== false;
+    return {
+      subject: data.subject,
+      html: `
+        <p>Dear ${escapeHtml(data.recipientName || "Institute")},</p>
+        <p>${escapeHtml(data.message)}</p>
+        <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; width: 100%; max-width: 900px;">
+          <thead>
+            <tr style="background-color: #f0f4f8;">
+              <th align="left">Cadet</th>
+              <th align="left">Cadet ID</th>
+              <th align="left">${escapeHtml(data.dateLabel || "Date")}</th>
+              <th align="left">${escapeHtml(data.timeLabel || "Time")}</th>
+              ${showLocation ? `<th align="left">${escapeHtml(data.locationLabel || "Location")}</th>` : ""}
+              ${showLink ? `<th align="left">Link</th>` : ""}
+              <th align="left">Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${buildStageInviteRows(data.cadets || [], showLocation, showLink)}
+          </tbody>
+        </table>
+        <p>Regards,<br/>MOLMI Recruitment Team</p>
+      `,
+    };
+  },
 
   instituteSelectionConfirmation: (data) => ({
     subject:

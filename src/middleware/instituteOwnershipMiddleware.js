@@ -54,9 +54,7 @@ const requireInstitutePendingDetailEditAccess = (paramName = 'cadet_id') =>
         return res.status(403).json({ message: 'Unauthorized access to this cadet data' });
       }
 
-      const hasPendingDetailAccess =
-        Number(cadet.shortlist_email_sent || 0) === 1 &&
-        Number(cadet.institute_detail_filled || 0) !== 1;
+      const hasPendingDetailAccess = cadetDao.canEditPendingDetails(cadet);
 
       if (!hasPendingDetailAccess) {
         return res.status(403).json({

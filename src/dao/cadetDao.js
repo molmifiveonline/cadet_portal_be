@@ -162,9 +162,18 @@ const buildBaseSelect = async () => {
   `;
 };
 
-const canEditPendingDetails = (cadet = {}) =>
-  Number(cadet.shortlist_email_sent || 0) === 1 &&
-  Number(cadet.institute_detail_filled || 0) !== 1;
+const canEditPendingDetails = (cadet = {}) => {
+  if (Number(cadet.shortlist_email_sent || 0) !== 1) {
+    return false;
+  }
+  const nonEditablePhases = [
+    WORKFLOW_PHASES.INTERVIEW,
+    WORKFLOW_PHASES.MEDICAL,
+    WORKFLOW_PHASES.SELECTED,
+    WORKFLOW_PHASES.REJECTED
+  ];
+  return !nonEditablePhases.includes(cadet.workflow_phase);
+};
 
 const mapCadetRow = (row) => {
   const cadet = hydrateCadetWorkflow(row);
@@ -765,4 +774,5 @@ module.exports = {
   saveCadetPhoto,
   getMaxAllowedPacket,
   getCadetPhoto,
+  canEditPendingDetails,
 };
