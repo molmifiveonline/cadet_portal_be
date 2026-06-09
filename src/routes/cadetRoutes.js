@@ -9,6 +9,7 @@ const {
   getInstituteShortlistedCadets,
   getShortlistStats,
   updateCadet,
+  uploadCadetCvTemplate,
   getCadetPhoto,
   deleteCadet,
 } = require('../controllers/cadetController');
@@ -80,6 +81,16 @@ router.get(
 
 // Serve cadet photo from DB (no auth needed for <img> tags)
 router.get('/:id/photo', getCadetPhoto);
+
+router.post(
+  '/:id/cv-template-upload',
+  authMiddleware,
+  allowInstituteOrPermission('cadets', 'edit'),
+  requireInstituteCadetOwnership('id'),
+  requireInstitutePendingDetailEditAccess('id'),
+  upload.single('file'),
+  uploadCadetCvTemplate,
+);
 
 router.get(
   '/:id',

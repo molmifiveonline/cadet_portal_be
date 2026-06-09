@@ -18,6 +18,7 @@ const {
   validateExcelPhoneFields,
   validateExcelGenderFields,
 } = require('../services/excelImportService');
+const { parseCadetCvTemplate } = require('../services/cvTemplateService');
 const {
   getEmailValidationMessage,
   getPhoneValidationMessage,
@@ -581,6 +582,101 @@ const updateCadet = async (req, res) => {
   }
 };
 
+const uploadCadetCvTemplate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ message: 'Excel file is required' });
+    }
+
+    const isExcelFile =
+      file.originalname?.toLowerCase().endsWith('.xlsx') ||
+      file.mimetype ===
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    if (!isExcelFile) {
+      return res.status(400).json({
+        message: 'Please upload the completed .xlsx CV template.',
+      });
+    }
+
+    const existingCadet = req.cadet || await cadetDao.getCadetById(id);
+    if (!existingCadet) {
+      return res.status(404).json({ message: 'Cadet not found' });
+    }
+
+    if (req.user && req.user.role === ROLES.INSTITUTE && req.user.instituteId) {
+      if (existingCadet.institute_id !== req.user.instituteId) {
+        return res
+          .status(403)
+          .json({ message: 'Unauthorized access to this cadet data' });
+      }
+    }
+
+    const { errors, data } = await parseCadetCvTemplate(file.buffer, {
+      cadet: existingCadet,
+      driveId: req.body.drive_id || req.body.driveId || existingCadet.drive_id,
+    });
+
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'CV template validation failed',
+        errors,
+      });
+    }
+
+    const updatedCadet = { ...existingCadet, ...data };
+    const mandatoryFields = [
+      'name_as_in_indos_cert',
+      'email_id',
+      'contact_number',
+      'date_of_birth',
+      'gender',
+      'tenth_avg_percentage',
+      'tenth_std_maths',
+      'tenth_std_science',
+      'tenth_std_english',
+      'twelfth_pcm_avg_percentage',
+      'twelfth_std_english',
+      'imu_rank',
+    ];
+
+    const allFilled = mandatoryFields.every(
+      (field) => updatedCadet[field] !== null && updatedCadet[field] !== '',
+    );
+
+    await cadetDao.updateCadet(id, {
+      ...data,
+      institute_detail_filled: allFilled ? 1 : 0,
+    });
+
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'UPLOAD_CADET_CV_TEMPLATE',
+        `Uploaded completed CV template for cadet ${existingCadet.name_as_in_indos_cert || existingCadet.cadet_unique_id || id}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'Cadet CV details updated successfully',
+      institute_detail_filled: allFilled ? 1 : 0,
+    });
+  } catch (error) {
+    console.error('Upload Cadet CV Template Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error processing cadet CV template',
+      error: error.message,
+    });
+  }
+};
+
 const getCadetPhoto = async (req, res) => {
   try {
     const { id } = req.params;
@@ -640,6 +736,7 @@ module.exports = {
   getShortlistStats,
   createCadet,
   updateCadet,
+  uploadCadetCvTemplate,
   getCadetPhoto,
   deleteCadet,
 };

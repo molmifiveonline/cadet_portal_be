@@ -18,6 +18,7 @@ const shortlistService = require('../services/shortlistService');
 const recruitmentCommunicationDao = require('../dao/recruitmentCommunicationDao');
 const { logAndSendEmail } = require('../services/recruitmentCommunicationService');
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
+const { generateCadetCvTemplate } = require('../services/cvTemplateService');
 const notificationService = require('../services/notificationService');
 const { ROLES } = require('../config/constants');
 const { formatDateForDisplay } = require('../utils/dateUtils');
@@ -316,10 +317,11 @@ const sendShortlistEmail = async (req, res) => {
 
         selectedCadets.push(cadet);
 
-        if (!cadetsByInstitute.has(cadet.institute_id)) {
-          cadetsByInstitute.set(cadet.institute_id, []);
+        const instituteKey = String(cadet.institute_id);
+        if (!cadetsByInstitute.has(instituteKey)) {
+          cadetsByInstitute.set(instituteKey, []);
         }
-        cadetsByInstitute.get(cadet.institute_id).push(cadet);
+        cadetsByInstitute.get(instituteKey).push(cadet);
       }
     }
 
@@ -360,7 +362,7 @@ const sendShortlistEmail = async (req, res) => {
         continue;
       }
 
-      const instituteCadets = cadetsByInstitute.get(id) || [];
+      const instituteCadets = cadetsByInstitute.get(String(id)) || [];
       const primaryCadet = instituteCadets[0] || selectedCadets[0] || null;
       const resolvedBatchYear = primaryCadet?.batch_year || new Date().getFullYear();
       let drive = null;
@@ -424,11 +426,22 @@ const sendShortlistEmail = async (req, res) => {
 
       // Send Email
       try {
+        const attachments = [];
+        for (const cadet of instituteCadets) {
+          attachments.push(
+            await generateCadetCvTemplate({
+              cadet,
+              institute,
+              drive,
+            }),
+          );
+        }
+
         await logAndSendEmail({
           to: targetEmail,
           template: () => ({
             ...emailContent,
-            html: `${emailContent.html}<p><strong>Remarks:</strong> ${remarks || 'No remarks provided.'}</p>`,
+            html: `${emailContent.html}<p>Please complete the attached cadet-wise Excel CV template(s) and upload each completed file against the matching cadet in the portal.</p><p><strong>Remarks:</strong> ${remarks || 'No remarks provided.'}</p>`,
           }),
           templateData: {
             instituteName: institute.institute_name,
@@ -442,12 +455,14 @@ const sendShortlistEmail = async (req, res) => {
           communication_type: COMMUNICATION_TYPES.SHORTLIST,
           remarks,
           sent_by: req.user?.id || null,
+          attachments,
         });
         results.push({
           id,
           status: 'success',
           email: targetEmail,
           cadetCount,
+          attachmentCount: attachments.length,
         });
 
         for (const cadet of instituteCadets) {

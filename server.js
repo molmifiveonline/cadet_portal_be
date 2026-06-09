@@ -15,6 +15,8 @@ const { warmCache } = require("./src/services/schemaCompatibilityService");
 const {
   ensureSubmissionDriveContext,
   ensurePerformanceIndexes,
+  ensureMultipleInterviewersSupport,
+  ensureEvaluationParametersSupport,
 } = require("./src/services/schemaUpgradeService");
 
 const app = express();
@@ -74,6 +76,8 @@ app.listen(PORT, () => {
   // Ensure lightweight schema upgrades are applied before warming compatibility cache.
   ensureSubmissionDriveContext()
     .then(() => ensurePerformanceIndexes())
+    .then(() => ensureMultipleInterviewersSupport())
+    .then(() => ensureEvaluationParametersSupport())
     .then(() => warmCache())
     .catch((error) => {
       console.error("Schema upgrade failed:", error.message);

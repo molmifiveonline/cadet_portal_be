@@ -36,6 +36,7 @@ const getInterviewCompatibility = async () => ({
   hasComments: await hasColumn('interviews', 'comments'),
   hasInviteRemark: await hasColumn('interviews', 'invite_remark'),
   hasInviteDocumentLink: await hasColumn('interviews', 'invite_document_link'),
+  hasInterviewers: await hasColumn('interviews', 'interviewers'),
 });
 
 const getMedicalCompatibility = async () => ({
@@ -131,6 +132,7 @@ const buildBaseSelect = async () => {
       iv.interview_date,
       ${interviewCompat.hasInterviewTime ? 'iv.interview_time' : 'NULL AS interview_time'},
       iv.panel_members,
+      ${interviewCompat.hasInterviewers ? 'iv.interviewers' : 'NULL AS interviewers'},
       iv.evaluation_score,
       iv.total_score,
       iv.final_decision AS interview_final_decision,

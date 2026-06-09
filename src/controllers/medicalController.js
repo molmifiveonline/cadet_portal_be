@@ -259,6 +259,17 @@ const bulkCollectAcademicData = async (req, res) => {
       });
     }
 
+    if (selectedCadets.length > 0) {
+      await cadetDao.bulkUpdateCadets(
+        selectedCadets.map((c) => c.id),
+        buildWorkflowUpdate({
+          phase: WORKFLOW_PHASES.MEDICAL,
+          result: 'academic_data_collected',
+          status: DISPLAY_STATUS.SELECTED,
+        }),
+      );
+    }
+
     res.status(200).json({
       success: true,
       message: 'Academic data collection initiated',

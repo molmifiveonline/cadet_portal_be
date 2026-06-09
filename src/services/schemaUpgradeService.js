@@ -213,7 +213,39 @@ const ensureSubmissionDriveContext = async () => {
   );
 };
 
+const ensureMultipleInterviewersSupport = async () => {
+  const hasTable = await tableExists('interviews');
+  if (!hasTable) return;
+
+  const hasInterviewers = await columnExists('interviews', 'interviewers');
+  if (!hasInterviewers) {
+    await runSchemaChange(
+      'ALTER TABLE interviews ADD COLUMN interviewers JSON NULL AFTER panel_members',
+      ['ER_DUP_FIELDNAME']
+    );
+    clearSchemaCache();
+  }
+};
+
+const ensureEvaluationParametersSupport = async () => {
+  const hasTable = await tableExists('interviews');
+  if (!hasTable) return;
+
+  const hasParams = await columnExists('interviews', 'evaluation_parameters');
+  if (!hasParams) {
+    await runSchemaChange(
+      'ALTER TABLE interviews ADD COLUMN evaluation_parameters JSON NULL AFTER interviewers',
+      ['ER_DUP_FIELDNAME']
+    );
+    clearSchemaCache();
+  }
+};
+
 module.exports = {
   ensureSubmissionDriveContext,
   ensurePerformanceIndexes,
+  ensureMultipleInterviewersSupport,
+  ensureEvaluationParametersSupport,
 };
+
+
