@@ -221,7 +221,7 @@ const bulkConfirmCandidates = async (req, res) => {
 
 const bulkCollectAcademicData = async (req, res) => {
   try {
-    const { drive_id, remarks = '', form_link = '', cadet_ids } = req.body;
+    const { drive_id, cadet_ids } = req.body;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -243,18 +243,25 @@ const bulkCollectAcademicData = async (req, res) => {
     if (recipient) {
       await logAndSendEmail({
         to: recipient.email,
-        template: emailTemplates.stageInvite,
+        template: emailTemplates.stageInviteBatch,
         templateData: {
           subject: `Pending academic data request for ${drive.drive_name}`,
           recipientName: recipient.institute.institute_name,
-          message: 'Please share the pending academic data for the selected candidates using the link below.',
-          documentLink: form_link || process.env.PENDING_ACADEMIC_DATA_LINK || '',
-          remarks,
+          message: 'Please share the pending academic data for the selected candidates.',
+          showLocation: false,
+          showLink: false,
+          showDate: false,
+          showTime: false,
+          showRemarks: false,
+          cadets: selectedCadets.map((cadet) => ({
+            cadetName: getCadetDisplayName(cadet),
+            cadetUniqueId: cadet.cadet_unique_id,
+          })),
         },
         drive_id,
         institute_id: drive.institute_id,
         communication_type: COMMUNICATION_TYPES.ACADEMIC_DATA_REQUEST,
-        remarks,
+        remarks: 'Academic data collection request',
         sent_by: req.user?.id || null,
       });
     }

@@ -316,11 +316,13 @@ const getInstituteShortlistedCadets = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
+    const drive_id = req.query.drive_id || req.query.driveId;
     const offset = (page - 1) * limit;
 
     const filters = {
       search,
       instituteId,
+      drive_id,
     };
 
     const { data, total } = await shortlistService.getShortlistedCadets(
@@ -329,12 +331,32 @@ const getInstituteShortlistedCadets = async (req, res) => {
       filters,
     );
 
+    // Also fetch cadets with pending academic data requests
+    const academicCadets = await cadetDao.getInstituteAcademicRequestCadets(instituteId, search, drive_id);
+
+    // Merge and de-duplicate by cadet ID
+    const existingIds = new Set(data.map(c => c.id));
+    const merged = [...data];
+    for (const cadet of academicCadets) {
+      if (!existingIds.has(cadet.id)) {
+        merged.push(cadet);
+        existingIds.add(cadet.id);
+      }
+    }
+
+    // Adjust total count. Note: getShortlistedCadets is paginated, so total is the total in DB.
+    // We add the number of academic cadets that were not already in the main set.
+    // For a highly accurate total, we count academic cadets that are not in the main set overall.
+    // But since academicCadets is fetched without pagination limit (up to 200), we can compute:
+    const extraCount = academicCadets.filter(c => !data.some(d => d.id === c.id)).length;
+    const finalTotal = total + extraCount;
+
     res.json({
-      data,
-      total,
+      data: merged,
+      total: finalTotal,
       page,
       limit,
-      last_page: Math.ceil(total / limit),
+      last_page: Math.ceil(finalTotal / limit),
     });
   } catch (error) {
     console.error('Get Institute Shortlisted Cadets Error:', error);
@@ -344,6 +366,28 @@ const getInstituteShortlistedCadets = async (req, res) => {
     });
   }
 };
+
+const getInstitutePendingRequestSummary = async (req, res) => {
+  try {
+    const instituteId = req.user?.instituteId;
+
+    if (!instituteId) {
+      return res.status(403).json({
+        message: 'Access denied. Institute ID not found in token.',
+      });
+    }
+
+    const summary = await cadetDao.getInstitutePendingSummary(instituteId);
+    res.json({ data: summary });
+  } catch (error) {
+    console.error('Get Institute Pending Request Summary Error:', error);
+    res.status(500).json({
+      message: 'Error fetching pending request summary',
+      error: error.message,
+    });
+  }
+};
+
 
 const createCadet = async (req, res) => {
   try {
@@ -733,6 +777,7 @@ module.exports = {
   getCadetById,
   getShortlistedCadets,
   getInstituteShortlistedCadets,
+  getInstitutePendingRequestSummary,
   getShortlistStats,
   createCadet,
   updateCadet,

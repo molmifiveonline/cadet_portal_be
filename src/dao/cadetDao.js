@@ -163,6 +163,9 @@ const buildBaseSelect = async () => {
 };
 
 const canEditPendingDetails = (cadet = {}) => {
+  if (cadet.workflow_result === 'academic_data_collected') {
+    return true;
+  }
   if (Number(cadet.shortlist_email_sent || 0) !== 1) {
     return false;
   }
@@ -180,6 +183,7 @@ const mapCadetRow = (row) => {
   return {
     ...cadet,
     can_edit_pending_details: canEditPendingDetails(cadet),
+    has_pending_academic_request: cadet.workflow_result === 'academic_data_collected',
   };
 };
 
@@ -303,8 +307,12 @@ const buildWhereClause = (filters = {}, queryParams = [], options = {}) => {
   }
 
   if (filters.drive_id) {
-    whereClauses.push('c.drive_id = ?');
-    queryParams.push(filters.drive_id);
+    if (filters.drive_id === 'null' || filters.drive_id === 'unassigned') {
+      whereClauses.push('c.drive_id IS NULL');
+    } else {
+      whereClauses.push('c.drive_id = ?');
+      queryParams.push(filters.drive_id);
+    }
   }
 
   if (filters.course_type && filters.course_type !== 'all') {
@@ -597,9 +605,10 @@ const getDriveCadetsCount = async (
 
 const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
   let query = `
-    SELECT c.*, i.institute_name
+    SELECT c.*, i.institute_name, rd.drive_name
     FROM cadets c
     LEFT JOIN institutes i ON c.institute_id = i.id
+    LEFT JOIN recruitment_drives rd ON c.drive_id = rd.id
     WHERE CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 60
       AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 60
       AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 70
@@ -618,8 +627,12 @@ const getShortlistedCadets = async (limit = 10, offset = 0, filters = {}) => {
   }
 
   if (filters.drive_id && filters.drive_id !== 'all') {
-    additionalClauses.push('c.drive_id = ?');
-    queryParams.push(filters.drive_id);
+    if (filters.drive_id === 'null' || filters.drive_id === 'unassigned') {
+      additionalClauses.push('c.drive_id IS NULL');
+    } else {
+      additionalClauses.push('c.drive_id = ?');
+      queryParams.push(filters.drive_id);
+    }
   }
 
   if (filters.course_type && filters.course_type !== 'all') {
@@ -758,6 +771,47 @@ const getCadetPhoto = async (cadetId) => {
   return rows[0];
 };
 
+const getInstituteAcademicRequestCadets = async (instituteId, search = '', driveId = null) => {
+  const baseSelect = await buildBaseSelect();
+  const params = [instituteId];
+  let query = `${baseSelect} WHERE c.institute_id = ? AND c.workflow_result = 'academic_data_collected'`;
+
+  if (driveId && driveId !== 'all') {
+    if (driveId === 'null' || driveId === 'unassigned') {
+      query += ` AND c.drive_id IS NULL`;
+    } else {
+      query += ` AND c.drive_id = ?`;
+      params.push(driveId);
+    }
+  }
+
+  if (search) {
+    query += ` AND (c.name_as_in_indos_cert LIKE ? OR c.email_id LIKE ? OR c.cadet_unique_id LIKE ?)`;
+    const term = `%${search}%`;
+    params.push(term, term, term);
+  }
+
+  query += ' ORDER BY c.created_at DESC LIMIT 200';
+  const [rows] = await db.query(query, params);
+  return rows.map(mapCadetRow);
+};
+
+const getInstitutePendingSummary = async (instituteId) => {
+  const query = `
+    SELECT 
+      c.drive_id,
+      rd.drive_name,
+      COUNT(c.id) AS pending_count
+    FROM cadets c
+    LEFT JOIN recruitment_drives rd ON c.drive_id = rd.id
+    WHERE c.institute_id = ? 
+      AND c.workflow_result = 'academic_data_collected'
+    GROUP BY c.drive_id, rd.drive_name
+  `;
+  const [rows] = await db.query(query, [instituteId]);
+  return rows;
+};
+
 module.exports = {
   createCadet,
   findDuplicateCadet,
@@ -775,4 +829,7 @@ module.exports = {
   getMaxAllowedPacket,
   getCadetPhoto,
   canEditPendingDetails,
+  getInstituteAcademicRequestCadets,
+  getInstitutePendingSummary,
 };
+

@@ -114,18 +114,25 @@ const buildLink = (url, label = "Open Link") =>
     ? `<a href="${escapeHtml(url)}" target="_blank">${escapeHtml(label)}</a>`
     : "-";
 
-const buildStageInviteRows = (items = [], showLocation = true, showLink = true) =>
+const buildStageInviteRows = (
+  items = [],
+  showLocation = true,
+  showLink = true,
+  showDate = true,
+  showTime = true,
+  showRemarks = true
+) =>
   items
     .map(
       (item) => `
         <tr>
           <td>${escapeHtml(item.cadetName || "Cadet")}</td>
           <td>${escapeHtml(item.cadetUniqueId || item.cadetId || "-")}</td>
-          <td>${escapeHtml(formatDateForDisplay(item.date) || item.date || "TBD")}</td>
-          <td>${escapeHtml(item.time || "TBD")}</td>
+          ${showDate ? `<td>${escapeHtml(formatDateForDisplay(item.date) || item.date || "TBD")}</td>` : ""}
+          ${showTime ? `<td>${escapeHtml(item.time || "TBD")}</td>` : ""}
           ${showLocation ? `<td>${escapeHtml(item.location || "-")}</td>` : ""}
           ${showLink ? `<td>${buildLink(item.documentLink)}</td>` : ""}
-          <td>${escapeHtml(item.remarks || "-")}</td>
+          ${showRemarks ? `<td>${escapeHtml(item.remarks || "-")}</td>` : ""}
         </tr>
       `,
     )
@@ -407,6 +414,9 @@ const emailTemplates = {
   stageInviteBatch: (data) => {
     const showLocation = data.showLocation !== false;
     const showLink = data.showLink !== false;
+    const showDate = data.showDate !== false;
+    const showTime = data.showTime !== false;
+    const showRemarks = data.showRemarks !== false;
     return {
       subject: data.subject,
       html: `
@@ -417,15 +427,22 @@ const emailTemplates = {
             <tr style="background-color: #f0f4f8;">
               <th align="left">Cadet</th>
               <th align="left">Cadet ID</th>
-              <th align="left">${escapeHtml(data.dateLabel || "Date")}</th>
-              <th align="left">${escapeHtml(data.timeLabel || "Time")}</th>
+              ${showDate ? `<th align="left">${escapeHtml(data.dateLabel || "Date")}</th>` : ""}
+              ${showTime ? `<th align="left">${escapeHtml(data.timeLabel || "Time")}</th>` : ""}
               ${showLocation ? `<th align="left">${escapeHtml(data.locationLabel || "Location")}</th>` : ""}
               ${showLink ? `<th align="left">Link</th>` : ""}
-              <th align="left">Remarks</th>
+              ${showRemarks ? `<th align="left">Remarks</th>` : ""}
             </tr>
           </thead>
           <tbody>
-            ${buildStageInviteRows(data.cadets || [], showLocation, showLink)}
+            ${buildStageInviteRows(
+              data.cadets || [],
+              showLocation,
+              showLink,
+              showDate,
+              showTime,
+              showRemarks
+            )}
           </tbody>
         </table>
         <p>Regards,<br/>MOLMI Recruitment Team</p>

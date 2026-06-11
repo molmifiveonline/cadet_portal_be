@@ -7,6 +7,7 @@ const {
   createCadet,
   getShortlistedCadets,
   getInstituteShortlistedCadets,
+  getInstitutePendingRequestSummary,
   getShortlistStats,
   updateCadet,
   uploadCadetCvTemplate,
@@ -70,6 +71,12 @@ router.get(
   '/institute-shortlisted',
   authMiddleware,
   getInstituteShortlistedCadets,
+);
+
+router.get(
+  '/institute-pending-summary',
+  authMiddleware,
+  getInstitutePendingRequestSummary,
 );
 
 router.get(

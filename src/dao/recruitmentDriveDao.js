@@ -117,6 +117,7 @@ const buildDriveSelect = async () => {
       COALESCE(stats.document_count, 0) AS document_count,
       COALESCE(stats.ctv_assigned, 0) AS ctv_assigned,
       COALESCE(stats.onboarded, 0) AS onboarded,
+      COALESCE(stats.academic_data_pending_count, 0) AS academic_data_pending_count,
       ${instituteRequestSentExpression} AS institute_email_sent,
       CASE
         WHEN ${matchingSubmissionExistsExpression}
@@ -156,7 +157,8 @@ const buildDriveSelect = async () => {
             : '0'
         } AS document_count,
         SUM(CASE WHEN c.status = 'CTV Assigned' THEN 1 ELSE 0 END) AS ctv_assigned,
-        SUM(CASE WHEN c.status = 'Onboarded' THEN 1 ELSE 0 END) AS onboarded
+        SUM(CASE WHEN c.status = 'Onboarded' THEN 1 ELSE 0 END) AS onboarded,
+        SUM(CASE WHEN c.workflow_result = 'academic_data_collected' THEN 1 ELSE 0 END) AS academic_data_pending_count
       FROM cadets c
       GROUP BY c.drive_id
     ) AS stats ON rd.id = stats.drive_id
