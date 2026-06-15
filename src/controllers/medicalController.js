@@ -61,17 +61,24 @@ const saveMedicalResult = async (req, res) => {
       profiling_status,
     } = req.body;
 
+    if (!medical_date || !medical_time || !medical_center_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Examination date, time, and medical center are required.',
+      });
+    }
+
     const normalizedDecision = String(final_decision || fit_status || '').toLowerCase();
     const resolvedDecision = ['pass', 'fit'].includes(normalizedDecision) ? 'pass' : 'fail';
 
     const medicalData = {
       cadet_id,
-      medical_date,
-      medical_center_id,
+      medical_date: medical_date || null,
+      medical_center_id: medical_center_id || null,
       fit_status,
       final_decision: resolvedDecision,
       remarks,
-      medical_time,
+      medical_time: medical_time || null,
       psychometric_status,
       profiling_status,
       report_data: req.file?.buffer,
@@ -85,11 +92,15 @@ const saveMedicalResult = async (req, res) => {
       cadet?.name_as_in_indos_cert || cadet?.cadet_unique_id || cadet_id;
 
     if (resolvedDecision === 'pass') {
+      const currentResult = cadet.workflow_result;
+      const currentPhase = cadet.workflow_phase;
+      const shouldKeepResult = ['confirmed', 'academic_data_collected'].includes(currentResult) || currentPhase === WORKFLOW_PHASES.SELECTED;
+
       await cadetDao.updateCadet(
         cadet_id,
         buildWorkflowUpdate({
           phase: WORKFLOW_PHASES.MEDICAL,
-          result: 'medical_passed',
+          result: shouldKeepResult ? currentResult : 'medical_passed',
           status: DISPLAY_STATUS.SELECTED,
         }),
       );
