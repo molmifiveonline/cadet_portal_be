@@ -344,6 +344,19 @@ const getInstituteShortlistedCadets = async (req, res) => {
       }
     }
 
+    // Extract unique drive IDs
+    const driveIds = [...new Set(merged.map(c => c.drive_id).filter(Boolean))];
+    const driveMedicalStatusMap = await cadetDao.checkDrivesHaveMedical(driveIds);
+
+    // Apply override logic
+    for (const cadet of merged) {
+      if (cadet.has_pending_academic_request) {
+        cadet.can_edit_pending_details = true;
+      } else if (cadet.drive_id && driveMedicalStatusMap[cadet.drive_id]) {
+        cadet.can_edit_pending_details = false;
+      }
+    }
+
     // Adjust total count. Note: getShortlistedCadets is paginated, so total is the total in DB.
     // We add the number of academic cadets that were not already in the main set.
     // For a highly accurate total, we count academic cadets that are not in the main set overall.
@@ -358,6 +371,7 @@ const getInstituteShortlistedCadets = async (req, res) => {
       limit,
       last_page: Math.ceil(finalTotal / limit),
     });
+
   } catch (error) {
     console.error('Get Institute Shortlisted Cadets Error:', error);
     res.status(500).json({

@@ -552,6 +552,7 @@ const getDriveCadets = async (
     limit = 1000,
     offset = 0,
     excludeUploaded = false,
+    isInstitute = false,
   } = {},
 ) => {
   const baseSelect = await buildBaseSelect();
@@ -571,8 +572,13 @@ const getDriveCadets = async (
   const orderBy = sortColumns[sortBy] || sortColumns.created_at;
   const orderDirection = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
+  let orderClause = `${orderBy} ${orderDirection}`;
+  if (isInstitute) {
+    orderClause = `CASE WHEN c.workflow_result = 'academic_data_collected' THEN 1 WHEN (COALESCE(c.shortlist_email_sent, 0) = 1 AND (c.workflow_phase IS NULL OR c.workflow_phase NOT IN ('interview', 'medical', 'selected', 'rejected'))) THEN 1 ELSE 0 END DESC, ${orderClause}`;
+  }
+
   const [rows] = await db.query(
-    `${baseSelect} WHERE ${whereClauses.join(' AND ')} ORDER BY ${orderBy} ${orderDirection} LIMIT ? OFFSET ?`,
+    `${baseSelect} WHERE ${whereClauses.join(' AND ')} ORDER BY ${orderClause} LIMIT ? OFFSET ?`,
     [...queryParams, limit, offset],
   );
 
@@ -812,6 +818,34 @@ const getInstitutePendingSummary = async (instituteId) => {
   return rows;
 };
 
+const checkDrivesHaveMedical = async (driveIds = []) => {
+  if (!Array.isArray(driveIds) || driveIds.length === 0) return {};
+
+  const placeholders = driveIds.map(() => '?').join(', ');
+  const query = `
+    SELECT drive_id, COUNT(id) AS medical_cadets_count
+    FROM cadets
+    WHERE drive_id IN (${placeholders})
+      AND (
+        workflow_phase IN ('medical', 'selected')
+        OR status IN ('Medical Completed', 'Medical Failed', 'Eligible for Medical', 'Interview Selected')
+      )
+    GROUP BY drive_id
+  `;
+  const [rows] = await db.query(query, driveIds);
+  
+  const map = {};
+  driveIds.forEach(id => {
+    map[id] = false;
+  });
+  rows.forEach(row => {
+    if (row.medical_cadets_count > 0) {
+      map[row.drive_id] = true;
+    }
+  });
+  return map;
+};
+
 module.exports = {
   createCadet,
   findDuplicateCadet,
@@ -831,5 +865,7 @@ module.exports = {
   canEditPendingDetails,
   getInstituteAcademicRequestCadets,
   getInstitutePendingSummary,
+  checkDrivesHaveMedical,
 };
+
 

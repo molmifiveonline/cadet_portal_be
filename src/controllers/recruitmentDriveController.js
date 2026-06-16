@@ -550,7 +550,9 @@ const getDriveCadetQueue = async (req, res) => {
     const excludeUploaded =
       req.query.excludeUploaded === "true" || req.query.exclude_uploaded === "true";
 
-    if (req.user && req.user.role === "Institute") {
+    const isInstitute = req.user && req.user.role === "Institute";
+
+    if (isInstitute) {
       const drive = await recruitmentDriveDao.getRecruitmentDriveById(id);
       if (!drive) {
         return res.status(404).json({ message: "Recruitment drive not found" });
@@ -573,6 +575,7 @@ const getDriveCadetQueue = async (req, res) => {
         sortBy,
         sortOrder,
         excludeUploaded,
+        isInstitute,
       }),
       cadetDao.getDriveCadetsCount(id, {
         queue,
@@ -749,7 +752,6 @@ const sendAssessmentInvites = async (req, res) => {
     }
 
     const assessmentFile = req.file;
-    const pendingDetailsNames = [];
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
     const instituteCache = new Map();
@@ -761,11 +763,6 @@ const sendAssessmentInvites = async (req, res) => {
 
       const recipient = await getInstituteRecipientForCadet(cadet, instituteCache);
       if (!recipient) return;
-
-      if (!Number(cadet.institute_detail_filled || 0)) {
-        pendingDetailsNames.push(cadet.name_as_in_indos_cert);
-        return;
-      }
 
       let documentLink = cadetInvite.document_link;
 
@@ -836,15 +833,6 @@ const sendAssessmentInvites = async (req, res) => {
       showLocation: false,
       showLink: false,
     });
-
-    if (pendingDetailsNames.length > 0) {
-      return res.json({
-        success: true,
-        message: `Assessment invites sent, but ${pendingDetailsNames.length} cadets were skipped because their details are still pending from the institute: ${pendingDetailsNames.join(', ')}.`,
-        skippedCount: pendingDetailsNames.length,
-        skippedCadets: pendingDetailsNames,
-      });
-    }
 
     res.json({
       success: true,

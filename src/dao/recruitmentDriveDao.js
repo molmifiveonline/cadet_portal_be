@@ -124,6 +124,16 @@ const buildDriveSelect = async () => {
         THEN 1
         ELSE 0
       END AS institute_reverted_excel,
+      CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM institute_submissions isub
+          WHERE ${submissionMatchExpression}
+            AND LOWER(COALESCE(isub.status, '')) = 'pending'
+        )
+        THEN 1
+        ELSE 0
+      END AS has_pending_submission,
       ${cadetDataRequestPendingExpression} AS cadet_data_submit_request_pending,
       CASE
         WHEN (${cadetDataRequestPendingExpression}) = 1 THEN 'pending_submission'
