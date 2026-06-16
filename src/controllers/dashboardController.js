@@ -2,7 +2,8 @@ const dashboardDao = require('../dao/dashboardDao');
 
 const getStats = async (req, res) => {
   try {
-    const stats = await dashboardDao.getDashboardStats();
+    const { driveId } = req.query;
+    const stats = await dashboardDao.getDashboardStats(driveId);
     res.json({ data: stats });
   } catch (error) {
     console.error('Dashboard Stats Error:', error);

@@ -12,7 +12,40 @@ const {
   COMMUNICATION_TYPES,
 } = require('../services/recruitmentWorkflowService');
 const { FRONTEND_URL } = require('../config/constants');
-const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
+const {
+  logAndSendEmail,
+  logAndSendBatchEmail,
+  emailTemplates,
+} = require('../services/recruitmentCommunicationService');
+
+const getCadetDisplayName = (cadet = {}) =>
+  cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || 'Cadet';
+
+const getInstituteRecipient = async (instituteId, instituteCache = new Map()) => {
+  if (!instituteId) return null;
+
+  const cacheKey = String(instituteId);
+  if (!instituteCache.has(cacheKey)) {
+    instituteCache.set(cacheKey, instituteDao.getInstituteById(instituteId));
+  }
+
+  const institute = await instituteCache.get(cacheKey);
+  const email = instituteDao.getDefaultContactEmail(institute);
+  if (!institute || !email) return null;
+
+  return { institute, email };
+};
+
+const addDocumentRequestBatchItem = (batches, recipient, item) => {
+  const key = `${recipient.email}|${item.institute_id}`;
+  if (!batches.has(key)) {
+    batches.set(key, {
+      recipient,
+      items: [],
+    });
+  }
+  batches.get(key).items.push(item);
+};
 
 const saveMedicalResult = async (req, res) => {
   try {
@@ -28,17 +61,24 @@ const saveMedicalResult = async (req, res) => {
       profiling_status,
     } = req.body;
 
+    if (!medical_date || !medical_time || !medical_center_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Examination date, time, and medical center are required.',
+      });
+    }
+
     const normalizedDecision = String(final_decision || fit_status || '').toLowerCase();
     const resolvedDecision = ['pass', 'fit'].includes(normalizedDecision) ? 'pass' : 'fail';
 
     const medicalData = {
       cadet_id,
-      medical_date,
-      medical_center_id,
+      medical_date: medical_date || null,
+      medical_center_id: medical_center_id || null,
       fit_status,
       final_decision: resolvedDecision,
       remarks,
-      medical_time,
+      medical_time: medical_time || null,
       psychometric_status,
       profiling_status,
       report_data: req.file?.buffer,
@@ -52,11 +92,15 @@ const saveMedicalResult = async (req, res) => {
       cadet?.name_as_in_indos_cert || cadet?.cadet_unique_id || cadet_id;
 
     if (resolvedDecision === 'pass') {
+      const currentResult = cadet.workflow_result;
+      const currentPhase = cadet.workflow_phase;
+      const shouldKeepResult = ['confirmed', 'academic_data_collected'].includes(currentResult) || currentPhase === WORKFLOW_PHASES.SELECTED;
+
       await cadetDao.updateCadet(
         cadet_id,
         buildWorkflowUpdate({
-          phase: WORKFLOW_PHASES.MEDICAL,
-          result: 'medical_passed',
+          phase: currentPhase === WORKFLOW_PHASES.SELECTED ? WORKFLOW_PHASES.SELECTED : WORKFLOW_PHASES.MEDICAL,
+          result: shouldKeepResult ? currentResult : 'medical_passed',
           status: DISPLAY_STATUS.SELECTED,
         }),
       );
@@ -138,17 +182,7 @@ const bulkConfirmCandidates = async (req, res) => {
     } else {
       selectedCadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
     }
-    const institute = await instituteDao.getInstituteById(drive.institute_id);
-
-    let targetEmail = '';
-    if (typeof institute.contact_emails === 'string') {
-      try {
-        institute.contact_emails = JSON.parse(institute.contact_emails);
-      } catch (error) {}
-    }
-    if (Array.isArray(institute.contact_emails) && institute.contact_emails.length > 0) {
-      targetEmail = institute.contact_emails.find((contact) => contact.isDefault)?.email || institute.contact_emails[0].email;
-    }
+    const recipient = await getInstituteRecipient(drive.institute_id);
 
     if (selectedCadets.length > 0) {
       await cadetDao.bulkUpdateCadets(
@@ -161,12 +195,12 @@ const bulkConfirmCandidates = async (req, res) => {
       );
     }
 
-    if (targetEmail) {
+    if (recipient) {
       await logAndSendEmail({
-        to: targetEmail,
+        to: recipient.email,
         template: emailTemplates.instituteSelectionConfirmation,
         templateData: {
-          instituteName: institute.institute_name,
+          instituteName: recipient.institute.institute_name,
           driveName: drive.drive_name,
           cadets: selectedCadets,
           remarks,
@@ -198,7 +232,7 @@ const bulkConfirmCandidates = async (req, res) => {
 
 const bulkCollectAcademicData = async (req, res) => {
   try {
-    const { drive_id, remarks = '', form_link = '', cadet_ids } = req.body;
+    const { drive_id, cadet_ids } = req.body;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -215,34 +249,43 @@ const bulkCollectAcademicData = async (req, res) => {
       selectedCadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
     }
 
-    const institute = await instituteDao.getInstituteById(drive.institute_id);
-    let targetEmail = '';
-    if (typeof institute.contact_emails === 'string') {
-      try {
-        institute.contact_emails = JSON.parse(institute.contact_emails);
-      } catch (error) {}
-    }
-    if (Array.isArray(institute.contact_emails) && institute.contact_emails.length > 0) {
-      targetEmail = institute.contact_emails.find((contact) => contact.isDefault)?.email || institute.contact_emails[0].email;
-    }
+    const recipient = await getInstituteRecipient(drive.institute_id);
 
-    if (targetEmail) {
+    if (recipient) {
       await logAndSendEmail({
-        to: targetEmail,
-        template: emailTemplates.stageInvite,
+        to: recipient.email,
+        template: emailTemplates.stageInviteBatch,
         templateData: {
           subject: `Pending academic data request for ${drive.drive_name}`,
-          recipientName: institute.institute_name,
-          message: 'Please share the pending academic data for the selected candidates using the link below.',
-          documentLink: form_link || process.env.PENDING_ACADEMIC_DATA_LINK || '',
-          remarks,
+          recipientName: recipient.institute.institute_name,
+          message: 'Please share the pending academic data for the selected candidates.',
+          showLocation: false,
+          showLink: false,
+          showDate: false,
+          showTime: false,
+          showRemarks: false,
+          cadets: selectedCadets.map((cadet) => ({
+            cadetName: getCadetDisplayName(cadet),
+            cadetUniqueId: cadet.cadet_unique_id,
+          })),
         },
         drive_id,
         institute_id: drive.institute_id,
         communication_type: COMMUNICATION_TYPES.ACADEMIC_DATA_REQUEST,
-        remarks,
+        remarks: 'Academic data collection request',
         sent_by: req.user?.id || null,
       });
+    }
+
+    if (selectedCadets.length > 0) {
+      await cadetDao.bulkUpdateCadets(
+        selectedCadets.map((c) => c.id),
+        buildWorkflowUpdate({
+          phase: WORKFLOW_PHASES.MEDICAL,
+          result: 'academic_data_collected',
+          status: DISPLAY_STATUS.SELECTED,
+        }),
+      );
     }
 
     res.status(200).json({
@@ -273,6 +316,9 @@ const bulkCollectDocuments = async (req, res) => {
       cadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
     }
 
+    const instituteCache = new Map();
+    const emailBatches = new Map();
+
     for (const cadet of cadets) {
       const candidateLink =
         document_link ||
@@ -287,25 +333,42 @@ const bulkCollectDocuments = async (req, res) => {
         remarks,
       });
 
-      if (cadet.email_id) {
-        await logAndSendEmail({
-          to: cadet.email_id,
-          template: emailTemplates.stageInvite,
-          templateData: {
-            subject: `Document upload requested for ${cadet.name_as_in_indos_cert}`,
-            recipientName: cadet.name_as_in_indos_cert,
-            message: 'Please upload the requested candidate documents using the link below.',
-            documentLink: candidateLink,
-            remarks,
-          },
+      const recipient = await getInstituteRecipient(cadet.institute_id, instituteCache);
+      if (recipient) {
+        addDocumentRequestBatchItem(emailBatches, recipient, {
           drive_id,
-          cadet_id: cadet.id,
+          cadetId: cadet.id,
+          cadetName: getCadetDisplayName(cadet),
+          cadetUniqueId: cadet.cadet_unique_id,
           institute_id: cadet.institute_id,
-          communication_type: COMMUNICATION_TYPES.DOCUMENT_REQUEST,
+          documentLink: candidateLink,
           remarks,
-          sent_by: req.user?.id || null,
         });
       }
+    }
+
+    for (const batch of emailBatches.values()) {
+      await logAndSendBatchEmail({
+        to: batch.recipient.email,
+        template: emailTemplates.documentUploadRequestBatch,
+        templateData: {
+          subject: 'Document upload requested - MOLMI',
+          recipientName: batch.recipient.institute.institute_name,
+          cadets: batch.items,
+        },
+        communications: batch.items.map((item) => ({
+          drive_id: item.drive_id,
+          cadet_id: item.cadetId,
+          institute_id: item.institute_id,
+          communication_type: COMMUNICATION_TYPES.DOCUMENT_REQUEST,
+          remarks: item.remarks,
+          sent_by: req.user?.id || null,
+          payload_json: {
+            subject: 'Document upload requested - MOLMI',
+            ...item,
+          },
+        })),
+      });
     }
 
     if (cadets.length > 0) {

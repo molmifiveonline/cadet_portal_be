@@ -17,6 +17,7 @@ const {
   mapRowToCadetData,
   isRowEmpty,
   validateExcelPhoneFields,
+  validateExcelGenderFields,
 } = require('../services/excelImportService');
 
 const normalizeCourseType = (value) => {
@@ -124,6 +125,15 @@ const submitInstituteExcel = async (req, res) => {
       );
       if (phoneValidationMessage) {
         return res.status(400).json({ message: phoneValidationMessage });
+      }
+
+      const genderValidationMessage = validateExcelGenderFields(
+        rawData,
+        headerInfo.headers,
+        headerInfo.rowIndex + 1,
+      );
+      if (genderValidationMessage) {
+        return res.status(400).json({ message: genderValidationMessage });
       }
 
       if (
@@ -320,6 +330,17 @@ const parseSubmissionData = async (submissionId, driveId = null) => {
   );
   if (phoneValidationMessage) {
     const error = new Error(phoneValidationMessage);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const genderValidationMessage = validateExcelGenderFields(
+    rawData,
+    headers,
+    headerRowIndex + 1,
+  );
+  if (genderValidationMessage) {
+    const error = new Error(genderValidationMessage);
     error.statusCode = 400;
     throw error;
   }

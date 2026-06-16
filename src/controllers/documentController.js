@@ -1,10 +1,15 @@
 const crypto = require('crypto');
 const documentDao = require('../dao/documentDao');
 const cadetDao = require('../dao/cadetDao');
+const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const { COMMUNICATION_TYPES } = require('../services/recruitmentWorkflowService');
-const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
+const {
+  logAndSendEmail,
+  logAndSendBatchEmail,
+  emailTemplates,
+} = require('../services/recruitmentCommunicationService');
 const { EXTERNAL_LINK_EXPIRY_HOURS, FRONTEND_URL, ROLES } = require('../config/constants');
 
 const groupDocumentsByCadet = (rows = []) => {
@@ -69,6 +74,35 @@ const canInstituteUploadDocument = async (cadetId) => {
   );
 
   return !hasCv || hasPendingUpload;
+};
+
+const getInstituteRecipient = async (instituteId, instituteCache = new Map()) => {
+  if (!instituteId) return null;
+
+  const cacheKey = String(instituteId);
+  if (!instituteCache.has(cacheKey)) {
+    instituteCache.set(cacheKey, instituteDao.getInstituteById(instituteId));
+  }
+
+  const institute = await instituteCache.get(cacheKey);
+  const email = instituteDao.getDefaultContactEmail(institute);
+  if (!institute || !email) return null;
+
+  return { institute, email };
+};
+
+const getCadetDisplayName = (cadet = {}) =>
+  cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || 'Cadet';
+
+const addDocumentRequestBatchItem = (batches, recipient, item) => {
+  const key = `${recipient.email}|${item.institute_id}`;
+  if (!batches.has(key)) {
+    batches.set(key, {
+      recipient,
+      items: [],
+    });
+  }
+  batches.get(key).items.push(item);
 };
 
 const getDriveDocuments = async (req, res) => {
@@ -180,7 +214,8 @@ const reviewDocument = async (req, res) => {
       last_reupload_requested_at: status === 'reupload_requested' ? new Date() : document.last_reupload_requested_at,
     });
 
-    if (document.email_id) {
+    const recipient = await getInstituteRecipient(document.institute_id);
+    if (recipient) {
       const documentLink =
         document.external_upload_link ||
         `${FRONTEND_URL || ''}/drives/${document.drive_id}`;
@@ -189,11 +224,12 @@ const reviewDocument = async (req, res) => {
       const requiresReupload = allCadetDocuments.some(doc => doc.status === 'reupload_requested');
 
       await logAndSendEmail({
-        to: document.email_id,
+        to: recipient.email,
         template: emailTemplates.documentStatusReport,
         templateData: {
           subject: `Document Status Update - MOLMI`,
-          recipientName: document.name_as_in_indos_cert,
+          recipientName: recipient.institute.institute_name,
+          cadetName: document.name_as_in_indos_cert,
           documents: allCadetDocuments,
           requiresReupload,
           onedriveLink: documentLink,
@@ -293,6 +329,14 @@ const createExternalDocumentRequest = async ({ cadet, documentType = 'OTHER', li
 const requestDocumentUpload = async (req, res) => {
   try {
     const { drive_id, cadet_links, remarks, document_name, document_type } = req.body;
+    let docTypes = req.body.document_types;
+
+    if (!docTypes && document_type) {
+      docTypes = [document_type];
+    }
+    if (!docTypes || !docTypes.length) {
+      docTypes = ['OTHER'];
+    }
 
     if (!drive_id || !cadet_links || !cadet_links.length) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
@@ -308,48 +352,75 @@ const requestDocumentUpload = async (req, res) => {
     }
 
     let successCount = 0;
+    const instituteCache = new Map();
+    const emailBatches = new Map();
 
     for (const { cadet_id: cadetId, onedrive_link, remark } of cadet_links) {
       if (!cadetId || !onedrive_link) continue;
 
       const cadet = await cadetDao.getCadetById(cadetId);
       if (!cadet || cadet.drive_id !== drive_id) continue;
+      const recipient = await getInstituteRecipient(cadet.institute_id, instituteCache);
 
-      // Create document record with cadet-specific OneDrive link
-      await documentDao.createDocument({
-        cadet_id: cadetId,
-        document_name: document_name || 'Required Documents',
-        document_type: document_type || 'OTHER',
-        status: 'pending',
-        source: 'onedrive',
-        external_upload_link: onedrive_link,
-        requested_at: new Date(),
-        admin_remarks: remark || remarks || null,
-        reviewed_by: req.user?.id || null,
-      });
+      for (const type of docTypes) {
+        // Create document record with cadet-specific OneDrive link
+        await documentDao.createDocument({
+          cadet_id: cadetId,
+          document_name: document_name || type,
+          document_type: type,
+          status: 'pending',
+          source: 'onedrive',
+          external_upload_link: onedrive_link,
+          requested_at: new Date(),
+          admin_remarks: remark || remarks || null,
+          reviewed_by: req.user?.id || null,
+        });
+      }
 
-      if (cadet.email_id) {
-        try {
-          await logAndSendEmail({
-            to: cadet.email_id,
-            template: emailTemplates.documentUploadRequest,
-            templateData: {
-              subject: `Action Required: Document Upload - MOLMI`,
-              recipientName: cadet.name_as_in_indos_cert,
-              onedriveLink: onedrive_link,
-              remarks: remark || remarks,
-            },
-            drive_id,
-            cadet_id: cadetId,
-            institute_id: cadet.institute_id,
+      if (recipient) {
+        addDocumentRequestBatchItem(emailBatches, recipient, {
+          drive_id,
+          cadetId,
+          cadetName: getCadetDisplayName(cadet),
+          cadetUniqueId: cadet.cadet_unique_id,
+          institute_id: cadet.institute_id,
+          documentLink: onedrive_link,
+          remarks: remark || remarks,
+          documentName: document_name || docTypes.join(', '),
+          documentType: docTypes.join(', '),
+        });
+      }
+    }
+
+    for (const batch of emailBatches.values()) {
+      try {
+        const result = await logAndSendBatchEmail({
+          to: batch.recipient.email,
+          template: emailTemplates.documentUploadRequestBatch,
+          templateData: {
+            subject: 'Action Required: Document Upload - MOLMI',
+            recipientName: batch.recipient.institute.institute_name,
+            cadets: batch.items,
+          },
+          communications: batch.items.map((item) => ({
+            drive_id: item.drive_id,
+            cadet_id: item.cadetId,
+            institute_id: item.institute_id,
             communication_type: COMMUNICATION_TYPES.DOCUMENT_REQUEST,
-            remarks: remark || remarks,
+            remarks: item.remarks,
             sent_by: req.user?.id || null,
-          });
-          successCount++;
-        } catch (emailError) {
-          console.error(`Failed to send email to cadet ${cadetId}:`, emailError);
-        }
+            payload_json: {
+              subject: 'Action Required: Document Upload - MOLMI',
+              ...item,
+            },
+          })),
+        });
+        successCount += result.sentCount;
+      } catch (emailError) {
+        console.error(
+          `Failed to send document request batch email to institute ${batch.items[0]?.institute_id}:`,
+          emailError,
+        );
       }
     }
 

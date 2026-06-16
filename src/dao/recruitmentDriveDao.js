@@ -108,6 +108,8 @@ const buildDriveSelect = async () => {
       rd.*,
       i.institute_name,
       COALESCE(stats.total_uploaded, 0) AS total_uploaded,
+      COALESCE(stats.male_count, 0) AS male_count,
+      COALESCE(stats.female_count, 0) AS female_count,
       COALESCE(stats.shortlisted_count, 0) AS shortlisted_count,
       COALESCE(stats.assessment_passed, 0) AS assessment_passed,
       COALESCE(stats.interview_selected, 0) AS interview_selected,
@@ -115,12 +117,23 @@ const buildDriveSelect = async () => {
       COALESCE(stats.document_count, 0) AS document_count,
       COALESCE(stats.ctv_assigned, 0) AS ctv_assigned,
       COALESCE(stats.onboarded, 0) AS onboarded,
+      COALESCE(stats.academic_data_pending_count, 0) AS academic_data_pending_count,
       ${instituteRequestSentExpression} AS institute_email_sent,
       CASE
         WHEN ${matchingSubmissionExistsExpression}
         THEN 1
         ELSE 0
       END AS institute_reverted_excel,
+      CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM institute_submissions isub
+          WHERE ${submissionMatchExpression}
+            AND LOWER(COALESCE(isub.status, '')) = 'pending'
+        )
+        THEN 1
+        ELSE 0
+      END AS has_pending_submission,
       ${cadetDataRequestPendingExpression} AS cadet_data_submit_request_pending,
       CASE
         WHEN (${cadetDataRequestPendingExpression}) = 1 THEN 'pending_submission'
@@ -138,6 +151,8 @@ const buildDriveSelect = async () => {
       SELECT
         c.drive_id,
         COUNT(*) AS total_uploaded,
+        SUM(CASE WHEN LOWER(c.gender) = 'male' OR c.gender IS NULL OR c.gender = '' THEN 1 ELSE 0 END) AS male_count,
+        SUM(CASE WHEN LOWER(c.gender) = 'female' THEN 1 ELSE 0 END) AS female_count,
         SUM(CASE WHEN ${shortlistedCondition} THEN 1 ELSE 0 END) AS shortlisted_count,
         SUM(CASE WHEN EXISTS (
           SELECT 1 FROM assessments a WHERE a.cadet_id = c.id AND LOWER(COALESCE(a.status, '')) = 'pass'
@@ -152,7 +167,8 @@ const buildDriveSelect = async () => {
             : '0'
         } AS document_count,
         SUM(CASE WHEN c.status = 'CTV Assigned' THEN 1 ELSE 0 END) AS ctv_assigned,
-        SUM(CASE WHEN c.status = 'Onboarded' THEN 1 ELSE 0 END) AS onboarded
+        SUM(CASE WHEN c.status = 'Onboarded' THEN 1 ELSE 0 END) AS onboarded,
+        SUM(CASE WHEN c.workflow_result = 'academic_data_collected' THEN 1 ELSE 0 END) AS academic_data_pending_count
       FROM cadets c
       GROUP BY c.drive_id
     ) AS stats ON rd.id = stats.drive_id
@@ -321,7 +337,7 @@ const updateRecruitmentDrive = async (id, driveData) => {
   return result.affectedRows > 0;
 };
 
-const deleteRecruitmentDrive = async (id) => {
+const deleteRecruitmentDrive = async (id, force = false) => {
   const connection = await db.getConnection();
 
   try {
@@ -344,13 +360,37 @@ const deleteRecruitmentDrive = async (id) => {
     );
 
     if (Number(cadetCount) > 0) {
-      await connection.rollback();
-      return {
-        success: false,
-        reason: 'has_cadets',
-        cadetCount: Number(cadetCount),
-        driveName: drive.drive_name,
-      };
+      if (!force) {
+        await connection.rollback();
+        return {
+          success: false,
+          reason: 'has_cadets',
+          cadetCount: Number(cadetCount),
+          driveName: drive.drive_name,
+        };
+      } else {
+        const [cadetRows] = await connection.query(
+          'SELECT id FROM cadets WHERE drive_id = ?',
+          [id],
+        );
+        const cadetIds = cadetRows.map((row) => row.id);
+
+        if (cadetIds.length > 0) {
+          const hasRecruitmentCommunications = await hasTable('recruitment_communications');
+          const hasCadetDocuments = await hasTable('cadet_documents');
+
+          await connection.query('DELETE FROM cadet_medical_results WHERE cadet_id IN (?)', [cadetIds]);
+          await connection.query('DELETE FROM assessments WHERE cadet_id IN (?)', [cadetIds]);
+          await connection.query('DELETE FROM interviews WHERE cadet_id IN (?)', [cadetIds]);
+          if (hasCadetDocuments) {
+            await connection.query('DELETE FROM cadet_documents WHERE cadet_id IN (?)', [cadetIds]);
+          }
+          if (hasRecruitmentCommunications) {
+            await connection.query('DELETE FROM recruitment_communications WHERE cadet_id IN (?)', [cadetIds]);
+          }
+          await connection.query('DELETE FROM cadets WHERE id IN (?)', [cadetIds]);
+        }
+      }
     }
 
     const hasSubmissionDriveId = await hasColumn(
@@ -435,6 +475,8 @@ const getRecruitmentDriveStats = async (driveId) => {
   const [rows] = await db.query(
     `SELECT
       COUNT(*) AS total_uploaded,
+      SUM(CASE WHEN LOWER(gender) = 'male' OR gender IS NULL OR gender = '' THEN 1 ELSE 0 END) AS male_count,
+      SUM(CASE WHEN LOWER(gender) = 'female' THEN 1 ELSE 0 END) AS female_count,
       SUM(CASE WHEN ${shortlistedCondition} THEN 1 ELSE 0 END) AS shortlisted_count,
       SUM(CASE WHEN ${assessmentQueueCondition} THEN 1 ELSE 0 END) AS assessment_queue_count,
       SUM(CASE WHEN ${interviewQueueCondition} THEN 1 ELSE 0 END) AS interview_queue_count,
@@ -459,6 +501,8 @@ const getRecruitmentDriveStats = async (driveId) => {
 
   return {
     ...rows[0],
+    male_count: rows[0]?.male_count || 0,
+    female_count: rows[0]?.female_count || 0,
     assessment_passed: rows[0]?.assessment_passed || 0,
     interview_selected: rows[0]?.interview_selected || 0,
     document_count: rows[0]?.document_count || 0,

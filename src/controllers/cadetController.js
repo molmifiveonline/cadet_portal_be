@@ -16,7 +16,9 @@ const {
   mapRowToCadetData,
   isRowEmpty,
   validateExcelPhoneFields,
+  validateExcelGenderFields,
 } = require('../services/excelImportService');
+const { parseCadetCvTemplate } = require('../services/cvTemplateService');
 const {
   getEmailValidationMessage,
   getPhoneValidationMessage,
@@ -132,6 +134,15 @@ const importCadets = async (req, res) => {
     );
     if (phoneValidationMessage) {
       return res.status(400).json({ message: phoneValidationMessage });
+    }
+
+    const genderValidationMessage = validateExcelGenderFields(
+      rawData,
+      headers,
+      headerRowIndex + 1,
+    );
+    if (genderValidationMessage) {
+      return res.status(400).json({ message: genderValidationMessage });
     }
 
     let importedCount = 0;
@@ -305,11 +316,13 @@ const getInstituteShortlistedCadets = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || DEFAULT_PAGE_SIZE;
     const search = req.query.search || '';
+    const drive_id = req.query.drive_id || req.query.driveId;
     const offset = (page - 1) * limit;
 
     const filters = {
       search,
       instituteId,
+      drive_id,
     };
 
     const { data, total } = await shortlistService.getShortlistedCadets(
@@ -318,13 +331,47 @@ const getInstituteShortlistedCadets = async (req, res) => {
       filters,
     );
 
+    // Also fetch cadets with pending academic data requests
+    const academicCadets = await cadetDao.getInstituteAcademicRequestCadets(instituteId, search, drive_id);
+
+    // Merge and de-duplicate by cadet ID
+    const existingIds = new Set(data.map(c => c.id));
+    const merged = [...data];
+    for (const cadet of academicCadets) {
+      if (!existingIds.has(cadet.id)) {
+        merged.push(cadet);
+        existingIds.add(cadet.id);
+      }
+    }
+
+    // Extract unique drive IDs
+    const driveIds = [...new Set(merged.map(c => c.drive_id).filter(Boolean))];
+    const driveMedicalStatusMap = await cadetDao.checkDrivesHaveMedical(driveIds);
+
+    // Apply override logic
+    for (const cadet of merged) {
+      if (cadet.has_pending_academic_request) {
+        cadet.can_edit_pending_details = true;
+      } else if (cadet.drive_id && driveMedicalStatusMap[cadet.drive_id]) {
+        cadet.can_edit_pending_details = false;
+      }
+    }
+
+    // Adjust total count. Note: getShortlistedCadets is paginated, so total is the total in DB.
+    // We add the number of academic cadets that were not already in the main set.
+    // For a highly accurate total, we count academic cadets that are not in the main set overall.
+    // But since academicCadets is fetched without pagination limit (up to 200), we can compute:
+    const extraCount = academicCadets.filter(c => !data.some(d => d.id === c.id)).length;
+    const finalTotal = total + extraCount;
+
     res.json({
-      data,
-      total,
+      data: merged,
+      total: finalTotal,
       page,
       limit,
-      last_page: Math.ceil(total / limit),
+      last_page: Math.ceil(finalTotal / limit),
     });
+
   } catch (error) {
     console.error('Get Institute Shortlisted Cadets Error:', error);
     res.status(500).json({
@@ -333,6 +380,28 @@ const getInstituteShortlistedCadets = async (req, res) => {
     });
   }
 };
+
+const getInstitutePendingRequestSummary = async (req, res) => {
+  try {
+    const instituteId = req.user?.instituteId;
+
+    if (!instituteId) {
+      return res.status(403).json({
+        message: 'Access denied. Institute ID not found in token.',
+      });
+    }
+
+    const summary = await cadetDao.getInstitutePendingSummary(instituteId);
+    res.json({ data: summary });
+  } catch (error) {
+    console.error('Get Institute Pending Request Summary Error:', error);
+    res.status(500).json({
+      message: 'Error fetching pending request summary',
+      error: error.message,
+    });
+  }
+};
+
 
 const createCadet = async (req, res) => {
   try {
@@ -351,6 +420,14 @@ const createCadet = async (req, res) => {
     const phoneValidationMessage = sanitizeAndValidateCadetPhone(cadetData);
     if (phoneValidationMessage) {
       return res.status(400).json({ message: phoneValidationMessage });
+    }
+
+    if (!cadetData.gender || String(cadetData.gender).trim() === '') {
+      return res.status(400).json({ message: 'Gender is a mandatory field' });
+    }
+    const genderVal = String(cadetData.gender).trim().toLowerCase();
+    if (genderVal !== 'male' && genderVal !== 'female') {
+      return res.status(400).json({ message: 'Gender must be either Male or Female' });
     }
 
     const emailValidationMessage = validateCadetEmail(cadetData);
@@ -473,6 +550,16 @@ const updateCadet = async (req, res) => {
       return res.status(400).json({ message: phoneValidationMessage });
     }
 
+    if (cadetData.gender !== undefined) {
+      if (!cadetData.gender || String(cadetData.gender).trim() === '') {
+        return res.status(400).json({ message: 'Gender is a mandatory field' });
+      }
+      const genderVal = String(cadetData.gender).trim().toLowerCase();
+      if (genderVal !== 'male' && genderVal !== 'female') {
+        return res.status(400).json({ message: 'Gender must be either Male or Female' });
+      }
+    }
+
     const emailValidationMessage = validateCadetEmail(cadetData);
     if (emailValidationMessage) {
       return res.status(400).json({ message: emailValidationMessage });
@@ -553,6 +640,101 @@ const updateCadet = async (req, res) => {
   }
 };
 
+const uploadCadetCvTemplate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ message: 'Excel file is required' });
+    }
+
+    const isExcelFile =
+      file.originalname?.toLowerCase().endsWith('.xlsx') ||
+      file.mimetype ===
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    if (!isExcelFile) {
+      return res.status(400).json({
+        message: 'Please upload the completed .xlsx CV template.',
+      });
+    }
+
+    const existingCadet = req.cadet || await cadetDao.getCadetById(id);
+    if (!existingCadet) {
+      return res.status(404).json({ message: 'Cadet not found' });
+    }
+
+    if (req.user && req.user.role === ROLES.INSTITUTE && req.user.instituteId) {
+      if (existingCadet.institute_id !== req.user.instituteId) {
+        return res
+          .status(403)
+          .json({ message: 'Unauthorized access to this cadet data' });
+      }
+    }
+
+    const { errors, data } = await parseCadetCvTemplate(file.buffer, {
+      cadet: existingCadet,
+      driveId: req.body.drive_id || req.body.driveId || existingCadet.drive_id,
+    });
+
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'CV template validation failed',
+        errors,
+      });
+    }
+
+    const updatedCadet = { ...existingCadet, ...data };
+    const mandatoryFields = [
+      'name_as_in_indos_cert',
+      'email_id',
+      'contact_number',
+      'date_of_birth',
+      'gender',
+      'tenth_avg_percentage',
+      'tenth_std_maths',
+      'tenth_std_science',
+      'tenth_std_english',
+      'twelfth_pcm_avg_percentage',
+      'twelfth_std_english',
+      'imu_rank',
+    ];
+
+    const allFilled = mandatoryFields.every(
+      (field) => updatedCadet[field] !== null && updatedCadet[field] !== '',
+    );
+
+    await cadetDao.updateCadet(id, {
+      ...data,
+      institute_detail_filled: allFilled ? 1 : 0,
+    });
+
+    if (req.user && req.user.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        'UPLOAD_CADET_CV_TEMPLATE',
+        `Uploaded completed CV template for cadet ${existingCadet.name_as_in_indos_cert || existingCadet.cadet_unique_id || id}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'Cadet CV details updated successfully',
+      institute_detail_filled: allFilled ? 1 : 0,
+    });
+  } catch (error) {
+    console.error('Upload Cadet CV Template Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error processing cadet CV template',
+      error: error.message,
+    });
+  }
+};
+
 const getCadetPhoto = async (req, res) => {
   try {
     const { id } = req.params;
@@ -609,9 +791,11 @@ module.exports = {
   getCadetById,
   getShortlistedCadets,
   getInstituteShortlistedCadets,
+  getInstitutePendingRequestSummary,
   getShortlistStats,
   createCadet,
   updateCadet,
+  uploadCadetCvTemplate,
   getCadetPhoto,
   deleteCadet,
 };

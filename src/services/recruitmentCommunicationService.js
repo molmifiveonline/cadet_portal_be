@@ -58,7 +58,58 @@ const logAndSendEmail = async ({
   }
 };
 
+const logAndSendBatchEmail = async ({
+  to,
+  template,
+  templateData,
+  communications = [],
+  attachments = [],
+}) => {
+  const content = template(templateData);
+
+  if (!communications.length) {
+    return { success: true, sentCount: 0 };
+  }
+
+  try {
+    await sendEmail({
+      to,
+      subject: content.subject,
+      html: content.html,
+      attachments,
+    });
+
+    for (const communication of communications) {
+      await recruitmentCommunicationDao.createCommunication({
+        ...communication,
+        recipient_email: to,
+        subject: communication.subject || content.subject,
+        payload_json: communication.payload_json || templateData,
+        send_status: 'sent',
+      });
+    }
+
+    return { success: true, sentCount: communications.length };
+  } catch (error) {
+    for (const communication of communications) {
+      await recruitmentCommunicationDao.createCommunication({
+        ...communication,
+        recipient_email: to,
+        subject: communication.subject || content.subject,
+        payload_json: {
+          ...(communication.payload_json || templateData),
+          error: error.message,
+        },
+        send_status: 'failed',
+      });
+    }
+
+    throw error;
+  }
+};
+
 module.exports = {
   emailTemplates,
   logAndSendEmail,
+  logAndSendBatchEmail,
 };

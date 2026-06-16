@@ -130,6 +130,35 @@ const validateExcelPhoneFields = (rawData, headers, startRowIndex) => {
   return '';
 };
 
+const validateExcelGenderFields = (rawData, headers, startRowIndex) => {
+  const genderKeywords = ['gender', 'sex'];
+  const genderColIndex = headers.findIndex((h) => {
+    if (!h) return false;
+    const hStr = String(h).toLowerCase().trim();
+    return genderKeywords.some((kw) => hStr === kw || hStr.includes(kw));
+  });
+
+  if (genderColIndex === -1) {
+    return 'Gender / Sex column is missing from the Excel file.';
+  }
+
+  for (let i = startRowIndex; i < rawData.length; i++) {
+    const rowData = rawData[i];
+    if (isRowEmpty(rowData)) continue;
+
+    const value = rowData[genderColIndex];
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return `Row ${i + 1}: Gender is a mandatory field and cannot be empty.`;
+    }
+    const valLower = String(value).trim().toLowerCase();
+    if (valLower !== 'male' && valLower !== 'female') {
+      return `Row ${i + 1}: Gender must be either "Male" or "Female" (found: "${value}").`;
+    }
+  }
+
+  return '';
+};
+
 const mapRowToCadetData = (rowData, headers, submission) => {
   const row = {};
   headers.forEach((header, index) => {
@@ -165,7 +194,14 @@ const mapRowToCadetData = (rowData, headers, submission) => {
     // Core mapped fields based on user exact excel layout
     course: getValue(['Deck/ Engine', 'Course', 'Stream']) || 'General',
     name_as_in_indos_cert: getValue(['Name as in INDOS', 'Name', 'Cadet Name']),
-    gender: getValue(['Gender', 'Sex']),
+    gender: (() => {
+      const gVal = getValue(['Gender', 'Sex']);
+      if (!gVal) return null;
+      const lower = String(gVal).trim().toLowerCase();
+      if (lower === 'male') return 'Male';
+      if (lower === 'female') return 'Female';
+      return gVal;
+    })(),
     home_town_or_nearby_airport: getValue([
       'Home town or nearby Airport',
       'Hometown',
@@ -260,4 +296,5 @@ module.exports = {
   formatDate,
   isRowEmpty,
   validateExcelPhoneFields,
+  validateExcelGenderFields,
 };

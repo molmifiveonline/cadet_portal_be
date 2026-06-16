@@ -96,6 +96,10 @@ const getDocumentsByDrive = async (driveId) => {
   const { hasTable } = require('../services/schemaCompatibilityService');
   const hasRecruitmentCommunications = await hasTable('recruitment_communications');
 
+  const phaseCondition = hasWorkflowPhase
+    ? "c.workflow_phase = 'selected' OR (c.workflow_phase IS NULL AND c.status IN ('Selected', 'CTV Assigned', 'Onboarded'))"
+    : "c.status IN ('Selected', 'CTV Assigned', 'Onboarded')";
+
   const [rows] = await db.query(
     `SELECT
       c.id AS cadet_id,
@@ -123,10 +127,7 @@ const getDocumentsByDrive = async (driveId) => {
      FROM cadets c
      LEFT JOIN cadet_documents cd ON cd.cadet_id = c.id
      WHERE c.drive_id = ?
-       AND (
-         c.workflow_result IN ('medical_passed', 'ctv_assigned', 'onboarded')
-         OR c.status IN ('Selected', 'CTV Assigned', 'Onboarded')
-       )
+       AND (${phaseCondition})
      ORDER BY c.created_at DESC, cd.created_at DESC`,
     [driveId],
   );

@@ -7,8 +7,10 @@ const {
   createCadet,
   getShortlistedCadets,
   getInstituteShortlistedCadets,
+  getInstitutePendingRequestSummary,
   getShortlistStats,
   updateCadet,
+  uploadCadetCvTemplate,
   getCadetPhoto,
   deleteCadet,
 } = require('../controllers/cadetController');
@@ -18,6 +20,7 @@ const {
   blockInstitute,
   isInstituteUser,
   requireInstituteCadetOwnership,
+  requireInstitutePendingDetailEditAccess,
 } = require('../middleware/instituteOwnershipMiddleware');
 const upload = require('../middleware/uploadMiddleware');
 
@@ -71,6 +74,12 @@ router.get(
 );
 
 router.get(
+  '/institute-pending-summary',
+  authMiddleware,
+  getInstitutePendingRequestSummary,
+);
+
+router.get(
   '/shortlisted/stats',
   authMiddleware,
   requirePermission('cadets', 'view'),
@@ -79,6 +88,16 @@ router.get(
 
 // Serve cadet photo from DB (no auth needed for <img> tags)
 router.get('/:id/photo', getCadetPhoto);
+
+router.post(
+  '/:id/cv-template-upload',
+  authMiddleware,
+  allowInstituteOrPermission('cadets', 'edit'),
+  requireInstituteCadetOwnership('id'),
+  requireInstitutePendingDetailEditAccess('id'),
+  upload.single('file'),
+  uploadCadetCvTemplate,
+);
 
 router.get(
   '/:id',
@@ -94,6 +113,7 @@ router.put(
   authMiddleware,
   allowInstituteOrPermission('cadets', 'edit'),
   requireInstituteCadetOwnership('id'),
+  requireInstitutePendingDetailEditAccess('id'),
   upload.single('photo'),
   updateCadet,
 );

@@ -126,6 +126,18 @@ const parseContactEmails = (contactEmails) => {
   return [];
 };
 
+const getDefaultContactEmail = (institute = {}) => {
+  const contacts = parseContactEmails(institute.contact_emails);
+  const defaultContact =
+    contacts.find((contact) => contact && contact.isDefault) || contacts[0];
+
+  return normalizeEmail(
+    typeof defaultContact === 'string'
+      ? defaultContact
+      : defaultContact && defaultContact.email,
+  );
+};
+
 const getInstituteByContactEmails = async (emails, excludeId = null) => {
   const normalizedEmails = [
     ...new Set((emails || []).map(normalizeEmail).filter(Boolean)),
@@ -574,4 +586,5 @@ module.exports = {
   getInstituteByEmail,
   saveInstituteOtp,
   clearInstituteOtp,
+  getDefaultContactEmail,
 };

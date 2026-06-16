@@ -36,7 +36,7 @@ const formatDateForDisplay = (date) => {
   const month = String(parsed.getMonth() + 1).padStart(2, '0');
   const year = parsed.getFullYear();
 
-  return `${day}/${month}/${year}`;
+  return `${day}-${month}-${year}`;
 };
 
 module.exports = {
