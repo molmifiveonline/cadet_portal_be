@@ -99,7 +99,7 @@ const saveMedicalResult = async (req, res) => {
       await cadetDao.updateCadet(
         cadet_id,
         buildWorkflowUpdate({
-          phase: WORKFLOW_PHASES.MEDICAL,
+          phase: currentPhase === WORKFLOW_PHASES.SELECTED ? WORKFLOW_PHASES.SELECTED : WORKFLOW_PHASES.MEDICAL,
           result: shouldKeepResult ? currentResult : 'medical_passed',
           status: DISPLAY_STATUS.SELECTED,
         }),

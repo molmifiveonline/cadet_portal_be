@@ -327,7 +327,7 @@ const updateRecruitmentDrive = async (id, driveData) => {
   return result.affectedRows > 0;
 };
 
-const deleteRecruitmentDrive = async (id) => {
+const deleteRecruitmentDrive = async (id, force = false) => {
   const connection = await db.getConnection();
 
   try {
@@ -350,13 +350,37 @@ const deleteRecruitmentDrive = async (id) => {
     );
 
     if (Number(cadetCount) > 0) {
-      await connection.rollback();
-      return {
-        success: false,
-        reason: 'has_cadets',
-        cadetCount: Number(cadetCount),
-        driveName: drive.drive_name,
-      };
+      if (!force) {
+        await connection.rollback();
+        return {
+          success: false,
+          reason: 'has_cadets',
+          cadetCount: Number(cadetCount),
+          driveName: drive.drive_name,
+        };
+      } else {
+        const [cadetRows] = await connection.query(
+          'SELECT id FROM cadets WHERE drive_id = ?',
+          [id],
+        );
+        const cadetIds = cadetRows.map((row) => row.id);
+
+        if (cadetIds.length > 0) {
+          const hasRecruitmentCommunications = await hasTable('recruitment_communications');
+          const hasCadetDocuments = await hasTable('cadet_documents');
+
+          await connection.query('DELETE FROM cadet_medical_results WHERE cadet_id IN (?)', [cadetIds]);
+          await connection.query('DELETE FROM assessments WHERE cadet_id IN (?)', [cadetIds]);
+          await connection.query('DELETE FROM interviews WHERE cadet_id IN (?)', [cadetIds]);
+          if (hasCadetDocuments) {
+            await connection.query('DELETE FROM cadet_documents WHERE cadet_id IN (?)', [cadetIds]);
+          }
+          if (hasRecruitmentCommunications) {
+            await connection.query('DELETE FROM recruitment_communications WHERE cadet_id IN (?)', [cadetIds]);
+          }
+          await connection.query('DELETE FROM cadets WHERE id IN (?)', [cadetIds]);
+        }
+      }
     }
 
     const hasSubmissionDriveId = await hasColumn(

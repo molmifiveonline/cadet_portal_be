@@ -458,8 +458,9 @@ const deleteRecruitmentDrive = async (req, res) => {
     }
 
     const { id } = req.params;
+    const force = req.query.force === "true";
 
-    const deleteResult = await recruitmentDriveDao.deleteRecruitmentDrive(id);
+    const deleteResult = await recruitmentDriveDao.deleteRecruitmentDrive(id, force);
 
     if (deleteResult.reason === "not_found") {
       return res.status(404).json({ message: "Recruitment drive not found" });

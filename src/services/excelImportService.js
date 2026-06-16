@@ -194,7 +194,14 @@ const mapRowToCadetData = (rowData, headers, submission) => {
     // Core mapped fields based on user exact excel layout
     course: getValue(['Deck/ Engine', 'Course', 'Stream']) || 'General',
     name_as_in_indos_cert: getValue(['Name as in INDOS', 'Name', 'Cadet Name']),
-    gender: getValue(['Gender', 'Sex']),
+    gender: (() => {
+      const gVal = getValue(['Gender', 'Sex']);
+      if (!gVal) return null;
+      const lower = String(gVal).trim().toLowerCase();
+      if (lower === 'male') return 'Male';
+      if (lower === 'female') return 'Female';
+      return gVal;
+    })(),
     home_town_or_nearby_airport: getValue([
       'Home town or nearby Airport',
       'Hometown',

@@ -329,6 +329,14 @@ const createExternalDocumentRequest = async ({ cadet, documentType = 'OTHER', li
 const requestDocumentUpload = async (req, res) => {
   try {
     const { drive_id, cadet_links, remarks, document_name, document_type } = req.body;
+    let docTypes = req.body.document_types;
+
+    if (!docTypes && document_type) {
+      docTypes = [document_type];
+    }
+    if (!docTypes || !docTypes.length) {
+      docTypes = ['OTHER'];
+    }
 
     if (!drive_id || !cadet_links || !cadet_links.length) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
@@ -354,18 +362,20 @@ const requestDocumentUpload = async (req, res) => {
       if (!cadet || cadet.drive_id !== drive_id) continue;
       const recipient = await getInstituteRecipient(cadet.institute_id, instituteCache);
 
-      // Create document record with cadet-specific OneDrive link
-      await documentDao.createDocument({
-        cadet_id: cadetId,
-        document_name: document_name || 'Required Documents',
-        document_type: document_type || 'OTHER',
-        status: 'pending',
-        source: 'onedrive',
-        external_upload_link: onedrive_link,
-        requested_at: new Date(),
-        admin_remarks: remark || remarks || null,
-        reviewed_by: req.user?.id || null,
-      });
+      for (const type of docTypes) {
+        // Create document record with cadet-specific OneDrive link
+        await documentDao.createDocument({
+          cadet_id: cadetId,
+          document_name: document_name || type,
+          document_type: type,
+          status: 'pending',
+          source: 'onedrive',
+          external_upload_link: onedrive_link,
+          requested_at: new Date(),
+          admin_remarks: remark || remarks || null,
+          reviewed_by: req.user?.id || null,
+        });
+      }
 
       if (recipient) {
         addDocumentRequestBatchItem(emailBatches, recipient, {
@@ -376,8 +386,8 @@ const requestDocumentUpload = async (req, res) => {
           institute_id: cadet.institute_id,
           documentLink: onedrive_link,
           remarks: remark || remarks,
-          documentName: document_name || 'Required Documents',
-          documentType: document_type || 'OTHER',
+          documentName: document_name || docTypes.join(', '),
+          documentType: docTypes.join(', '),
         });
       }
     }

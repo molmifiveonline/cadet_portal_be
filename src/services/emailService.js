@@ -145,6 +145,7 @@ const buildDocumentRequestRows = (items = []) =>
         <tr>
           <td>${escapeHtml(item.cadetName || "Cadet")}</td>
           <td>${escapeHtml(item.cadetUniqueId || item.cadetId || "-")}</td>
+          <td>${escapeHtml(item.documentName || item.documentType || "-")}</td>
           <td>${buildLink(item.documentLink || item.onedriveLink, "Open Folder")}</td>
           <td>${escapeHtml(item.remarks || "-")}</td>
         </tr>
@@ -579,6 +580,7 @@ const emailTemplates = {
           <tr style="background-color: #f0f4f8;">
             <th align="left">Cadet</th>
             <th align="left">Cadet ID</th>
+            <th align="left">Documents</th>
             <th align="left">Upload Link</th>
             <th align="left">Remarks</th>
           </tr>
