@@ -789,6 +789,7 @@ const sendAssessmentInvites = async (req, res) => {
         assessment_time: cadetInvite.assessment_time,
         invite_remark: cadetInvite.remarks,
         invite_document_link: documentLink,
+        status: null,
       });
 
       await cadetDao.updateCadet(

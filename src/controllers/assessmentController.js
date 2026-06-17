@@ -23,6 +23,8 @@ const saveAssessment = async (req, res) => {
       mark_for_interview,
     } = req.body;
 
+    const normalizedStatus = typeof status === 'string' && status.trim() && status.trim().toLowerCase() !== 'pending' ? status.trim().toLowerCase() : null;
+
     const assessmentData = {
       cadet_id,
       assessment_date,
@@ -33,7 +35,7 @@ const saveAssessment = async (req, res) => {
       english_test,
       essay_writing_mark,
       remarks,
-      status,
+      status: normalizedStatus,
       mark_for_interview: mark_for_interview == 1,
     };
 
@@ -50,7 +52,7 @@ const saveAssessment = async (req, res) => {
       cadet?.name_as_in_indos_cert || cadet?.cadet_unique_id || cadet_id;
 
     // Workflow: keep failed assessments in the assessment queue so they can take attempt 2.
-    if (status === 'fail') {
+    if (normalizedStatus === 'fail') {
       await cadetDao.updateCadet(
         cadet_id,
         buildWorkflowUpdate({
@@ -60,7 +62,7 @@ const saveAssessment = async (req, res) => {
           status: DISPLAY_STATUS.ASSESSMENT,
         }),
       );
-    } else if (status === 'pass') {
+    } else if (normalizedStatus === 'pass') {
       if (assessmentData.mark_for_interview) {
         await cadetDao.updateCadet(
           cadet_id,
