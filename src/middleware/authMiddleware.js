@@ -71,9 +71,11 @@ const authMiddleware = async (req, res, next) => {
         return res.status(403).json({ message: 'User account not found' });
       }
 
-      const status = String(user.status).toLowerCase();
-      if (status !== '1' && status !== 'active' && user.status !== true) {
-        return res.status(403).json({ message: 'Account is inactive' });
+      if (user.status !== undefined && user.status !== null) {
+        const status = String(user.status).toLowerCase();
+        if (status !== '1' && status !== 'active' && user.status !== true) {
+          return res.status(403).json({ message: 'Account is inactive' });
+        }
       }
     }
 
