@@ -6,6 +6,7 @@ const assessmentDao = require("../dao/assessmentDao");
 const interviewDao = require("../dao/interviewDao");
 const medicalDao = require("../dao/cadetMedicalResultsDao");
 const documentDao = require("../dao/documentDao");
+const medicalReportDao = require("../dao/medicalReportDao");
 const recruitmentCommunicationDao = require("../dao/recruitmentCommunicationDao");
 const {
   DEFAULT_PAGE_SIZE,
@@ -950,6 +951,11 @@ const sendMedicalInvites = async (req, res) => {
     const { cadets = [] } = req.body;
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
+    
+    // Fetch all medical reports to resolve names
+    const { data: allReports } = await medicalReportDao.getAllMedicalReports();
+    const reportMap = new Map(allReports.map(r => [r.id, r.name]));
+
     const instituteCache = new Map();
     const emailBatches = new Map();
 
@@ -962,9 +968,7 @@ const sendMedicalInvites = async (req, res) => {
 
       await medicalDao.createOrUpdateMedicalResult({
         cadet_id: cadet.id,
-        medical_date: cadetInvite.medical_date,
-        medical_time: cadetInvite.medical_time,
-        medical_center_id: cadetInvite.medical_center_id,
+        appointments: cadetInvite.appointments,
         invite_remark: cadetInvite.remarks,
       });
 
@@ -977,18 +981,23 @@ const sendMedicalInvites = async (req, res) => {
         }),
       );
 
+      const appointmentDetails = (cadetInvite.appointments || []).map(appt => {
+        const reportNames = (appt.medical_reports || []).map(rId => reportMap.get(rId) || rId);
+        return {
+          center_name: appt.medical_center_name || "Medical Center",
+          date: appt.medical_date,
+          time: appt.medical_time,
+          report_names: reportNames
+        };
+      });
+
       addInstituteBatchItem(emailBatches, recipient, {
         drive_id: id,
         cadetId: cadet.id,
         cadetName: getCadetDisplayName(cadet),
         cadetUniqueId: cadet.cadet_unique_id,
         institute_id: cadet.institute_id,
-        date: cadetInvite.medical_date,
-        time: cadetInvite.medical_time,
-        location:
-          cadetInvite.medical_location ||
-          cadetInvite.medical_center_name ||
-          "Medical Center",
+        appointmentDetails,
         remarks: appendCadetRemark(cadetInvite.remarks, cadet),
       });
     });

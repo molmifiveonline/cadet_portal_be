@@ -1,5 +1,5 @@
-const db = require('../config/database');
-const { clearSchemaCache } = require('./schemaCompatibilityService');
+const db = require("../config/database");
+const { clearSchemaCache } = require("./schemaCompatibilityService");
 
 const columnExists = async (tableName, columnName) => {
   const [rows] = await db.query(
@@ -67,75 +67,81 @@ const ensureIndexIfColumns = async (tableName, indexName, columns = []) => {
   if (hasIndex) return;
 
   await runSchemaChange(
-    `ALTER TABLE ${tableName} ADD INDEX ${indexName} (${columns.join(', ')})`,
-    ['ER_DUP_KEYNAME'],
+    `ALTER TABLE ${tableName} ADD INDEX ${indexName} (${columns.join(", ")})`,
+    ["ER_DUP_KEYNAME"],
   );
 };
 
 const ensurePerformanceIndexes = async () => {
   await Promise.all([
-    ensureIndexIfColumns('cadets', 'idx_cadets_drive_status_phase_created', [
-      'drive_id',
-      'status',
-      'workflow_phase',
-      'created_at',
+    ensureIndexIfColumns("cadets", "idx_cadets_drive_status_phase_created", [
+      "drive_id",
+      "status",
+      "workflow_phase",
+      "created_at",
     ]),
-    ensureIndexIfColumns('recruitment_drives', 'idx_rd_filters_created', [
-      'institute_id',
-      'status',
-      'course_type',
-      'year',
-      'created_at',
+    ensureIndexIfColumns("recruitment_drives", "idx_rd_filters_created", [
+      "institute_id",
+      "status",
+      "course_type",
+      "year",
+      "created_at",
     ]),
     ensureIndexIfColumns(
-      'institute_submissions',
-      'idx_isub_drive_context_created',
-      ['drive_id', 'institute_id', 'batch_year', 'course_type', 'created_at'],
+      "institute_submissions",
+      "idx_isub_drive_context_created",
+      ["drive_id", "institute_id", "batch_year", "course_type", "created_at"],
     ),
     ensureIndexIfColumns(
-      'recruitment_communications',
-      'idx_rc_drive_type_status',
-      ['drive_id', 'communication_type', 'send_status'],
+      "recruitment_communications",
+      "idx_rc_drive_type_status",
+      ["drive_id", "communication_type", "send_status"],
     ),
-    ensureIndexIfColumns('assessments', 'idx_assessments_cadet_status', [
-      'cadet_id',
-      'status',
+    ensureIndexIfColumns("assessments", "idx_assessments_cadet_status", [
+      "cadet_id",
+      "status",
     ]),
-    ensureIndexIfColumns('interviews', 'idx_interviews_cadet_decision', [
-      'cadet_id',
-      'final_decision',
+    ensureIndexIfColumns("interviews", "idx_interviews_cadet_decision", [
+      "cadet_id",
+      "final_decision",
     ]),
-    ensureIndexIfColumns('cadet_documents', 'idx_cadet_documents_cadet', [
-      'cadet_id',
+    ensureIndexIfColumns("cadet_documents", "idx_cadet_documents_cadet", [
+      "cadet_id",
     ]),
   ]);
 };
 
 const ensureSubmissionDriveContext = async () => {
-  const hasDriveId = await columnExists('institute_submissions', 'drive_id');
+  const hasDriveId = await columnExists("institute_submissions", "drive_id");
 
   if (!hasDriveId) {
     await runSchemaChange(
-      'ALTER TABLE institute_submissions ADD COLUMN drive_id VARCHAR(36) NULL AFTER course_type',
-      ['ER_DUP_FIELDNAME'],
+      "ALTER TABLE institute_submissions ADD COLUMN drive_id VARCHAR(36) NULL AFTER course_type",
+      ["ER_DUP_FIELDNAME"],
     );
     clearSchemaCache();
   }
 
   const hasDriveIdIndex = await indexExists(
-    'institute_submissions',
-    'idx_institute_submissions_drive_id',
+    "institute_submissions",
+    "idx_institute_submissions_drive_id",
   );
 
   if (!hasDriveIdIndex) {
     await runSchemaChange(
-      'ALTER TABLE institute_submissions ADD INDEX idx_institute_submissions_drive_id (drive_id)',
-      ['ER_DUP_KEYNAME'],
+      "ALTER TABLE institute_submissions ADD INDEX idx_institute_submissions_drive_id (drive_id)",
+      ["ER_DUP_KEYNAME"],
     );
   }
 
-  const hasBatchYear = await columnExists('institute_submissions', 'batch_year');
-  const hasCourseType = await columnExists('institute_submissions', 'course_type');
+  const hasBatchYear = await columnExists(
+    "institute_submissions",
+    "batch_year",
+  );
+  const hasCourseType = await columnExists(
+    "institute_submissions",
+    "course_type",
+  );
 
   if (!hasBatchYear || !hasCourseType) {
     return;
@@ -172,15 +178,17 @@ const ensureSubmissionDriveContext = async () => {
      WHERE isub.drive_id IS NULL`,
   );
 
-  const hasCadets = await tableExists('cadets');
-  const hasRecruitmentCommunications = await tableExists('recruitment_communications');
+  const hasCadets = await tableExists("cadets");
+  const hasRecruitmentCommunications = await tableExists(
+    "recruitment_communications",
+  );
   const cadetEmptyCondition = hasCadets
     ? `AND NOT EXISTS (
        SELECT 1
        FROM cadets c
        WHERE c.drive_id = rd.id
      )`
-    : '';
+    : "";
   const noRequestCondition = hasRecruitmentCommunications
     ? `AND NOT EXISTS (
        SELECT 1
@@ -189,7 +197,7 @@ const ensureSubmissionDriveContext = async () => {
          AND rc.communication_type = 'institute_request'
          AND LOWER(COALESCE(rc.send_status, 'sent')) = 'sent'
      )`
-    : '';
+    : "";
 
   await db.query(
     `UPDATE recruitment_drives rd
@@ -214,28 +222,120 @@ const ensureSubmissionDriveContext = async () => {
 };
 
 const ensureMultipleInterviewersSupport = async () => {
-  const hasTable = await tableExists('interviews');
+  const hasTable = await tableExists("interviews");
   if (!hasTable) return;
 
-  const hasInterviewers = await columnExists('interviews', 'interviewers');
+  const hasInterviewers = await columnExists("interviews", "interviewers");
   if (!hasInterviewers) {
     await runSchemaChange(
-      'ALTER TABLE interviews ADD COLUMN interviewers JSON NULL AFTER panel_members',
-      ['ER_DUP_FIELDNAME']
+      "ALTER TABLE interviews ADD COLUMN interviewers JSON NULL AFTER panel_members",
+      ["ER_DUP_FIELDNAME"],
     );
     clearSchemaCache();
   }
 };
 
 const ensureEvaluationParametersSupport = async () => {
-  const hasTable = await tableExists('interviews');
+  const hasTable = await tableExists("interviews");
   if (!hasTable) return;
 
-  const hasParams = await columnExists('interviews', 'evaluation_parameters');
+  const hasParams = await columnExists("interviews", "evaluation_parameters");
   if (!hasParams) {
     await runSchemaChange(
-      'ALTER TABLE interviews ADD COLUMN evaluation_parameters JSON NULL AFTER interviewers',
-      ['ER_DUP_FIELDNAME']
+      "ALTER TABLE interviews ADD COLUMN evaluation_parameters JSON NULL AFTER interviewers",
+      ["ER_DUP_FIELDNAME"],
+    );
+    clearSchemaCache();
+  }
+};
+
+const ensureMedicalReportsSupport = async () => {
+  const hasReportsTable = await tableExists("medical_reports");
+  if (!hasReportsTable) {
+    await runSchemaChange(
+      `CREATE TABLE medical_reports (
+        id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        status VARCHAR(20) DEFAULT 'Active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )`,
+      [],
+    );
+  }
+
+  const hasReportsColumn = await columnExists(
+    "medical_centers",
+    "medical_reports",
+  );
+  if (!hasReportsColumn) {
+    await runSchemaChange(
+      "ALTER TABLE medical_centers ADD COLUMN medical_reports JSON NULL AFTER tests_offered",
+      ["ER_DUP_FIELDNAME"],
+    );
+    clearSchemaCache();
+
+    // Migrate existing tests_offered data
+    const [centers] = await db.query(
+      `SELECT id, tests_offered FROM medical_centers WHERE tests_offered IS NOT NULL AND tests_offered != ''`,
+    );
+
+    const { v4: uuidv4 } = require("uuid");
+
+    for (const center of centers) {
+      const tests = center.tests_offered
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0);
+
+      const reportIds = [];
+
+      for (const testName of tests) {
+        const [existing] = await db.query(
+          `SELECT id FROM medical_reports WHERE LOWER(name) = LOWER(?)`,
+          [testName],
+        );
+
+        if (existing.length > 0) {
+          reportIds.push(existing[0].id);
+        } else {
+          const reportId = uuidv4();
+          await db.query(
+            `INSERT INTO medical_reports (id, name, status) VALUES (?, ?, 'Active')`,
+            [reportId, testName],
+          );
+          reportIds.push(reportId);
+        }
+      }
+
+      if (reportIds.length > 0) {
+        await db.query(
+          `UPDATE medical_centers SET medical_reports = ? WHERE id = ?`,
+          [JSON.stringify(reportIds), center.id],
+        );
+      }
+    }
+  }
+};
+
+const ensureMultipleMedicalAppointmentsSupport = async () => {
+  const hasTable = await tableExists("cadet_medical_results");
+  if (!hasTable) return;
+
+  const hasAppointments = await columnExists("cadet_medical_results", "appointments");
+  if (!hasAppointments) {
+    await runSchemaChange(
+      "ALTER TABLE cadet_medical_results ADD COLUMN appointments JSON NULL AFTER medical_center_id",
+      ["ER_DUP_FIELDNAME"],
+    );
+    clearSchemaCache();
+  }
+
+  const hasReportResults = await columnExists("cadet_medical_results", "report_results");
+  if (!hasReportResults) {
+    await runSchemaChange(
+      "ALTER TABLE cadet_medical_results ADD COLUMN report_results JSON NULL AFTER appointments",
+      ["ER_DUP_FIELDNAME"],
     );
     clearSchemaCache();
   }
@@ -246,6 +346,6 @@ module.exports = {
   ensurePerformanceIndexes,
   ensureMultipleInterviewersSupport,
   ensureEvaluationParametersSupport,
+  ensureMedicalReportsSupport,
+  ensureMultipleMedicalAppointmentsSupport,
 };
-
-

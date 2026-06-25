@@ -5,19 +5,34 @@ const { filterExistingColumns, hasColumn } = require('../services/schemaCompatib
 const createOrUpdateMedicalResult = async (medicalData) => {
   const {
     cadet_id,
-    medical_date,      // maps to -> appointment_date
-    medical_center_id,
     fit_status,        // maps to -> status
     final_decision,
     remarks,
-    medical_time,      // maps to -> appointment_time
     psychometric_status,
     profiling_status,
     invite_remark,
     report_data,
     report_name,
     report_mime_type,
+    appointments,
+    report_results,
   } = medicalData;
+
+  let medical_center_id = medicalData.medical_center_id;
+  let medical_date = medicalData.medical_date;
+  let medical_time = medicalData.medical_time;
+
+  if (appointments && Array.isArray(appointments) && appointments.length > 0) {
+    if (!medical_center_id) {
+      medical_center_id = appointments[0].medical_center_id;
+    }
+    if (!medical_date) {
+      medical_date = appointments[0].medical_date;
+    }
+    if (!medical_time) {
+      medical_time = appointments[0].medical_time;
+    }
+  }
 
   const [existing] = await db.query(
     'SELECT id FROM cadet_medical_results WHERE cadet_id = ?',
@@ -42,6 +57,8 @@ const createOrUpdateMedicalResult = async (medicalData) => {
       report_data,
       report_name,
       report_mime_type,
+      appointments: appointments ? JSON.stringify(appointments) : undefined,
+      report_results: report_results ? JSON.stringify(report_results) : undefined,
     });
 
     for (const [key, value] of Object.entries(fields)) {
@@ -76,6 +93,8 @@ const createOrUpdateMedicalResult = async (medicalData) => {
       report_data,
       report_name,
       report_mime_type,
+      appointments: appointments ? JSON.stringify(appointments) : undefined,
+      report_results: report_results ? JSON.stringify(report_results) : undefined,
     });
     const fields = Object.keys(insertData);
     const placeholders = fields.map(() => '?');
@@ -94,6 +113,8 @@ const getMedicalResultByCadetId = async (cadetId) => {
   const hasPsychometricStatus = await hasColumn('cadet_medical_results', 'psychometric_status');
   const hasProfilingStatus = await hasColumn('cadet_medical_results', 'profiling_status');
   const hasInviteRemark = await hasColumn('cadet_medical_results', 'invite_remark');
+  const hasAppointments = await hasColumn('cadet_medical_results', 'appointments');
+  const hasReportResults = await hasColumn('cadet_medical_results', 'report_results');
 
   // Alias actual column names back to the friendly names expected by the frontend
   const [rows] = await db.query(
@@ -109,10 +130,11 @@ const getMedicalResultByCadetId = async (cadetId) => {
             ${hasInviteRemark ? 'invite_remark' : 'NULL AS invite_remark'},
             report_name,
             report_mime_type,
+            ${hasAppointments ? 'appointments' : 'NULL AS appointments'},
+            ${hasReportResults ? 'report_results' : 'NULL AS report_results'},
             created_at, updated_at
-     FROM cadet_medical_results
-     WHERE cadet_id = ?`,
-    [cadetId],
+     FROM cadet_medical_results WHERE cadet_id = ?`,
+    [cadetId]
   );
   return rows[0];
 };

@@ -17,6 +17,7 @@ const recruitmentDriveRoutes = require('./recruitmentDriveRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
 const documentRoutes = require('./documentRoutes');
 const notificationRoutes = require('./notificationRoutes');
+const medicalReportRoutes = require('./medicalReportRoutes');
 
 // Use routes
 router.use('/auth', authRoutes);
@@ -34,6 +35,7 @@ router.use('/recruitment-drives', recruitmentDriveRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/documents', documentRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/medical-reports', medicalReportRoutes);
 
 // API info
 router.get('/', (req, res) => {
