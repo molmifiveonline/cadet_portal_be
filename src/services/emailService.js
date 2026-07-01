@@ -123,19 +123,40 @@ const buildStageInviteRows = (
   showRemarks = true
 ) =>
   items
-    .map(
-      (item) => `
+    .map((item) => {
+      let dateHtml = showDate ? `<td>${escapeHtml(formatDateForDisplay(item.date) || item.date || "TBD")}</td>` : "";
+      let timeHtml = showTime ? `<td>${escapeHtml(item.time || "TBD")}</td>` : "";
+      let locationHtml = showLocation ? `<td>${escapeHtml(item.location || "-")}</td>` : "";
+
+      if (item.appointmentDetails && item.appointmentDetails.length > 0) {
+        if (showDate) {
+          dateHtml = `<td>${item.appointmentDetails.map(a => escapeHtml(formatDateForDisplay(a.date) || a.date || "TBD")).join('<hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 4px 0;" />')}</td>`;
+        }
+        if (showTime) {
+          timeHtml = `<td>${item.appointmentDetails.map(a => escapeHtml(a.time || "TBD")).join('<hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 4px 0;" />')}</td>`;
+        }
+        if (showLocation) {
+          locationHtml = `<td>${item.appointmentDetails.map(a => `
+            <div style="margin-bottom: 4px;">
+              <strong>${escapeHtml(a.center_name || "-")}</strong>
+              ${a.report_names && a.report_names.length > 0 ? `<div style="font-size: 0.85em; color: #64748b; margin-top: 2px;">Reports: ${escapeHtml(a.report_names.join(', '))}</div>` : ''}
+            </div>
+          `).join('<hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 4px 0;" />')}</td>`;
+        }
+      }
+
+      return `
         <tr>
           <td>${escapeHtml(item.cadetName || "Cadet")}</td>
           <td>${escapeHtml(item.cadetUniqueId || item.cadetId || "-")}</td>
-          ${showDate ? `<td>${escapeHtml(formatDateForDisplay(item.date) || item.date || "TBD")}</td>` : ""}
-          ${showTime ? `<td>${escapeHtml(item.time || "TBD")}</td>` : ""}
-          ${showLocation ? `<td>${escapeHtml(item.location || "-")}</td>` : ""}
+          ${dateHtml}
+          ${timeHtml}
+          ${locationHtml}
           ${showLink ? `<td>${buildLink(item.documentLink)}</td>` : ""}
           ${showRemarks ? `<td>${escapeHtml(item.remarks || "-")}</td>` : ""}
         </tr>
-      `,
-    )
+      `;
+    })
     .join("");
 
 const buildDocumentRequestRows = (items = []) =>

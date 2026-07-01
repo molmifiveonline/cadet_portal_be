@@ -4,14 +4,15 @@ const { v4: uuidv4 } = require('uuid');
 const createMedicalCenter = async (centerData) => {
   const id = uuidv4();
   const query = `
-    INSERT INTO medical_centers (id, center_name, location, tests_offered, contact_person, email, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO medical_centers (id, center_name, location, tests_offered, medical_reports, contact_person, email, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
   await db.query(query, [
     id,
     centerData.center_name,
     centerData.location,
     centerData.tests_offered || null,
+    centerData.medical_reports ? (typeof centerData.medical_reports === 'string' ? centerData.medical_reports : JSON.stringify(centerData.medical_reports)) : null,
     centerData.contact_person || null,
     centerData.email || null,
     centerData.status || 'Active',
@@ -90,12 +91,44 @@ const getAllMedicalCenters = async (
   const dataParams = [...params, limit, offset];
   const [rows] = await db.query(dataQuery, dataParams);
 
+  // Populate medical reports names
+  let populatedRows = rows;
+  try {
+    const [reports] = await db.query('SELECT id, name FROM medical_reports');
+    const reportsMap = {};
+    reports.forEach(r => {
+      reportsMap[r.id] = r.name;
+    });
+
+    populatedRows = rows.map(row => {
+      let reportNames = [];
+      if (row.medical_reports) {
+        try {
+          const ids = typeof row.medical_reports === 'string'
+            ? JSON.parse(row.medical_reports)
+            : row.medical_reports;
+          if (Array.isArray(ids)) {
+            reportNames = ids.map(id => reportsMap[id]).filter(Boolean);
+          }
+        } catch (e) {
+          console.error('Error parsing medical_reports json:', e);
+        }
+      }
+      return {
+        ...row,
+        medical_reports_names: reportNames,
+      };
+    });
+  } catch (err) {
+    console.error('Failed to populate medical reports names:', err);
+  }
+
   // Count query
   const countQuery = `SELECT COUNT(*) as count FROM medical_centers${whereClause}`;
   const [countRows] = await db.query(countQuery, params);
   const total = countRows[0].count;
 
-  return { data: rows, total };
+  return { data: populatedRows, total };
 };
 
 const getMedicalCenterById = async (id) => {
@@ -116,6 +149,7 @@ const updateMedicalCenter = async (id, updateData) => {
     SET center_name = COALESCE(?, center_name),
         location = COALESCE(?, location),
         tests_offered = COALESCE(?, tests_offered),
+        medical_reports = COALESCE(?, medical_reports),
         contact_person = COALESCE(?, contact_person),
         email = COALESCE(?, email),
         status = COALESCE(?, status)
@@ -125,6 +159,7 @@ const updateMedicalCenter = async (id, updateData) => {
     updateData.center_name !== undefined ? updateData.center_name : null,
     updateData.location !== undefined ? updateData.location : null,
     updateData.tests_offered !== undefined ? updateData.tests_offered : null,
+    updateData.medical_reports !== undefined ? (typeof updateData.medical_reports === 'string' ? updateData.medical_reports : JSON.stringify(updateData.medical_reports)) : null,
     updateData.contact_person !== undefined ? updateData.contact_person : null,
     updateData.email !== undefined ? updateData.email : null,
     updateData.status !== undefined ? updateData.status : null,

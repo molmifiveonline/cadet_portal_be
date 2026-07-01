@@ -51,36 +51,31 @@ const saveMedicalResult = async (req, res) => {
   try {
     const { cadet_id } = req.params;
     const {
-      medical_date,
-      medical_center_id,
-      fit_status,
       final_decision,
       remarks,
-      medical_time,
-      psychometric_status,
-      profiling_status,
+      appointments,
+      report_results,
     } = req.body;
 
-    if (!medical_date || !medical_time || !medical_center_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Examination date, time, and medical center are required.',
-      });
-    }
+    let parsedAppointments = [];
+    try {
+      parsedAppointments = appointments ? JSON.parse(appointments) : [];
+    } catch(e) {}
 
-    const normalizedDecision = String(final_decision || fit_status || '').toLowerCase();
+    let parsedReportResults = [];
+    try {
+      parsedReportResults = report_results ? JSON.parse(report_results) : [];
+    } catch(e) {}
+
+    const normalizedDecision = String(final_decision || '').toLowerCase();
     const resolvedDecision = ['pass', 'fit'].includes(normalizedDecision) ? 'pass' : 'fail';
 
     const medicalData = {
       cadet_id,
-      medical_date: medical_date || null,
-      medical_center_id: medical_center_id || null,
-      fit_status,
       final_decision: resolvedDecision,
       remarks,
-      medical_time: medical_time || null,
-      psychometric_status,
-      profiling_status,
+      appointments: parsedAppointments,
+      report_results: parsedReportResults,
       report_data: req.file?.buffer,
       report_name: req.file?.originalname,
       report_mime_type: req.file?.mimetype,

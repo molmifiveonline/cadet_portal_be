@@ -17,6 +17,8 @@ const {
   ensurePerformanceIndexes,
   ensureMultipleInterviewersSupport,
   ensureEvaluationParametersSupport,
+  ensureMedicalReportsSupport,
+  ensureMultipleMedicalAppointmentsSupport,
 } = require("./src/services/schemaUpgradeService");
 
 const app = express();
@@ -78,6 +80,8 @@ app.listen(PORT, () => {
     .then(() => ensurePerformanceIndexes())
     .then(() => ensureMultipleInterviewersSupport())
     .then(() => ensureEvaluationParametersSupport())
+    .then(() => ensureMedicalReportsSupport())
+    .then(() => ensureMultipleMedicalAppointmentsSupport())
     .then(() => warmCache())
     .catch((error) => {
       console.error("Schema upgrade failed:", error.message);
