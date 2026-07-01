@@ -118,7 +118,6 @@ const buildBaseSelect = async () => {
       ${assessmentCompat.hasAssessmentTime ? 'a.assessment_time' : 'NULL AS assessment_time'},
       a.ces_test,
       a.ces_test_2,
-      a.qa_test,
       a.english_test,
       a.essay_writing_mark,
       a.calculated_score,
