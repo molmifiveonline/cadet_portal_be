@@ -35,8 +35,8 @@ const saveInterview = async (req, res) => {
       comments,
       final_decision,
       total_score,
-      interview_sheet_data: req.file?.buffer,
-      interview_sheet_name: req.file?.originalname,
+      interview_sheet_data: null,
+      interview_sheet_name: req.file?.filename,
       interview_sheet_mime_type: req.file?.mimetype,
     };
 

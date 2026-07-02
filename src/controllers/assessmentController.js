@@ -39,9 +39,9 @@ const saveAssessment = async (req, res) => {
 
     // Handle essay upload if file is provided
     if (req.file) {
-      assessmentData.essay_data = req.file.buffer;
+      assessmentData.essay_data = null;
       assessmentData.essay_mime_type = req.file.mimetype;
-      assessmentData.essay_name = req.file.originalname;
+      assessmentData.essay_name = req.file.filename;
     }
 
     const id = await assessmentDao.createOrUpdateAssessment(assessmentData);

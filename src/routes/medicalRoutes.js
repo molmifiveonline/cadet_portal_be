@@ -12,7 +12,7 @@ router.post(
   '/:cadet_id',
   authMiddleware,
   blockInstitute('Institute users are not allowed to save medical results'),
-  upload.single('report'),
+  upload.array('reports', 10),
   medicalController.saveMedicalResult,
 );
 router.get(

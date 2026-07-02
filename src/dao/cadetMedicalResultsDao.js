@@ -16,6 +16,7 @@ const createOrUpdateMedicalResult = async (medicalData) => {
     report_mime_type,
     appointments,
     report_results,
+    files = [],
   } = medicalData;
 
   let medical_center_id = medicalData.medical_center_id;
@@ -75,6 +76,15 @@ const createOrUpdateMedicalResult = async (medicalData) => {
         values,
       );
     }
+    
+    // Insert new files
+    for (const file of files) {
+      await db.query(
+        `INSERT INTO cadet_medical_result_files (id, medical_result_id, file_name, file_path, mime_type) VALUES (?, ?, ?, ?, ?)`,
+        [uuidv4(), existing[0].id, file.filename, `/uploads/${file.filename}`, file.mimetype]
+      );
+    }
+    
     return existing[0].id;
   } else {
     const id = uuidv4();
@@ -104,6 +114,15 @@ const createOrUpdateMedicalResult = async (medicalData) => {
       `INSERT INTO cadet_medical_results (${fields.join(', ')}) VALUES (${placeholders.join(', ')})`,
       values,
     );
+    
+    // Insert new files
+    for (const file of files) {
+      await db.query(
+        `INSERT INTO cadet_medical_result_files (id, medical_result_id, file_name, file_path, mime_type) VALUES (?, ?, ?, ?, ?)`,
+        [uuidv4(), id, file.filename, `/uploads/${file.filename}`, file.mimetype]
+      );
+    }
+    
     return id;
   }
 };
@@ -136,7 +155,21 @@ const getMedicalResultByCadetId = async (cadetId) => {
      FROM cadet_medical_results WHERE cadet_id = ?`,
     [cadetId]
   );
-  return rows[0];
+  const result = rows[0];
+  
+  if (result) {
+    try {
+      const [fileRows] = await db.query(
+        'SELECT id, file_name, file_path, mime_type, created_at FROM cadet_medical_result_files WHERE medical_result_id = ?',
+        [result.id]
+      );
+      result.files = fileRows;
+    } catch (e) {
+      result.files = [];
+    }
+  }
+  
+  return result;
 };
 
 const deleteMedicalResult = async (cadetId) => {

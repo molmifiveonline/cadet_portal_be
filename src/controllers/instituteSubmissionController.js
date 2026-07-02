@@ -110,7 +110,9 @@ const submitInstituteExcel = async (req, res) => {
         });
       }
 
-      const { rawData } = parseExcelFile(file.buffer);
+      const fs = require('fs');
+      const fileBuffer = file.buffer || fs.readFileSync(file.path);
+      const { rawData } = parseExcelFile(fileBuffer);
       const headerInfo = findHeaderRow(rawData, EXCEL_HEADER_KEYWORDS);
       if (!headerInfo) {
         return res
@@ -184,7 +186,7 @@ const submitInstituteExcel = async (req, res) => {
         instituteId,
         filename,
         file.originalname,
-        file.buffer,
+        null, // No longer storing file blob
         batch_year,
         course_type,
         submissionRemarks,

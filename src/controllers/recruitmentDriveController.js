@@ -771,9 +771,9 @@ const sendAssessmentInvites = async (req, res) => {
       if (assessmentFile) {
         const documentId = await documentDao.createDocument({
           cadet_id: cadet.id,
-          document_name: 'Assessment Instructions',
+          document_name: assessmentFile.filename,
           document_type: 'OTHER',
-          document_data: assessmentFile.buffer,
+          document_data: null,
           document_mime_type: assessmentFile.mimetype,
           original_filename: assessmentFile.originalname,
           status: 'pending',
@@ -819,7 +819,7 @@ const sendAssessmentInvites = async (req, res) => {
     if (assessmentFile) {
       attachments.push({
         filename: assessmentFile.originalname,
-        content: assessmentFile.buffer,
+        content: assessmentFile.buffer || require('fs').readFileSync(assessmentFile.path),
         contentType: assessmentFile.mimetype,
       });
     }

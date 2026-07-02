@@ -1,8 +1,18 @@
 const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
+const path = require('path');
 const { MAX_FILE_SIZE } = require('../config/constants');
 
-// Configure memory storage for database storage
-const storage = multer.memoryStorage();
+// Configure disk storage
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, path.join(__dirname, '../../uploads'));
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname);
+    cb(null, `${uuidv4()}${ext}`);
+  }
+});
 
 // Create upload middleware with limits from constants
 const upload = multer({

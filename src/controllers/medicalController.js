@@ -76,9 +76,8 @@ const saveMedicalResult = async (req, res) => {
       remarks,
       appointments: parsedAppointments,
       report_results: parsedReportResults,
-      report_data: req.file?.buffer,
-      report_name: req.file?.originalname,
-      report_mime_type: req.file?.mimetype,
+      report_data: null,
+      files: req.files || [],
     };
 
     const id = await medicalDao.createOrUpdateMedicalResult(medicalData);
