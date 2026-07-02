@@ -163,9 +163,9 @@ const uploadCadetDocument = async (req, res) => {
 
     const id = await documentDao.createDocument({
       cadet_id,
-      document_name,
+      document_name: req.file?.filename || document_name,
       document_type,
-      document_data: req.file?.buffer || null,
+      document_data: null,
       document_mime_type: req.file?.mimetype || null,
       original_filename: req.file?.originalname || null,
       source: req.file ? 'portal' : 'external',
@@ -267,7 +267,17 @@ const downloadDocument = async (req, res) => {
       'Content-Type': document.document_mime_type || 'application/octet-stream',
       'Content-Disposition': `attachment; filename="${document.original_filename || document.document_name}"`,
     });
-    res.send(document.document_data);
+    const fs = require('fs');
+    const path = require('path');
+    const filePath = path.join(__dirname, '../../uploads', document.document_name);
+    
+    if (document.document_data) {
+      res.send(document.document_data);
+    } else if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).json({ success: false, message: 'File not found on disk' });
+    }
   } catch (error) {
     console.error('Error in downloadDocument:', error);
     res.status(500).json({ success: false, message: 'Failed to download document', error: error.message });

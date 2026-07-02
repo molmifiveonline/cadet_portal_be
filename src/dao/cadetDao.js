@@ -752,8 +752,8 @@ const deleteCadet = async (id) => {
 
 const saveCadetPhoto = async (cadetId, photoBuffer, mimeType, photoName) => {
   await db.query(
-    'UPDATE cadets SET photo_data = ?, photo_mime_type = ?, photo_name = ? WHERE id = ?',
-    [photoBuffer, mimeType, photoName, cadetId],
+    'UPDATE cadets SET photo_data = NULL, photo_mime_type = ?, photo_name = ? WHERE id = ?',
+    [mimeType, photoName, cadetId],
   );
 };
 

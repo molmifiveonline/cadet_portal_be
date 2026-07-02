@@ -116,7 +116,9 @@ const importCadets = async (req, res) => {
       return res.status(400).json({ message: 'Institute ID is required' });
     }
 
-    const { rawData } = parseExcelFile(file.buffer);
+    const fs = require('fs');
+    const fileBuffer = file.buffer || fs.readFileSync(file.path);
+    const { rawData } = parseExcelFile(fileBuffer);
 
     const headerKeywords = EXCEL_HEADER_KEYWORDS;
     const headerInfo = findHeaderRow(rawData, headerKeywords);
@@ -155,7 +157,7 @@ const importCadets = async (req, res) => {
       instituteId,
       filename,
       file.originalname,
-      file.buffer,
+      null, // file_blob is now unused
     );
 
     await instituteDao.updateSubmissionStatus(
@@ -454,12 +456,12 @@ const createCadet = async (req, res) => {
     if (req.file && req.file.size > 0) {
       await cadetDao.saveCadetPhoto(
         newCadetId,
-        req.file.buffer,
+        null,
         req.file.mimetype,
         req.file.originalname,
       );
 
-      const photoPath = `${req.protocol}://${req.get('host')}/api/cadets/${newCadetId}/photo`;
+      const photoPath = `/uploads/${req.file.filename}`;
       await cadetDao.updateCadet(newCadetId, { photo_path: photoPath });
     }
 
@@ -573,12 +575,11 @@ const updateCadet = async (req, res) => {
 
       await cadetDao.saveCadetPhoto(
         id,
-        req.file.buffer,
+        null,
         req.file.mimetype,
         req.file.originalname,
       );
-
-      const photoPath = `${req.protocol}://${req.get('host')}/api/cadets/${id}/photo`;
+      photoPath = `/uploads/${req.file.filename}`;
       cadetData = { ...cadetData, photo_path: photoPath };
     }
 
@@ -673,7 +674,9 @@ const uploadCadetCvTemplate = async (req, res) => {
       }
     }
 
-    const { errors, data } = await parseCadetCvTemplate(file.buffer, {
+    const fs = require('fs');
+    const fileBuffer = file.buffer || fs.readFileSync(file.path);
+    const { errors, data } = await parseCadetCvTemplate(fileBuffer, {
       cadet: existingCadet,
       driveId: req.body.drive_id || req.body.driveId || existingCadet.drive_id,
     });
