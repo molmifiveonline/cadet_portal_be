@@ -7,6 +7,7 @@ const interviewDao = require("../dao/interviewDao");
 const medicalDao = require("../dao/cadetMedicalResultsDao");
 const documentDao = require("../dao/documentDao");
 const medicalReportDao = require("../dao/medicalReportDao");
+const medicalCenterDao = require("../dao/medicalCenterDao");
 const recruitmentCommunicationDao = require("../dao/recruitmentCommunicationDao");
 const {
   DEFAULT_PAGE_SIZE,
@@ -956,6 +957,9 @@ const sendMedicalInvites = async (req, res) => {
     const { data: allReports } = await medicalReportDao.getAllMedicalReports();
     const reportMap = new Map(allReports.map(r => [r.id, r.name]));
 
+    const { data: allCenters } = await medicalCenterDao.getAllMedicalCenters(1000, 0);
+    const centerMap = new Map(allCenters.map(c => [c.id, c.center_name]));
+
     const instituteCache = new Map();
     const emailBatches = new Map();
 
@@ -983,8 +987,9 @@ const sendMedicalInvites = async (req, res) => {
 
       const appointmentDetails = (cadetInvite.appointments || []).map(appt => {
         const reportNames = (appt.medical_reports || []).map(rId => reportMap.get(rId) || rId);
+        const centerName = centerMap.get(appt.medical_center_id) || appt.medical_center_name || "Medical Center";
         return {
-          center_name: appt.medical_center_name || "Medical Center",
+          center_name: centerName,
           date: appt.medical_date,
           time: appt.medical_time,
           report_names: reportNames

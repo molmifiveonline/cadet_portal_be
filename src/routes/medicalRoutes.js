@@ -22,6 +22,12 @@ router.get(
   medicalController.getMedicalResult,
 );
 router.post(
+  '/:cadet_id/send-retest-invite',
+  authMiddleware,
+  blockInstitute('Institute users are not allowed to send medical invites'),
+  medicalController.sendRetestInvite,
+);
+router.post(
   '/bulk/confirm',
   authMiddleware,
   blockInstitute('Institute users are not allowed to confirm candidates'),
