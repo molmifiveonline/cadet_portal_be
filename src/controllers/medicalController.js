@@ -4,6 +4,8 @@ const cadetDao = require('../dao/cadetDao');
 const instituteDao = require('../dao/instituteDao');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const recruitmentCommunicationDao = require('../dao/recruitmentCommunicationDao');
+const medicalReportDao = require('../dao/medicalReportDao');
+const medicalCenterDao = require('../dao/medicalCenterDao');
 const documentController = require('./documentController');
 const {
   WORKFLOW_PHASES,
@@ -68,7 +70,11 @@ const saveMedicalResult = async (req, res) => {
     } catch(e) {}
 
     const normalizedDecision = String(final_decision || '').toLowerCase();
-    const resolvedDecision = ['pass', 'fit'].includes(normalizedDecision) ? 'pass' : 'fail';
+    const resolvedDecision = ['pass', 'fit'].includes(normalizedDecision)
+      ? 'pass'
+      : normalizedDecision === 'retest'
+      ? 'retest'
+      : 'fail';
 
     const medicalData = {
       cadet_id,
@@ -95,6 +101,16 @@ const saveMedicalResult = async (req, res) => {
         buildWorkflowUpdate({
           phase: currentPhase === WORKFLOW_PHASES.SELECTED ? WORKFLOW_PHASES.SELECTED : WORKFLOW_PHASES.MEDICAL,
           result: shouldKeepResult ? currentResult : 'medical_passed',
+          status: DISPLAY_STATUS.SELECTED,
+        }),
+      );
+    } else if (resolvedDecision === 'retest') {
+      const currentPhase = cadet.workflow_phase;
+      await cadetDao.updateCadet(
+        cadet_id,
+        buildWorkflowUpdate({
+          phase: currentPhase === WORKFLOW_PHASES.SELECTED ? WORKFLOW_PHASES.SELECTED : WORKFLOW_PHASES.MEDICAL,
+          result: 'medical_pending',
           status: DISPLAY_STATUS.SELECTED,
         }),
       );
@@ -396,10 +412,135 @@ const bulkCollectDocuments = async (req, res) => {
   }
 };
 
+const sendRetestInvite = async (req, res) => {
+  try {
+    const { cadet_id } = req.params;
+    const { cadets = [] } = req.body;
+    
+    const cadetInvite = cadets.find(c => String(c.cadet_id) === String(cadet_id));
+    if (!cadetInvite) {
+      return res.status(400).json({ success: false, message: 'Cadet details missing in request' });
+    }
+
+    const cadet = await cadetDao.getCadetById(cadet_id);
+    if (!cadet) {
+      return res.status(404).json({ success: false, message: 'Cadet not found' });
+    }
+
+    const { data: allReports } = await medicalReportDao.getAllMedicalReports();
+    const reportMap = new Map(allReports.map(r => [r.id, r.name]));
+
+    const { data: allCenters } = await medicalCenterDao.getAllMedicalCenters(1000, 0);
+    const centerMap = new Map(allCenters.map(c => [c.id, c.center_name]));
+
+    const recipient = await getInstituteRecipient(cadet.institute_id);
+    if (!recipient) {
+      return res.status(404).json({ success: false, message: 'Institute recipient not found' });
+    }
+
+    const existingResult = await medicalDao.getMedicalResultByCadetId(cadet.id);
+    let existingAppointments = [];
+    if (existingResult && existingResult.appointments) {
+      try {
+        existingAppointments = typeof existingResult.appointments === 'string'
+          ? JSON.parse(existingResult.appointments)
+          : (existingResult.appointments || []);
+      } catch (e) {
+        console.error('Error parsing existing appointments:', e);
+      }
+    }
+
+    const newAppointments = (cadetInvite.appointments || []).map(appt => ({
+      ...appt,
+      is_retest: true
+    }));
+
+    const combinedAppointments = [...existingAppointments, ...newAppointments];
+
+    await medicalDao.createOrUpdateMedicalResult({
+      cadet_id: cadet.id,
+      appointments: combinedAppointments,
+      invite_remark: cadetInvite.remarks,
+      final_decision: 'retest'
+    });
+
+    await cadetDao.updateCadet(
+      cadet.id,
+      buildWorkflowUpdate({
+        phase: cadet.workflow_phase === WORKFLOW_PHASES.SELECTED ? WORKFLOW_PHASES.SELECTED : WORKFLOW_PHASES.MEDICAL,
+        result: 'medical_pending',
+        status: DISPLAY_STATUS.SELECTED,
+      }),
+    );
+
+    const appointmentDetails = newAppointments.map(appt => {
+      const reportNames = (appt.medical_reports || []).map(rId => reportMap.get(rId) || rId);
+      const centerName = centerMap.get(appt.medical_center_id) || appt.medical_center_name || "Medical Center";
+      return {
+        center_name: centerName,
+        date: appt.medical_date,
+        time: appt.medical_time,
+        report_names: reportNames
+      };
+    });
+
+    const item = {
+      drive_id: cadet.drive_id,
+      cadetId: cadet.id,
+      cadetName: getCadetDisplayName(cadet),
+      cadetUniqueId: cadet.cadet_unique_id,
+      institute_id: cadet.institute_id,
+      appointmentDetails,
+      remarks: cadetInvite.remarks,
+    };
+
+    await logAndSendBatchEmail({
+      to: recipient.email,
+      template: emailTemplates.stageInviteBatch,
+      templateData: {
+        subject: "Medical Retest Invite - MOLMI",
+        recipientName: recipient.institute.institute_name,
+        message: "The following cadet(s) have been scheduled for a medical retest. Please review the appointment details below.",
+        dateLabel: "Date",
+        timeLabel: "Time",
+        locationLabel: "Medical Location",
+        cadets: [item],
+        showLocation: true,
+        showLink: true,
+      },
+      communications: [{
+        drive_id: cadet.drive_id,
+        cadet_id: cadet.id,
+        institute_id: cadet.institute_id,
+        communication_type: COMMUNICATION_TYPES.MEDICAL_INVITE,
+        remarks: item.remarks,
+        sent_by: req.user?.id || null,
+        payload_json: {
+          subject: "Medical Retest Invite - MOLMI",
+          ...item,
+        },
+      }],
+    });
+
+    await activityLogDao.createLog(
+      req.user.id,
+      'Medical Retest Invite Sent',
+      `Medical retest invite sent for cadet ${getCadetDisplayName(cadet)}.`,
+      req.ip || req.connection.remoteAddress
+    );
+
+    res.json({ success: true, message: 'Retest invite sent successfully' });
+  } catch (error) {
+    console.error('Error in sendRetestInvite:', error);
+    res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+  }
+};
+
 module.exports = {
   saveMedicalResult,
   getMedicalResult,
   bulkConfirmCandidates,
   bulkCollectAcademicData,
   bulkCollectDocuments,
+  sendRetestInvite,
 };
