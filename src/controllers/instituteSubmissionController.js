@@ -1,9 +1,11 @@
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
 const cadetDao = require('../dao/cadetDao');
+const assessmentDao = require('../dao/assessmentDao');
 const {
   DEFAULT_PAGE_SIZE,
   EXCEL_HEADER_KEYWORDS,
+  INSTITUTE_UPLOAD_TYPES,
   SUBMISSION_STATUS,
   DRIVE_STATUS,
 } = require('../config/constants');
@@ -14,6 +16,7 @@ const notificationService = require('../services/notificationService');
 const {
   parseExcelFile,
   findHeaderRow,
+  parsePanamaWorkbookRows,
   mapRowToCadetData,
   isRowEmpty,
   validateExcelPhoneFields,
@@ -27,6 +30,16 @@ const normalizeCourseType = (value) => {
   if (normalized === 'engine') return 'Engine';
   return null;
 };
+
+const normalizeInstituteUploadType = (value) => {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'panama') return INSTITUTE_UPLOAD_TYPES.PANAMA;
+  return INSTITUTE_UPLOAD_TYPES.OTHER;
+};
+
+const isPanamaInstitute = (institute = {}) =>
+  normalizeInstituteUploadType(institute.institute_upload_type) ===
+  INSTITUTE_UPLOAD_TYPES.PANAMA;
 
 const INSTITUTE_UPLOAD_CLOSED_STATUSES = new Set([
   DRIVE_STATUS.RECEIVED,
@@ -112,30 +125,43 @@ const submitInstituteExcel = async (req, res) => {
 
       const fs = require('fs');
       const fileBuffer = file.buffer || fs.readFileSync(file.path);
-      const { rawData } = parseExcelFile(fileBuffer);
-      const headerInfo = findHeaderRow(rawData, EXCEL_HEADER_KEYWORDS);
-      if (!headerInfo) {
-        return res
-          .status(400)
-          .json({ message: 'Could not identify header row in Excel file' });
-      }
+      if (isPanamaInstitute(institute)) {
+        try {
+          parsePanamaWorkbookRows(fileBuffer, course_type, {
+            institute_id: instituteId,
+            id: null,
+            batch_year,
+            course_type,
+          });
+        } catch (validationError) {
+          return res.status(400).json({ message: validationError.message });
+        }
+      } else {
+        const { rawData } = parseExcelFile(fileBuffer);
+        const headerInfo = findHeaderRow(rawData, EXCEL_HEADER_KEYWORDS);
+        if (!headerInfo) {
+          return res
+            .status(400)
+            .json({ message: 'Could not identify header row in Excel file' });
+        }
 
-      const phoneValidationMessage = validateExcelPhoneFields(
-        rawData,
-        headerInfo.headers,
-        headerInfo.rowIndex + 1,
-      );
-      if (phoneValidationMessage) {
-        return res.status(400).json({ message: phoneValidationMessage });
-      }
+        const phoneValidationMessage = validateExcelPhoneFields(
+          rawData,
+          headerInfo.headers,
+          headerInfo.rowIndex + 1,
+        );
+        if (phoneValidationMessage) {
+          return res.status(400).json({ message: phoneValidationMessage });
+        }
 
-      const genderValidationMessage = validateExcelGenderFields(
-        rawData,
-        headerInfo.headers,
-        headerInfo.rowIndex + 1,
-      );
-      if (genderValidationMessage) {
-        return res.status(400).json({ message: genderValidationMessage });
+        const genderValidationMessage = validateExcelGenderFields(
+          rawData,
+          headerInfo.headers,
+          headerInfo.rowIndex + 1,
+        );
+        if (genderValidationMessage) {
+          return res.status(400).json({ message: genderValidationMessage });
+        }
       }
 
       if (
@@ -186,7 +212,7 @@ const submitInstituteExcel = async (req, res) => {
         instituteId,
         filename,
         file.originalname,
-        null, // No longer storing file blob
+        fileBuffer,
         batch_year,
         course_type,
         submissionRemarks,
@@ -318,6 +344,30 @@ const parseSubmissionData = async (submissionId, driveId = null) => {
   if (!submissionFile || !submissionFile.file_data)
     throw new Error('File data not found');
 
+  const institute = await instituteDao.getInstituteById(submission.institute_id);
+  const resolvedDriveId = driveId || submission.drive_id || null;
+
+  if (isPanamaInstitute(institute)) {
+    try {
+      const { rows } = parsePanamaWorkbookRows(
+        submissionFile.file_data,
+        submission.course_type,
+        submission,
+      );
+
+      return {
+        cadets: rows.map(({ cadetData, assessmentData }) => {
+          if (resolvedDriveId) cadetData.drive_id = resolvedDriveId;
+          return { cadetData, assessmentData };
+        }),
+        submission,
+      };
+    } catch (error) {
+      error.statusCode = error.statusCode || 400;
+      throw error;
+    }
+  }
+
   const { rawData } = parseExcelFile(submissionFile.file_data);
   const headerKeywords = EXCEL_HEADER_KEYWORDS;
   const headerInfo = findHeaderRow(rawData, headerKeywords);
@@ -354,9 +404,8 @@ const parseSubmissionData = async (submissionId, driveId = null) => {
     if (isRowEmpty(rowData)) continue;
     try {
       const cadetData = mapRowToCadetData(rowData, headers, submission);
-      const resolvedDriveId = driveId || submission.drive_id || null;
       if (resolvedDriveId) cadetData.drive_id = resolvedDriveId;
-      cadets.push(cadetData);
+      cadets.push({ cadetData });
     } catch (err) {
       console.error('Error parsing row:', i, err);
     }
@@ -378,10 +427,23 @@ const processImport = async (id, userId, clientIp, driveId = null) => {
   let successCount = 0;
   let failedCount = 0;
 
-  for (const cadetData of cadets) {
+  for (const cadetImport of cadets) {
     try {
+      const cadetData = cadetImport.cadetData || cadetImport;
       if (cadetData.name_as_in_indos_cert) {
-        await cadetDao.createCadet(cadetData);
+        const cadetId = await cadetDao.createCadet(cadetData);
+        const assessmentData = cadetImport.assessmentData;
+        if (
+          assessmentData &&
+          (assessmentData.ces_test ||
+            assessmentData.english_test ||
+            assessmentData.remarks)
+        ) {
+          await assessmentDao.createOrUpdateAssessment({
+            cadet_id: cadetId,
+            ...assessmentData,
+          });
+        }
         successCount++;
       } else {
         failedCount++;

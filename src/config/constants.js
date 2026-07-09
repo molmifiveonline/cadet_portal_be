@@ -54,6 +54,11 @@ module.exports = {
   },
 
   // Excel Import
+  INSTITUTE_UPLOAD_TYPES: {
+    OTHER: 'Other',
+    PANAMA: 'Panama',
+  },
+
   EXCEL_HEADER_KEYWORDS: [
     'name',
     'email',

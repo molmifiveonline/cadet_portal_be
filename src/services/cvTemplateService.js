@@ -1,4 +1,5 @@
 const ExcelJS = require('exceljs');
+const { INSTITUTE_UPLOAD_TYPES } = require('../config/constants');
 const {
   getPhoneValidationMessage,
   sanitizePhoneValue,
@@ -9,7 +10,7 @@ const TEMPLATE_VERSION = '1';
 const DATA_SHEET_NAME = 'CV Upload';
 const META_SHEET_NAME = '_metadata';
 
-const FIELD_DEFINITIONS = [
+const OTHER_FIELD_DEFINITIONS = [
   { key: 'cadet_unique_id', label: 'Cadet Unique ID', locked: true },
   { key: 'name_as_in_indos_cert', label: 'Name as in INDOS', required: true },
   { key: 'gender', label: 'Gender', required: true },
@@ -53,9 +54,83 @@ const FIELD_DEFINITIONS = [
   { key: 'any_extra_curricular_achievement', label: 'Any Extra Curricular achievement' },
 ];
 
-const REQUIRED_FIELDS = FIELD_DEFINITIONS.filter((field) => field.required).map(
-  (field) => field.key,
-);
+const PANAMA_FIELD_DEFINITIONS = [
+  { key: 'cadet_unique_id', label: 'Cadet Unique ID', locked: true },
+  { key: 'name_as_in_indos_cert', label: 'Name', required: true },
+  { key: 'course', label: 'Deck/ Engine', locked: true },
+  { key: 'batch_year', label: 'Batch Year', locked: true },
+  { key: 'roll_no', label: 'Roll No', locked: true },
+  { key: 'national_id_number', label: 'Panama ID', locked: true },
+  { key: 'nationality', label: 'Nationality', locked: true },
+  { key: 'imu_avg_all_semester_percentage', label: 'GPA', locked: true },
+  {
+    key: 'ces_test',
+    label: 'CES Test',
+    source: 'assessment',
+    locked: true,
+  },
+  {
+    key: 'english_test',
+    label: 'English Test',
+    source: 'assessment',
+    locked: true,
+  },
+  { key: 'gender', label: 'Gender', required: true },
+  { key: 'date_of_birth', label: 'Date of Birth', required: true },
+  { key: 'contact_number', label: 'Contact Number', required: true },
+  { key: 'email_id', label: 'Email ID', required: true },
+  { key: 'passport_number', label: 'Passport Number' },
+  { key: 'height_in_cms', label: 'Height in CMs' },
+  { key: 'weight_in_kgs', label: 'Weight in KGs' },
+  { key: 'bmi', label: 'BMI' },
+  {
+    key: 'remarks',
+    label: 'Remarks / Comments',
+    source: 'assessment',
+  },
+];
+
+const normalizeUploadType = (uploadType) => {
+  const normalized =
+    typeof uploadType === 'string' ? uploadType.trim().toLowerCase() : '';
+
+  if (normalized === 'panama') return INSTITUTE_UPLOAD_TYPES.PANAMA;
+  return INSTITUTE_UPLOAD_TYPES.OTHER;
+};
+
+const getCvTemplateConfig = (uploadType) => {
+  const resolvedUploadType = normalizeUploadType(uploadType);
+  const fields =
+    resolvedUploadType === INSTITUTE_UPLOAD_TYPES.PANAMA
+      ? PANAMA_FIELD_DEFINITIONS
+      : OTHER_FIELD_DEFINITIONS;
+
+  return {
+    uploadType: resolvedUploadType,
+    sheetTitle:
+      resolvedUploadType === INSTITUTE_UPLOAD_TYPES.PANAMA
+        ? 'Panama Pending Details'
+        : DATA_SHEET_NAME,
+    filenameSuffix:
+      resolvedUploadType === INSTITUTE_UPLOAD_TYPES.PANAMA
+        ? 'Panama_Pending_Details'
+        : 'CV_Template',
+    fields,
+    requiredFields: fields
+      .filter((field) => field.required)
+      .map((field) => field.key),
+  };
+};
+
+const getFieldValue = (field, cadet) => {
+  if (field.source !== 'assessment') return cadet[field.key] ?? '';
+
+  if (field.key === 'remarks') {
+    return cadet.assessment_remarks ?? cadet.any_extra_curricular_achievement ?? '';
+  }
+
+  return cadet[field.key] ?? '';
+};
 
 const safeFilenamePart = (value) =>
   String(value || 'cadet')
@@ -114,6 +189,7 @@ const readMetadata = (workbook) => {
 };
 
 const generateCadetCvTemplate = async ({ cadet, institute, drive }) => {
+  const config = getCvTemplateConfig(institute?.institute_upload_type);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'MOLMI Cadet Portal';
   workbook.created = new Date();
@@ -132,10 +208,10 @@ const generateCadetCvTemplate = async ({ cadet, institute, drive }) => {
     fgColor: { argb: 'FF1F4E78' },
   };
 
-  FIELD_DEFINITIONS.forEach((field) => {
+  config.fields.forEach((field) => {
     const row = sheet.addRow({
       field: field.label,
-      value: cadet[field.key] ?? '',
+      value: getFieldValue(field, cadet),
       required: field.required ? 'Yes' : '',
     });
     row.getCell(1).protection = { locked: true };
@@ -156,6 +232,7 @@ const generateCadetCvTemplate = async ({ cadet, institute, drive }) => {
 
   addMetadata(workbook, {
     templateVersion: TEMPLATE_VERSION,
+    uploadType: config.uploadType,
     cadetId: cadet.id,
     cadetUniqueId: cadet.cadet_unique_id,
     instituteId: cadet.institute_id,
@@ -171,7 +248,7 @@ const generateCadetCvTemplate = async ({ cadet, institute, drive }) => {
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
-  const filename = `${safeFilenamePart(cadet.cadet_unique_id || cadet.id)}_${safeFilenamePart(cadet.name_as_in_indos_cert)}_CV_Template.xlsx`;
+  const filename = `${safeFilenamePart(cadet.cadet_unique_id || cadet.id)}_${safeFilenamePart(cadet.name_as_in_indos_cert)}_${config.filenameSuffix}.xlsx`;
 
   return {
     filename,
@@ -181,15 +258,24 @@ const generateCadetCvTemplate = async ({ cadet, institute, drive }) => {
   };
 };
 
-const parseCadetCvTemplate = async (buffer, { cadet, driveId }) => {
+const parseCadetCvTemplate = async (buffer, { cadet, driveId, institute }) => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
 
   const metadata = readMetadata(workbook);
   const errors = [];
+  const expectedUploadType = normalizeUploadType(institute?.institute_upload_type);
+  const templateUploadType = normalizeUploadType(metadata.uploadType);
+  const config = getCvTemplateConfig(templateUploadType);
 
   if (metadata.templateVersion !== TEMPLATE_VERSION) {
-    errors.push('Invalid or unsupported CV template version.');
+    errors.push('Invalid or unsupported pending details template version.');
+  }
+
+  if (templateUploadType !== expectedUploadType) {
+    errors.push(
+      `Uploaded template format does not match this institute. Expected ${expectedUploadType} template.`,
+    );
   }
 
   if (metadata.cadetId !== normalizeComparable(cadet.id)) {
@@ -207,19 +293,25 @@ const parseCadetCvTemplate = async (buffer, { cadet, driveId }) => {
 
   const sheet = workbook.getWorksheet(DATA_SHEET_NAME) || workbook.worksheets[0];
   if (!sheet) {
-    errors.push('CV upload sheet is missing.');
+    errors.push('Pending details upload sheet is missing.');
     return { errors, data: {} };
   }
 
   const data = {};
-  FIELD_DEFINITIONS.forEach((field, index) => {
+  const assessmentData = {};
+  config.fields.forEach((field, index) => {
     const row = sheet.getRow(index + 2);
-    data[field.key] = normalizeCellValue(row.getCell(2).value);
+    const value = normalizeCellValue(row.getCell(2).value);
+    if (field.source === 'assessment') {
+      assessmentData[field.key] = value;
+    } else {
+      data[field.key] = value;
+    }
   });
 
-  REQUIRED_FIELDS.forEach((field) => {
+  config.requiredFields.forEach((field) => {
     if (isBlank(data[field])) {
-      const label = FIELD_DEFINITIONS.find((item) => item.key === field)?.label || field;
+      const label = config.fields.find((item) => item.key === field)?.label || field;
       errors.push(`${label} is required.`);
     }
   });
@@ -239,16 +331,30 @@ const parseCadetCvTemplate = async (buffer, { cadet, driveId }) => {
   data.date_of_birth = formatExcelDateForDb(data.date_of_birth);
 
   delete data.cadet_unique_id;
+  if (templateUploadType === INSTITUTE_UPLOAD_TYPES.PANAMA) {
+    delete data.course;
+    delete data.batch_year;
+    delete data.roll_no;
+    delete data.national_id_number;
+    delete data.nationality;
+    delete data.imu_avg_all_semester_percentage;
+  }
 
   return {
     errors,
     data,
+    assessmentData,
     metadata,
+    uploadType: templateUploadType,
+    requiredFields: config.requiredFields,
   };
 };
 
 module.exports = {
-  FIELD_DEFINITIONS,
+  FIELD_DEFINITIONS: OTHER_FIELD_DEFINITIONS,
+  OTHER_FIELD_DEFINITIONS,
+  PANAMA_FIELD_DEFINITIONS,
+  getCvTemplateConfig,
   generateCadetCvTemplate,
   parseCadetCvTemplate,
 };

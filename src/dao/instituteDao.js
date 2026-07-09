@@ -12,20 +12,22 @@ const createInstitute = async (instituteData) => {
     address,
     location,
     institute_type,
+    institute_upload_type = 'Other',
     contact_emails,
     status = 'active',
   } = instituteData;
   const id = uuidv4();
 
   await db.query(
-    `INSERT INTO institutes (id, institute_name, address, location, institute_type, contact_emails, status) 
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO institutes (id, institute_name, address, location, institute_type, institute_upload_type, contact_emails, status) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       institute_name,
       address,
       location,
       institute_type || null,
+      institute_upload_type || 'Other',
       contact_emails ? JSON.stringify(contact_emails) : null,
       status,
     ],
@@ -62,9 +64,11 @@ const getAllInstitutes = async (
       i.address LIKE ? OR 
       i.location LIKE ? OR
       i.institute_type LIKE ? OR
+      i.institute_upload_type LIKE ? OR
       i.contact_emails LIKE ?
     )`);
     const searchParams = [
+      searchPattern,
       searchPattern,
       searchPattern,
       searchPattern,
@@ -186,19 +190,21 @@ const updateInstitute = async (id, instituteData) => {
     address,
     location,
     institute_type,
+    institute_upload_type,
     contact_emails,
     status,
   } = instituteData;
 
   const [result] = await db.query(
     `UPDATE institutes 
-     SET institute_name = ?, address = ?, location = ?, institute_type = ?, contact_emails = ?, status = COALESCE(?, status)
+     SET institute_name = ?, address = ?, location = ?, institute_type = ?, institute_upload_type = ?, contact_emails = ?, status = COALESCE(?, status)
      WHERE id = ?`,
     [
       institute_name,
       address,
       location,
       institute_type || null,
+      institute_upload_type || 'Other',
       contact_emails ? JSON.stringify(contact_emails) : null,
       status || null,
       id,

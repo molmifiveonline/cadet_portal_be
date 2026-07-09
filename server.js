@@ -15,6 +15,7 @@ const { warmCache } = require("./src/services/schemaCompatibilityService");
 const {
   ensureSubmissionDriveContext,
   ensurePerformanceIndexes,
+  ensureInstituteUploadFormatSupport,
   ensureMultipleInterviewersSupport,
   ensureEvaluationParametersSupport,
   ensureMedicalReportsSupport,
@@ -78,6 +79,7 @@ app.listen(PORT, () => {
   // Ensure lightweight schema upgrades are applied before warming compatibility cache.
   ensureSubmissionDriveContext()
     .then(() => ensurePerformanceIndexes())
+    .then(() => ensureInstituteUploadFormatSupport())
     .then(() => ensureMultipleInterviewersSupport())
     .then(() => ensureEvaluationParametersSupport())
     .then(() => ensureMedicalReportsSupport())
