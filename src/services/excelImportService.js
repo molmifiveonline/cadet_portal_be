@@ -1,5 +1,6 @@
 const xlsx = require('xlsx');
 const {
+  getEmailValidationMessage,
   getPhoneValidationMessage,
   sanitizePhoneValue,
 } = require('../utils/validationUtils');
@@ -32,6 +33,19 @@ const parseExcelFile = (buffer) => {
   return {
     rawData,
   };
+};
+
+const parseExcelWorkbook = (buffer) => {
+  const workbook = xlsx.read(buffer, { type: 'buffer' });
+
+  return workbook.SheetNames.map((sheetName) => ({
+    sheetName,
+    rawData: xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], {
+      header: 1,
+      defval: '',
+      raw: true,
+    }),
+  }));
 };
 
 // Convert Excel date values to standard SQL YYYY-MM-DD format for DB storage
@@ -110,6 +124,215 @@ const findHeaderRow = (rawData, keywords, threshold = 2) => {
     }
   }
   return null;
+};
+
+const cleanHeaderValue = (header = '') =>
+  String(header).replace(/[\r\n]+/g, ' ').trim();
+
+const normalizeHeaderValue = (header = '') =>
+  cleanHeaderValue(header).toLowerCase().replace(/\s+/g, ' ');
+
+const getRowValue = (row, keys) => {
+  for (const key of keys) {
+    const exactKey = Object.keys(row).find(
+      (rowKey) => normalizeHeaderValue(rowKey) === normalizeHeaderValue(key),
+    );
+    if (exactKey && row[exactKey] !== undefined) return row[exactKey];
+  }
+
+  for (const key of keys) {
+    const partialKey = Object.keys(row).find((rowKey) =>
+      normalizeHeaderValue(rowKey).includes(normalizeHeaderValue(key)),
+    );
+    if (partialKey && row[partialKey] !== undefined) return row[partialKey];
+  }
+
+  return null;
+};
+
+const buildRowObject = (rowData, headers) => {
+  const row = {};
+  headers.forEach((header, index) => {
+    const cleanHeader = cleanHeaderValue(header);
+    if (cleanHeader) row[cleanHeader] = rowData[index];
+  });
+  return row;
+};
+
+const isPanamaCourseSheet = (sheetName, rawData, courseType) => {
+  const normalizedCourse = normalizeHeaderValue(courseType);
+  if (!normalizedCourse) return true;
+
+  const searchText = [
+    sheetName,
+    ...rawData
+      .slice(0, 6)
+      .flat()
+      .map((cell) => String(cell || '')),
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return searchText.includes(normalizedCourse);
+};
+
+const findPanamaHeaderRow = (rawData) => {
+  for (let i = 0; i < Math.min(rawData.length, 20); i++) {
+    const row = rawData[i] || [];
+    const normalizedHeaders = row.map(normalizeHeaderValue);
+    const headerSet = new Set(normalizedHeaders);
+
+    const hasUmipLayout =
+      headerSet.has('no.') &&
+      headerSet.has('name, last name') &&
+      headerSet.has('genre') &&
+      headerSet.has('id') &&
+      (headerSet.has('cellphone') || headerSet.has('e-mail')) &&
+      headerSet.has('gpa');
+
+    const hasColumbusLayout =
+      headerSet.has('no.') &&
+      headerSet.has('id') &&
+      headerSet.has('last name') &&
+      headerSet.has('name') &&
+      headerSet.has('gpa') &&
+      (headerSet.has('cest') || headerSet.has('english t'));
+
+    if (hasUmipLayout || hasColumbusLayout) {
+      return {
+        rowIndex: i,
+        headers: row,
+        layout: hasUmipLayout ? 'umip' : 'columbus',
+      };
+    }
+  }
+
+  return null;
+};
+
+const normalizePanamaGender = (value) => {
+  if (!value) return null;
+  const lower = String(value).trim().toLowerCase();
+  if (lower === 'male' || lower === 'm') return 'Male';
+  if (lower === 'female' || lower === 'f') return 'Female';
+  return value;
+};
+
+const joinNameParts = (...parts) =>
+  parts
+    .map((part) => (part === null || part === undefined ? '' : String(part).trim()))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
+const mapPanamaRowToCadetData = (rowData, headers, submission, layout) => {
+  const row = buildRowObject(rowData, headers);
+  const firstName = getRowValue(row, ['Name']);
+  const lastName = getRowValue(row, ['Last Name']);
+  const fullName =
+    layout === 'columbus'
+      ? joinNameParts(firstName, lastName)
+      : getRowValue(row, ['Name, Last Name', 'Name']);
+  const comments = getRowValue(row, ['Comentarios', 'Comments', 'Remarks']);
+
+  const cadetData = {
+    institute_id: submission.institute_id,
+    submission_id: submission.id,
+    batch_year: submission.batch_year,
+    status: 'Uploaded',
+    workflow_phase: 'uploaded',
+    workflow_result: 'pending',
+    course: submission.course_type || 'General',
+    roll_no: getRowValue(row, ['No.', 'No']),
+    name_as_in_indos_cert: fullName,
+    gender: normalizePanamaGender(getRowValue(row, ['Genre', 'Gender'])),
+    national_id_number: getRowValue(row, ['ID']),
+    nationality: getRowValue(row, ['Status']),
+    contact_number: sanitizePhoneValue(getRowValue(row, ['Cellphone', 'Phone', 'Mobile'])),
+    email_id: getRowValue(row, ['E-mail', 'Email']),
+    age_when_passing_out: getRowValue(row, ['AGE', 'Age']),
+    imu_avg_all_semester_percentage: getRowValue(row, ['GPA']),
+    bmi: getRowValue(row, ['BMI']),
+    weight_in_kgs: getRowValue(row, ['WEIGHT', 'Weight']),
+    height_in_cms: getRowValue(row, ['HEIGHT', 'Height']),
+    any_extra_curricular_achievement: comments,
+  };
+
+  const assessmentData = {
+    ces_test: getRowValue(row, ['CES TEST', 'CEST']),
+    english_test: getRowValue(row, ['ENGLISH T', 'ENGLISH']),
+    remarks: comments,
+    status: null,
+  };
+
+  return { cadetData, assessmentData };
+};
+
+const getPanamaRowValidationMessage = (cadetData, rowNumber) => {
+  if (!cadetData.name_as_in_indos_cert) {
+    return `Row ${rowNumber}: Cadet name is required.`;
+  }
+
+  const phoneValidationMessage = getPhoneValidationMessage(
+    cadetData.contact_number,
+    'Cellphone',
+  );
+  if (phoneValidationMessage) return `Row ${rowNumber}: ${phoneValidationMessage}`;
+
+  const emailValidationMessage = getEmailValidationMessage(cadetData.email_id);
+  if (emailValidationMessage) return `Row ${rowNumber}: ${emailValidationMessage}`;
+
+  return '';
+};
+
+const parsePanamaWorkbookRows = (buffer, courseType, submission) => {
+  const matchingSheets = parseExcelWorkbook(buffer).filter(({ sheetName, rawData }) =>
+    isPanamaCourseSheet(sheetName, rawData, courseType),
+  );
+
+  if (matchingSheets.length === 0) {
+    throw new Error(`No Panama ${courseType || ''} sheet found in the workbook.`.trim());
+  }
+
+  const parsedRows = [];
+  const recognizedSheetNames = [];
+
+  for (const sheet of matchingSheets) {
+    const headerInfo = findPanamaHeaderRow(sheet.rawData);
+    if (!headerInfo) continue;
+
+    recognizedSheetNames.push(sheet.sheetName);
+    for (let i = headerInfo.rowIndex + 1; i < sheet.rawData.length; i++) {
+      const rowData = sheet.rawData[i];
+      if (isRowEmpty(rowData)) continue;
+
+      const parsed = mapPanamaRowToCadetData(
+        rowData,
+        headerInfo.headers,
+        submission,
+        headerInfo.layout,
+      );
+      const validationMessage = getPanamaRowValidationMessage(parsed.cadetData, i + 1);
+      if (validationMessage) {
+        throw new Error(`${sheet.sheetName}: ${validationMessage}`);
+      }
+      parsedRows.push(parsed);
+    }
+  }
+
+  if (recognizedSheetNames.length === 0) {
+    throw new Error(
+      `No recognizable Panama ${courseType || ''} sheet headers found in the workbook.`.trim(),
+    );
+  }
+
+  if (parsedRows.length === 0) {
+    throw new Error(
+      `No cadet rows found in the matching Panama ${courseType || ''} sheet(s).`.trim(),
+    );
+  }
+
+  return { rows: parsedRows, sheetNames: recognizedSheetNames };
 };
 
 const validateExcelPhoneFields = (rawData, headers, startRowIndex) => {
@@ -291,7 +514,9 @@ const isRowEmpty = (rowData) => {
 
 module.exports = {
   parseExcelFile,
+  parseExcelWorkbook,
   findHeaderRow,
+  parsePanamaWorkbookRows,
   mapRowToCadetData,
   formatDate,
   isRowEmpty,

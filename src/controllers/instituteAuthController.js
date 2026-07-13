@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const {
   JWT_SECRET,
   INSTITUTE_CREDENTIAL_EXPIRY_DAYS,
+  INSTITUTE_UPLOAD_TYPES,
   DRIVE_STATUS,
   INSTITUTE_FRONTEND_URL,
 } = require('../config/constants');
@@ -31,19 +32,46 @@ const buildInstituteEmailLoginLink = (redirectPath = INSTITUTE_RECRUITMENT_DRIVE
 
 const STATIC_INSTITUTE_REQUEST_EMAIL = {
   subject: 'Action Required: Submit Excel Data - MOLMI',
-  description:
-    'Please submit the requested cadet details using the attached Excel format. Fill in all required fields and upload the completed file through the MOLMI Institute Portal.',
   remarks: 'Cadet data request email sent with static Excel format.',
-  attachmentFilename:
-    'TME-B.Tech(ME)-IMU Chennai -2026 Passing out-MOL-Revised.xlsx',
-  attachmentPath: path.join(
-    __dirname,
-    '..',
-    'assets',
-    'email-attachments',
-    'TME-B.Tech(ME)-IMU Chennai -2026 Passing out-MOL-Revised.xlsx',
-  ),
+  templates: {
+    [INSTITUTE_UPLOAD_TYPES.OTHER]: {
+      description:
+        'Please submit the requested cadet details using the attached Excel format. Fill in all required fields and upload the completed file through the MOLMI Institute Portal.',
+      attachmentFilename:
+        'TME-B.Tech(ME)-IMU Chennai -2026 Passing out-MOL-Revised.xlsx',
+      attachmentPath: path.join(
+        __dirname,
+        '..',
+        'assets',
+        'email-attachments',
+        'TME-B.Tech(ME)-IMU Chennai -2026 Passing out-MOL-Revised.xlsx',
+      ),
+    },
+    [INSTITUTE_UPLOAD_TYPES.PANAMA]: {
+      description:
+        'Please submit the requested Panama cadet pre-screening workbook using the attached Excel format and upload it through the MOLMI Institute Portal.',
+      attachmentFilename: 'Panama-Recruitment.xlsx',
+      attachmentPath: path.join(
+        __dirname,
+        '..',
+        'assets',
+        'email-attachments',
+        'Panama-Recruitment.xlsx',
+      ),
+    },
+  },
 };
+
+const normalizeInstituteUploadType = (value) => {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'panama') return INSTITUTE_UPLOAD_TYPES.PANAMA;
+  return INSTITUTE_UPLOAD_TYPES.OTHER;
+};
+
+const getInstituteRequestTemplate = (institute = {}) =>
+  STATIC_INSTITUTE_REQUEST_EMAIL.templates[
+    normalizeInstituteUploadType(institute.institute_upload_type)
+  ] || STATIC_INSTITUTE_REQUEST_EMAIL.templates[INSTITUTE_UPLOAD_TYPES.OTHER];
 
 const normalizeCourseType = (value) => {
   if (!value) return null;
@@ -58,7 +86,6 @@ const sendInstituteEmail = async (req, res) => {
     const { instituteIds, batch_year, course_type } = req.body;
     const resolvedCourseType = normalizeCourseType(course_type);
     const resolvedSubject = STATIC_INSTITUTE_REQUEST_EMAIL.subject;
-    const resolvedDescription = STATIC_INSTITUTE_REQUEST_EMAIL.description;
     const resolvedRemarks = STATIC_INSTITUTE_REQUEST_EMAIL.remarks;
 
     if (!instituteIds) {
@@ -72,16 +99,6 @@ const sendInstituteEmail = async (req, res) => {
         message: 'Course type is required and must be Deck or Engine',
       });
     }
-
-    if (!fs.existsSync(STATIC_INSTITUTE_REQUEST_EMAIL.attachmentPath)) {
-      return res.status(500).json({
-        message: 'Static Excel format file is missing',
-      });
-    }
-
-    const staticAttachment = fs.readFileSync(
-      STATIC_INSTITUTE_REQUEST_EMAIL.attachmentPath,
-    );
 
     // Parse instituteIds if it's a string (from FormData)
     let ids = [];
@@ -138,6 +155,18 @@ const sendInstituteEmail = async (req, res) => {
         continue;
       }
 
+      const requestTemplate = getInstituteRequestTemplate(institute);
+      if (!fs.existsSync(requestTemplate.attachmentPath)) {
+        results.push({
+          id,
+          status: 'failed',
+          reason: 'Excel format file is missing',
+        });
+        continue;
+      }
+
+      const staticAttachment = fs.readFileSync(requestTemplate.attachmentPath);
+
       // Generate Temp Username (No password needed now)
       const tempUsername = `SUB-${Math.floor(100000 + Math.random() * 900000)}`;
 
@@ -169,7 +198,7 @@ const sendInstituteEmail = async (req, res) => {
       const emailContent = emailTemplates.instituteExcelSubmission({
         instituteName: institute.institute_name,
         subject: resolvedSubject,
-        description: resolvedDescription,
+        description: requestTemplate.description,
         link,
         expiryDate: expiryDateString,
         tempUsername,
@@ -197,7 +226,7 @@ const sendInstituteEmail = async (req, res) => {
           templateData: {
             instituteName: institute.institute_name,
             subject: resolvedSubject,
-            description: resolvedDescription,
+            description: requestTemplate.description,
             remarks: resolvedRemarks,
             batch_year: batch_year || new Date().getFullYear(),
             course_type: resolvedCourseType,
@@ -209,7 +238,7 @@ const sendInstituteEmail = async (req, res) => {
           sent_by: req.user?.id || null,
           attachments: [
             {
-              filename: STATIC_INSTITUTE_REQUEST_EMAIL.attachmentFilename,
+              filename: requestTemplate.attachmentFilename,
               content: staticAttachment,
             },
           ],
@@ -441,7 +470,7 @@ const sendShortlistEmail = async (req, res) => {
           to: targetEmail,
           template: () => ({
             ...emailContent,
-            html: `${emailContent.html}<p>Please complete the attached cadet-wise Excel CV template(s) and upload each completed file against the matching cadet in the portal.</p><p><strong>Remarks:</strong> ${remarks || 'No remarks provided.'}</p>`,
+            html: `${emailContent.html}<p>Please complete the attached cadet-wise Excel pending details template(s) and upload each completed file against the matching cadet in the portal.</p><p><strong>Remarks:</strong> ${remarks || 'No remarks provided.'}</p>`,
           }),
           templateData: {
             instituteName: institute.institute_name,

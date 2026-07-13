@@ -1,6 +1,6 @@
 const instituteDao = require('../dao/instituteDao');
 const activityLogDao = require('../dao/activityLogDao');
-const { DEFAULT_PAGE_SIZE } = require('../config/constants');
+const { DEFAULT_PAGE_SIZE, INSTITUTE_UPLOAD_TYPES } = require('../config/constants');
 const { formatDateForDisplay } = require('../utils/dateUtils');
 const { getEmailValidationMessage } = require('../utils/validationUtils');
 
@@ -13,6 +13,15 @@ const normalizeCourseType = (courseType) => {
 
   if (normalized === 'deck') return 'Deck';
   if (normalized === 'engine') return 'Engine';
+  return '';
+};
+
+const normalizeInstituteUploadType = (uploadType) => {
+  const normalized =
+    typeof uploadType === 'string' ? uploadType.trim().toLowerCase() : '';
+
+  if (normalized === 'panama') return INSTITUTE_UPLOAD_TYPES.PANAMA;
+  if (!normalized || normalized === 'other') return INSTITUTE_UPLOAD_TYPES.OTHER;
   return '';
 };
 
@@ -53,14 +62,17 @@ const createInstitute = async (req, res) => {
       location,
       address,
       institute_type,
+      institute_upload_type,
       contact_emails,
       status,
     } = req.body;
+    const resolvedUploadType = normalizeInstituteUploadType(institute_upload_type);
 
     if (
       !institute_name ||
       !address ||
       !location ||
+      !resolvedUploadType ||
       !Array.isArray(contact_emails) ||
       contact_emails.length === 0 ||
       getContactEmailValues(contact_emails).length === 0
@@ -97,6 +109,7 @@ const createInstitute = async (req, res) => {
       address,
       location,
       institute_type,
+      institute_upload_type: resolvedUploadType,
       contact_emails,
       status: status || 'active',
     });
@@ -142,6 +155,7 @@ const getAllInstitutes = async (req, res) => {
       'address',
       'location',
       'institute_type',
+      'institute_upload_type',
       'status',
       'created_at',
       'updated_at',
@@ -209,14 +223,17 @@ const updateInstitute = async (req, res) => {
       location,
       address,
       institute_type,
+      institute_upload_type,
       contact_emails,
       status,
     } = req.body;
+    const resolvedUploadType = normalizeInstituteUploadType(institute_upload_type);
 
     if (
       !institute_name ||
       !address ||
       !location ||
+      !resolvedUploadType ||
       !Array.isArray(contact_emails) ||
       contact_emails.length === 0 ||
       getContactEmailValues(contact_emails).length === 0
@@ -254,6 +271,7 @@ const updateInstitute = async (req, res) => {
       address,
       location,
       institute_type,
+      institute_upload_type: resolvedUploadType,
       contact_emails,
       status,
     });

@@ -341,9 +341,42 @@ const ensureMultipleMedicalAppointmentsSupport = async () => {
   }
 };
 
+const ensureInstituteUploadFormatSupport = async () => {
+  const hasInstitutes = await tableExists("institutes");
+  if (hasInstitutes) {
+    const hasInstituteUploadType = await columnExists(
+      "institutes",
+      "institute_upload_type",
+    );
+    if (!hasInstituteUploadType) {
+      await runSchemaChange(
+        "ALTER TABLE institutes ADD COLUMN institute_upload_type VARCHAR(20) NOT NULL DEFAULT 'Other' AFTER institute_type",
+        ["ER_DUP_FIELDNAME"],
+      );
+      clearSchemaCache();
+    }
+  }
+
+  const hasCadets = await tableExists("cadets");
+  if (hasCadets) {
+    const hasNationalIdNumber = await columnExists(
+      "cadets",
+      "national_id_number",
+    );
+    if (!hasNationalIdNumber) {
+      await runSchemaChange(
+        "ALTER TABLE cadets ADD COLUMN national_id_number VARCHAR(100) NULL AFTER gender",
+        ["ER_DUP_FIELDNAME"],
+      );
+      clearSchemaCache();
+    }
+  }
+};
+
 module.exports = {
   ensureSubmissionDriveContext,
   ensurePerformanceIndexes,
+  ensureInstituteUploadFormatSupport,
   ensureMultipleInterviewersSupport,
   ensureEvaluationParametersSupport,
   ensureMedicalReportsSupport,

@@ -1,5 +1,6 @@
 const cadetDao = require('../dao/cadetDao');
 const instituteDao = require('../dao/instituteDao');
+const assessmentDao = require('../dao/assessmentDao');
 const activityLogDao = require('../dao/activityLogDao');
 const shortlistService = require('../services/shortlistService');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
@@ -157,7 +158,7 @@ const importCadets = async (req, res) => {
       instituteId,
       filename,
       file.originalname,
-      null, // file_blob is now unused
+      fileBuffer,
     );
 
     await instituteDao.updateSubmissionStatus(
@@ -657,7 +658,7 @@ const uploadCadetCvTemplate = async (req, res) => {
 
     if (!isExcelFile) {
       return res.status(400).json({
-        message: 'Please upload the completed .xlsx CV template.',
+        message: 'Please upload the completed .xlsx pending details template.',
       });
     }
 
@@ -675,37 +676,25 @@ const uploadCadetCvTemplate = async (req, res) => {
     }
 
     const fs = require('fs');
+    const institute = await instituteDao.getInstituteById(existingCadet.institute_id);
     const fileBuffer = file.buffer || fs.readFileSync(file.path);
-    const { errors, data } = await parseCadetCvTemplate(fileBuffer, {
+    const { errors, data, assessmentData, requiredFields } = await parseCadetCvTemplate(fileBuffer, {
       cadet: existingCadet,
       driveId: req.body.drive_id || req.body.driveId || existingCadet.drive_id,
+      institute,
     });
 
     if (errors.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'CV template validation failed',
+        message: 'Pending details template validation failed',
         errors,
       });
     }
 
     const updatedCadet = { ...existingCadet, ...data };
-    const mandatoryFields = [
-      'name_as_in_indos_cert',
-      'email_id',
-      'contact_number',
-      'date_of_birth',
-      'gender',
-      'tenth_avg_percentage',
-      'tenth_std_maths',
-      'tenth_std_science',
-      'tenth_std_english',
-      'twelfth_pcm_avg_percentage',
-      'twelfth_std_english',
-      'imu_rank',
-    ];
 
-    const allFilled = mandatoryFields.every(
+    const allFilled = requiredFields.every(
       (field) => updatedCadet[field] !== null && updatedCadet[field] !== '',
     );
 
@@ -714,25 +703,37 @@ const uploadCadetCvTemplate = async (req, res) => {
       institute_detail_filled: allFilled ? 1 : 0,
     });
 
+    if (
+      assessmentData &&
+      (assessmentData.ces_test ||
+        assessmentData.english_test ||
+        assessmentData.remarks)
+    ) {
+      await assessmentDao.createOrUpdateAssessment({
+        cadet_id: id,
+        ...assessmentData,
+      });
+    }
+
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
         req.user.id,
         'UPLOAD_CADET_CV_TEMPLATE',
-        `Uploaded completed CV template for cadet ${existingCadet.name_as_in_indos_cert || existingCadet.cadet_unique_id || id}`,
+        `Uploaded completed pending details template for cadet ${existingCadet.name_as_in_indos_cert || existingCadet.cadet_unique_id || id}`,
         req.ip || req.connection.remoteAddress,
       );
     }
 
     res.json({
       success: true,
-      message: 'Cadet CV details updated successfully',
+      message: 'Cadet pending details updated successfully',
       institute_detail_filled: allFilled ? 1 : 0,
     });
   } catch (error) {
     console.error('Upload Cadet CV Template Error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error processing cadet CV template',
+      message: 'Error processing cadet pending details template',
       error: error.message,
     });
   }
