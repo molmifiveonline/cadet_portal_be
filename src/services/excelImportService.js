@@ -383,27 +383,8 @@ const validateExcelGenderFields = (rawData, headers, startRowIndex) => {
 };
 
 const mapRowToCadetData = (rowData, headers, submission) => {
-  const row = {};
-  headers.forEach((header, index) => {
-    if (header) {
-      const headerStr = String(header);
-      const cleanHeader = headerStr.replace(/[\r\n]+/g, ' ').trim();
-      row[cleanHeader] = rowData[index];
-    }
-  });
-
-  const getValue = (keys) => {
-    for (const key of keys) {
-      if (row[key] !== undefined) return row[key];
-      const rowKey = Object.keys(row).find(
-        (k) =>
-          k.toLowerCase() === key.toLowerCase() ||
-          k.toLowerCase().includes(key.toLowerCase()),
-      );
-      if (rowKey) return row[rowKey];
-    }
-    return null;
-  };
+  const row = buildRowObject(rowData, headers);
+  const getValue = (keys) => getRowValue(row, keys);
 
   return {
     institute_id: submission.institute_id,

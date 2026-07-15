@@ -39,7 +39,7 @@ router.post('/login', loginInstitute);
 router.post(
   '/submit-excel',
   authMiddleware,
-  upload.single('file'),
+  upload.memory.single('file'),
   submitInstituteExcel,
 );
 
