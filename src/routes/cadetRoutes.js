@@ -54,7 +54,7 @@ router.post(
   '/import',
   authMiddleware,
   requirePermission('cadets', 'create'),
-  upload.single('excelFile'),
+  upload.memory.single('excelFile'),
   importCadets,
 );
 
@@ -95,7 +95,7 @@ router.post(
   allowInstituteOrPermission('cadets', 'edit'),
   requireInstituteCadetOwnership('id'),
   requireInstitutePendingDetailEditAccess('id'),
-  upload.single('file'),
+  upload.memory.single('file'),
   uploadCadetCvTemplate,
 );
 

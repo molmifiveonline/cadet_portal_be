@@ -112,6 +112,7 @@ const buildBaseSelect = async () => {
       ${cadetCompat.hasShortlistEmailSent ? 'c.shortlist_email_sent' : '0 AS shortlist_email_sent'},
       ${cadetCompat.hasInstituteDetailFilled ? 'c.institute_detail_filled' : '0 AS institute_detail_filled'},
       i.institute_name,
+      i.institute_upload_type,
       rd.drive_name,
       a.id AS assessment_id,
       ${assessmentCompat.hasAssessmentDate ? 'a.assessment_date' : 'NULL AS assessment_date'},

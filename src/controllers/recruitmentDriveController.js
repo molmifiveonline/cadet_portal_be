@@ -167,12 +167,18 @@ const previewSubmitCadets = async (req, res) => {
 
     // Parse but don't import
     const { cadets } = await parseSubmissionData(latestSubmission.id, id);
+    const previewCadets = cadets.map((cadetImport) => ({
+      ...(cadetImport.cadetData || cadetImport),
+      ...(cadetImport.assessmentData
+        ? { assessmentData: cadetImport.assessmentData }
+        : {}),
+    }));
 
     res.json({
       success: true,
-      data: cadets,
-      cadets,
-      total: cadets.length,
+      data: previewCadets,
+      cadets: previewCadets,
+      total: previewCadets.length,
       submission_id: latestSubmission.id,
       submission: {
         id: latestSubmission.id,
