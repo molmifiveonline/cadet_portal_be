@@ -213,6 +213,16 @@ const emailTemplates = {
 
                     <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">${data.description}</p>
 
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px; background-color: #f8fafc; border: 1px solid #dbeafe; border-radius: 8px;">
+                      <tr>
+                        <td style="padding: 16px 18px;">
+                          <p style="margin: 0 0 8px; font-size: 14px; color: #64748b;"><strong style="color: #334155;">Requested details:</strong> ${data.request_type || 'Cadet details'}</p>
+                          <p style="margin: 0 0 8px; font-size: 14px; color: #64748b;"><strong style="color: #334155;">Course type:</strong> ${data.course_type || '-'}</p>
+                          <p style="margin: 0; font-size: 14px; color: #64748b;"><strong style="color: #334155;">Administrative year:</strong> ${data.batch_year}</p>
+                        </td>
+                      </tr>
+                    </table>
+
                     <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">Use the portal link below and sign in with your registered institute email so you can submit the requested Excel data for the <strong>${data.batch_year}</strong> administrative year.</p>
                     <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">An OTP (One-Time Password) will be sent to your email each time you attempt to login.</p>
                   </td>
