@@ -35,6 +35,8 @@ const STATIC_INSTITUTE_REQUEST_EMAIL = {
   remarks: 'Cadet data request email sent with static Excel format.',
   templates: {
     [INSTITUTE_UPLOAD_TYPES.OTHER]: {
+      subject: 'Action Required: Submit Excel Data - MOLMI',
+      requestType: 'Cadet details',
       description:
         'Please submit the requested cadet details using the attached Excel format. Fill in all required fields and upload the completed file through the MOLMI Institute Portal.',
       attachmentFilename:
@@ -48,6 +50,8 @@ const STATIC_INSTITUTE_REQUEST_EMAIL = {
       ),
     },
     [INSTITUTE_UPLOAD_TYPES.PANAMA]: {
+      subject: 'Action Required: Submit Panama Cadet Details - MOLMI',
+      requestType: 'Panama cadet details',
       description:
         'Please submit the requested Panama cadet pre-screening workbook using the attached Excel format and upload it through the MOLMI Institute Portal.',
       attachmentFilename: 'Panama-Recruitment.xlsx',
@@ -85,7 +89,6 @@ const sendInstituteEmail = async (req, res) => {
   try {
     const { instituteIds, batch_year, course_type } = req.body;
     const resolvedCourseType = normalizeCourseType(course_type);
-    const resolvedSubject = STATIC_INSTITUTE_REQUEST_EMAIL.subject;
     const resolvedRemarks = STATIC_INSTITUTE_REQUEST_EMAIL.remarks;
 
     if (!instituteIds) {
@@ -156,6 +159,8 @@ const sendInstituteEmail = async (req, res) => {
       }
 
       const requestTemplate = getInstituteRequestTemplate(institute);
+      const resolvedSubject =
+        requestTemplate.subject || STATIC_INSTITUTE_REQUEST_EMAIL.subject;
       if (!fs.existsSync(requestTemplate.attachmentPath)) {
         results.push({
           id,
@@ -204,6 +209,7 @@ const sendInstituteEmail = async (req, res) => {
         tempUsername,
         batch_year: batch_year || new Date().getFullYear(),
         course_type: resolvedCourseType,
+        request_type: requestTemplate.requestType,
       });
 
       // Determine target Email
@@ -230,6 +236,7 @@ const sendInstituteEmail = async (req, res) => {
             remarks: resolvedRemarks,
             batch_year: batch_year || new Date().getFullYear(),
             course_type: resolvedCourseType,
+            request_type: requestTemplate.requestType,
           },
           drive_id: drive?.id || null,
           institute_id: id,
