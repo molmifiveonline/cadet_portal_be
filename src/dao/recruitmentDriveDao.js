@@ -16,7 +16,6 @@ const buildDriveSelect = async () => {
   const cadetCompat = await getCadetCompatibility();
   const submissionCompat = await getSubmissionCompatibility();
   const hasRecruitmentCommunications = await hasTable('recruitment_communications');
-  const hasCadetDocuments = await hasTable('cadet_documents');
 
   const shortlistedCondition = cadetCompat.hasWorkflowPhase
     ? "c.workflow_phase IN ('shortlisted', 'assessment', 'interview', 'medical', 'selected') OR (c.workflow_phase = 'rejected' AND c.rejection_stage IN ('assessment', 'interview', 'medical', 'selected'))"
@@ -37,6 +36,10 @@ const buildDriveSelect = async () => {
           WHERE mr.cadet_id = c.id
         ))`
     : "c.status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')";
+
+  const documentQueueCondition = cadetCompat.hasWorkflowPhase
+    ? "c.workflow_phase = 'selected' OR (c.workflow_phase IS NULL AND c.status IN ('Selected', 'CTV Assigned', 'Onboarded'))"
+    : "c.status IN ('Selected', 'CTV Assigned', 'Onboarded')";
 
   const revertedExcelFilters = [];
   if (submissionCompat.hasBatchYear) {
@@ -161,11 +164,7 @@ const buildDriveSelect = async () => {
           SELECT 1 FROM interviews iv WHERE iv.cadet_id = c.id AND LOWER(COALESCE(iv.final_decision, '')) = 'selected'
         ) THEN 1 ELSE 0 END) AS interview_selected,
         SUM(CASE WHEN ${medicalQueueCondition} THEN 1 ELSE 0 END) AS medical_queue_count,
-        ${
-          hasCadetDocuments
-            ? "SUM(CASE WHEN (c.workflow_result IN ('medical_passed', 'ctv_assigned', 'onboarded') OR c.status IN ('Selected', 'CTV Assigned', 'Onboarded')) THEN 1 ELSE 0 END)"
-            : '0'
-        } AS document_count,
+        SUM(CASE WHEN ${documentQueueCondition} THEN 1 ELSE 0 END) AS document_count,
         SUM(CASE WHEN c.status = 'CTV Assigned' THEN 1 ELSE 0 END) AS ctv_assigned,
         SUM(CASE WHEN c.status = 'Onboarded' THEN 1 ELSE 0 END) AS onboarded,
         SUM(CASE WHEN c.workflow_result = 'academic_data_collected' THEN 1 ELSE 0 END) AS academic_data_pending_count
@@ -468,6 +467,9 @@ const getRecruitmentDriveStats = async (driveId) => {
           WHERE mr.cadet_id = cadets.id
         ))`
     : "status IN ('Selected', 'Eligible for Medical', 'Interview Selected', 'Medical Completed', 'Medical Failed')";
+  const documentQueueCondition = cadetCompat.hasWorkflowPhase
+    ? "workflow_phase = 'selected' OR (workflow_phase IS NULL AND status IN ('Selected', 'CTV Assigned', 'Onboarded'))"
+    : "status IN ('Selected', 'CTV Assigned', 'Onboarded')";
   const rejectedCondition = cadetCompat.hasWorkflowPhase
     ? "workflow_phase = 'rejected'"
     : "status IN ('Rejected', 'Assessment Failed', 'Interview Failed', 'Medical Failed')";
@@ -490,10 +492,7 @@ const getRecruitmentDriveStats = async (driveId) => {
       SUM(CASE WHEN EXISTS (
         SELECT 1 FROM interviews iv WHERE iv.cadet_id = cadets.id AND LOWER(COALESCE(iv.final_decision, '')) = 'selected'
       ) THEN 1 ELSE 0 END) AS interview_selected,
-      SUM(CASE WHEN (
-        workflow_result IN ('medical_passed', 'ctv_assigned', 'onboarded')
-        OR status IN ('Selected', 'CTV Assigned', 'Onboarded')
-      ) THEN 1 ELSE 0 END) AS document_count
+      SUM(CASE WHEN ${documentQueueCondition} THEN 1 ELSE 0 END) AS document_count
      FROM cadets
      WHERE drive_id = ?`,
     [driveId],
