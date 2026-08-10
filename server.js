@@ -23,6 +23,7 @@ const {
   ensureMedicalReportsSupport,
   ensureMultipleMedicalAppointmentsSupport,
 } = require("./src/services/schemaUpgradeService");
+const { ensureAllocationSupport } = require("./src/services/allocationSchemaService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -107,6 +108,7 @@ app.listen(PORT, () => {
     .then(() => ensureInterviewAttachmentsSupport())
     .then(() => ensureMedicalReportsSupport())
     .then(() => ensureMultipleMedicalAppointmentsSupport())
+    .then(() => ensureAllocationSupport())
     .then(() => warmCache())
     .catch((error) => {
       console.error("Schema upgrade failed:", error.message);
