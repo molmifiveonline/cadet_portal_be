@@ -249,6 +249,128 @@ const ensureEvaluationParametersSupport = async () => {
   }
 };
 
+const ensureInterviewDocumentSupport = async () => {
+  const hasTable = await tableExists("interviews");
+  if (!hasTable) return;
+
+  const columns = [
+    {
+      name: "handwritten_sheet_name",
+      definition:
+        "ALTER TABLE interviews ADD COLUMN handwritten_sheet_name VARCHAR(255) NULL AFTER interview_sheet_mime_type",
+    },
+    {
+      name: "handwritten_sheet_mime_type",
+      definition:
+        "ALTER TABLE interviews ADD COLUMN handwritten_sheet_mime_type VARCHAR(100) NULL AFTER handwritten_sheet_name",
+    },
+    {
+      name: "handwritten_sheet_updated_at",
+      definition:
+        "ALTER TABLE interviews ADD COLUMN handwritten_sheet_updated_at DATETIME NULL AFTER handwritten_sheet_mime_type",
+    },
+  ];
+
+  for (const column of columns) {
+    if (!(await columnExists("interviews", column.name))) {
+      await runSchemaChange(column.definition, ["ER_DUP_FIELDNAME"]);
+      clearSchemaCache();
+    }
+  }
+};
+
+const ensureInterviewAttachmentsSupport = async () => {
+  const hasCadetsTable = await tableExists("cadets");
+  if (!hasCadetsTable) return;
+
+  if (!(await tableExists("interview_attachments"))) {
+    await runSchemaChange(
+      `CREATE TABLE interview_attachments (
+        id VARCHAR(36) PRIMARY KEY,
+        cadet_id VARCHAR(36) NOT NULL,
+        attachment_type VARCHAR(30) NOT NULL DEFAULT 'uploaded',
+        original_name VARCHAR(255) NOT NULL,
+        stored_name VARCHAR(255) NOT NULL,
+        mime_type VARCHAR(100) NOT NULL,
+        file_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        uploaded_by VARCHAR(36) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_interview_attachments_stored_name (stored_name),
+        KEY idx_interview_attachments_cadet_created (cadet_id, attachment_type, created_at),
+        CONSTRAINT fk_interview_attachments_cadet
+          FOREIGN KEY (cadet_id) REFERENCES cadets(id) ON DELETE CASCADE,
+        CONSTRAINT fk_interview_attachments_user
+          FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL
+      )`,
+      [],
+    );
+  }
+
+  if (!(await columnExists("interview_attachments", "attachment_type"))) {
+    await runSchemaChange(
+      "ALTER TABLE interview_attachments ADD COLUMN attachment_type VARCHAR(30) NOT NULL DEFAULT 'uploaded' AFTER cadet_id",
+      ["ER_DUP_FIELDNAME"],
+    );
+  }
+
+  // Preserve interview sheets created before multiple attachments were added.
+  if (await tableExists("interviews")) {
+    await db.query(
+      `INSERT IGNORE INTO interview_attachments (
+        id,
+        cadet_id,
+        attachment_type,
+        original_name,
+        stored_name,
+        mime_type,
+        file_size,
+        uploaded_by,
+        created_at
+      )
+      SELECT
+        UUID(),
+        i.cadet_id,
+        'uploaded',
+        i.interview_sheet_name,
+        i.interview_sheet_name,
+        COALESCE(i.interview_sheet_mime_type, 'application/octet-stream'),
+        0,
+        NULL,
+        COALESCE(i.updated_at, i.created_at, CURRENT_TIMESTAMP)
+      FROM interviews i
+      WHERE i.interview_sheet_name IS NOT NULL
+        AND i.interview_sheet_name <> ''`,
+    );
+
+    await db.query(
+      `INSERT IGNORE INTO interview_attachments (
+        id,
+        cadet_id,
+        attachment_type,
+        original_name,
+        stored_name,
+        mime_type,
+        file_size,
+        uploaded_by,
+        created_at
+      )
+      SELECT
+        UUID(),
+        i.cadet_id,
+        'handwritten',
+        i.handwritten_sheet_name,
+        i.handwritten_sheet_name,
+        COALESCE(i.handwritten_sheet_mime_type, 'application/pdf'),
+        0,
+        NULL,
+        COALESCE(i.handwritten_sheet_updated_at, i.updated_at, i.created_at, CURRENT_TIMESTAMP)
+      FROM interviews i
+      WHERE i.handwritten_sheet_name IS NOT NULL
+        AND i.handwritten_sheet_name <> ''`,
+    );
+  }
+};
+
 const ensureMedicalReportsSupport = async () => {
   const hasReportsTable = await tableExists("medical_reports");
   if (!hasReportsTable) {
@@ -379,6 +501,8 @@ module.exports = {
   ensureInstituteUploadFormatSupport,
   ensureMultipleInterviewersSupport,
   ensureEvaluationParametersSupport,
+  ensureInterviewDocumentSupport,
+  ensureInterviewAttachmentsSupport,
   ensureMedicalReportsSupport,
   ensureMultipleMedicalAppointmentsSupport,
 };
