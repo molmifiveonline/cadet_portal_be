@@ -1,6 +1,4 @@
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const documentDao = require('../dao/documentDao');
 const cadetDao = require('../dao/cadetDao');
 const instituteDao = require('../dao/instituteDao');
@@ -13,19 +11,6 @@ const {
   emailTemplates,
 } = require('../services/recruitmentCommunicationService');
 const { EXTERNAL_LINK_EXPIRY_HOURS, FRONTEND_URL, ROLES } = require('../config/constants');
-
-const uploadsDirectory = path.resolve(__dirname, '../../uploads');
-
-const removeUploadedFile = async (filename) => {
-  if (!filename || path.basename(filename) !== filename) return;
-  try {
-    await fs.promises.unlink(path.join(uploadsDirectory, filename));
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      console.error(`Failed to remove document file ${filename}:`, error);
-    }
-  }
-};
 
 const groupDocumentsByCadet = (rows = []) => {
   const grouped = new Map();
@@ -149,32 +134,27 @@ const getDriveDocuments = async (req, res) => {
 };
 
 const uploadCadetDocument = async (req, res) => {
-  let uploadedFilePersisted = false;
   try {
     const { cadet_id } = req.params;
     const { document_name, document_type } = req.body;
 
-    if (!req.file || !document_name || !document_type) {
-      await removeUploadedFile(req.file?.filename);
+    if (!document_name || !document_type) {
       return res.status(400).json({
         success: false,
-        message: 'A document file, document_name and document_type are required',
+        message: 'document_name and document_type are required',
       });
     }
 
     const cadet = await cadetDao.getCadetById(cadet_id);
     if (!cadet) {
-      await removeUploadedFile(req.file.filename);
       return res.status(404).json({ success: false, message: 'Cadet not found' });
     }
 
     if (!(await ensureInstituteOwnsCadet(req, cadet))) {
-      await removeUploadedFile(req.file.filename);
       return res.status(403).json({ success: false, message: 'Unauthorized access to this cadet data' });
     }
 
     if (isInstituteUser(req.user) && !(await canInstituteUploadDocument(cadet_id))) {
-      await removeUploadedFile(req.file.filename);
       return res.status(403).json({
         success: false,
         message: 'No pending document upload is available for this cadet',
@@ -191,7 +171,6 @@ const uploadCadetDocument = async (req, res) => {
       source: req.file ? 'portal' : 'external',
       status: 'pending',
     });
-    uploadedFilePersisted = true;
 
     if (req.user?.id) {
       await activityLogDao.createLog(
@@ -208,9 +187,6 @@ const uploadCadetDocument = async (req, res) => {
       data: { id },
     });
   } catch (error) {
-    if (req.file && !uploadedFilePersisted) {
-      await removeUploadedFile(req.file.filename);
-    }
     console.error('Error in uploadCadetDocument:', error);
     res.status(500).json({ success: false, message: 'Failed to upload document', error: error.message });
   }
@@ -279,7 +255,7 @@ const downloadDocument = async (req, res) => {
     const { id } = req.params;
     const document = await documentDao.getDocumentById(id);
 
-    if (!document) {
+    if (!document || !document.document_data) {
       return res.status(404).json({ success: false, message: 'Document file not found' });
     }
 
@@ -291,7 +267,9 @@ const downloadDocument = async (req, res) => {
       'Content-Type': document.document_mime_type || 'application/octet-stream',
       'Content-Disposition': `attachment; filename="${document.original_filename || document.document_name}"`,
     });
-    const filePath = path.join(uploadsDirectory, document.document_name);
+    const fs = require('fs');
+    const path = require('path');
+    const filePath = path.join(__dirname, '../../uploads', document.document_name);
     
     if (document.document_data) {
       res.send(document.document_data);
@@ -320,9 +298,6 @@ const deleteDocument = async (req, res) => {
     }
 
     await documentDao.deleteDocument(id);
-    if (document.source === 'portal') {
-      await removeUploadedFile(document.document_name);
-    }
 
     if (req.user?.id) {
       await activityLogDao.createLog(
