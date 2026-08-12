@@ -55,20 +55,21 @@ const calculateFinalScore = (academicScore, components = []) => {
   return roundScore(result);
 };
 
-const calculateSimpleTotal = (academicScore, components = []) => {
+const calculateAcademicAssessmentAverage = (academicScore, components = []) => {
   const academic = Number(academicScore);
   if (!Number.isFinite(academic) || academic < 0 || academic > 100) return null;
   if (!components.length || components.some((component) => component.score === null || component.score === undefined || component.score === '')) return null;
-  let total = academic;
+  let assessmentPercentageTotal = 0;
   for (const component of components) {
     const score = Number(component.score);
     const max = Number(component.max_score_snapshot ?? component.max_score ?? 100);
     if (!Number.isFinite(score) || score < 0 || score > max) {
       throw new Error(`Score for ${component.course_name_snapshot || 'assessment type'} must be between 0 and ${max}`);
     }
-    total += score;
+    assessmentPercentageTotal += (score / max) * 100;
   }
-  return roundScore(total);
+  const assessmentAveragePercentage = assessmentPercentageTotal / components.length;
+  return roundScore((academic + assessmentAveragePercentage) / 2);
 };
 
 const sortAutoRank = (rows = []) => [...rows].sort((left, right) => {
@@ -101,7 +102,7 @@ module.exports = {
   normalizeDepartment,
   validateFormula,
   calculateFinalScore,
-  calculateSimpleTotal,
+  calculateAcademicAssessmentAverage,
   sortAutoRank,
   hasAllocatedVessel,
   createRankMovePlan,

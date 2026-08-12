@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { normalizeDepartment, validateFormula } = require('../services/allocationRules');
 
@@ -24,18 +25,57 @@ const listCourses = async (req, res) => {
 const saveCourse = async (req, res) => {
   try {
     const { name, status = 'Active' } = req.body;
-    const code = String(req.body.code || name || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-    if (!code || !name?.trim()) return res.status(400).json({ success: false, message: 'Assessment Type name is required' });
-    if (!['Active', 'Inactive'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
-    const id = req.params.id || uuidv4();
-    if (req.params.id) {
-      await db.query(`UPDATE assessment_courses SET code=?, name=?, department='Both', default_max_score=10, status=? WHERE id=?`, [code.trim(), name.trim(), status, id]);
-    } else {
-      await db.query(`INSERT INTO assessment_courses (id, code, name, department, default_max_score, status, created_by) VALUES (?, ?, ?, 'Both', 10, ?, ?)`, [id, code.trim(), name.trim(), status, req.user.id]);
+    const normalizedName = String(name || '').trim().replace(/\s+/g, ' ');
+    const errors = {};
+    if (!normalizedName) errors.name = 'Assessment Type Name is required.';
+    else if (!/[A-Za-z0-9]/.test(normalizedName)) errors.name = 'Assessment Type Name must contain at least one letter or number.';
+    else if (normalizedName.length > 150) errors.name = 'Assessment Type Name cannot exceed 150 characters.';
+    if (!['Active', 'Inactive'].includes(status)) errors.status = 'Status must be Active or Inactive.';
+    if (Object.keys(errors).length) {
+      return res.status(400).json({ success: false, message: 'Please correct the highlighted assessment fields.', errors });
     }
-    res.status(req.params.id ? 200 : 201).json({ success: true, data: { id } });
+
+    const id = req.params.id || uuidv4();
+    const [existingRows] = req.params.id
+      ? await db.query(`SELECT * FROM assessment_courses WHERE id=?`, [id])
+      : [[]];
+    if (req.params.id && !existingRows[0]) {
+      return res.status(404).json({ success: false, message: 'Assessment Type not found' });
+    }
+    const [duplicates] = await db.query(
+      `SELECT id FROM assessment_courses WHERE LOWER(TRIM(name))=LOWER(?) AND id<>? LIMIT 1`,
+      [normalizedName, id],
+    );
+    if (duplicates.length) {
+      return res.status(409).json({
+        success: false,
+        message: 'Assessment Type already exists.',
+        errors: { name: 'Use a different Assessment Type Name.' },
+      });
+    }
+
+    const rawCode = normalizedName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    const code = existingRows[0]?.code || (rawCode.length <= 50
+      ? rawCode
+      : `${rawCode.slice(0, 41)}_${crypto.createHash('sha1').update(normalizedName).digest('hex').slice(0, 8).toUpperCase()}`);
+    if (req.params.id) {
+      await db.query(`UPDATE assessment_courses SET name=?, department='Both', default_max_score=10, status=? WHERE id=?`, [normalizedName, status, id]);
+    } else {
+      await db.query(`INSERT INTO assessment_courses (id, code, name, department, default_max_score, status, created_by) VALUES (?, ?, ?, 'Both', 10, ?, ?)`, [id, code, normalizedName, status, req.user.id]);
+    }
+    res.status(req.params.id ? 200 : 201).json({
+      success: true,
+      message: req.params.id ? 'Assessment Type updated' : 'Assessment Type added',
+      data: { id, code, name: normalizedName, department: 'Both', default_max_score: 10, status },
+    });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') error = Object.assign(new Error('Assessment Type already exists'), { status: 409 });
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({
+        success: false,
+        message: 'Assessment Type already exists.',
+        errors: { name: 'Use a different Assessment Type Name.' },
+      });
+    }
     sendError(res, error);
   }
 };
@@ -111,9 +151,17 @@ const activateFormula = async (req, res) => {
 const listVesselTypes = async (req, res) => {
   try {
     const params = []; let where = 'WHERE 1=1';
-    if (req.query.department) { where += " AND department IN (?, 'Both')"; params.push(normalizeDepartment(req.query.department)); }
-    if (req.query.status) { where += ' AND status=?'; params.push(req.query.status); }
-    const [rows] = await db.query(`SELECT * FROM vessel_types ${where} ORDER BY status, name`, params);
+    if (req.query.department) { where += " AND vt.department IN (?, 'Both')"; params.push(normalizeDepartment(req.query.department)); }
+    if (req.query.status) { where += ' AND vt.status=?'; params.push(req.query.status); }
+    const [rows] = await db.query(
+      `SELECT vt.*, COUNT(v.id) AS active_vessel_count
+       FROM vessel_types vt
+       JOIN vessels v ON v.vessel_type_id=vt.id AND v.status='Active'
+       ${where}
+       GROUP BY vt.id
+       ORDER BY vt.status, vt.name`,
+      params,
+    );
     res.json({ success: true, data: rows });
   } catch (error) { sendError(res, error); }
 };

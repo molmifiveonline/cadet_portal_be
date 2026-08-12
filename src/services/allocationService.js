@@ -1,6 +1,6 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
-const { calculateFinalScore, calculateSimpleTotal, normalizeDepartment, sortAutoRank } = require('./allocationRules');
+const { calculateFinalScore, calculateAcademicAssessmentAverage, normalizeDepartment, sortAutoRank } = require('./allocationRules');
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
@@ -48,7 +48,7 @@ const getAssessmentTypeSnapshot = async (connection, department) => {
     name: 'Assessment Types',
     version: 1,
     department,
-    scoring_method: 'SimpleTotal',
+    scoring_method: 'AcademicAssessmentAverage',
     components: courses.map((course, index) => ({
       course_id: course.id,
       code: course.code,
@@ -102,8 +102,9 @@ const updateFinalScore = async (connection, allocationId, userId) => {
     `SELECT * FROM allocation_score_entries WHERE allocation_id=? ORDER BY created_at`, [allocationId],
   );
   scores.forEach((score) => { score.academic_weight = snapshot.academic_weight; });
-  const finalScore = snapshot.scoring_method === 'SimpleTotal'
-    ? calculateSimpleTotal(allocations[0].academic_score, scores)
+  const usesAssessmentAverage = ['SimpleTotal', 'AcademicAssessmentAverage'].includes(snapshot.scoring_method);
+  const finalScore = usesAssessmentAverage
+    ? calculateAcademicAssessmentAverage(allocations[0].academic_score, scores)
     : calculateFinalScore(allocations[0].academic_score, scores);
   await connection.query(`UPDATE allocations SET final_score=? WHERE id=?`, [finalScore, allocationId]);
   if (allocations[0].ranking_mode === 'Auto') await recalculateRanks(connection, allocations[0].list_id);
@@ -145,7 +146,6 @@ const addCandidates = async ({ rankListId, cadetIds, userId }) => {
   try {
     await connection.beginTransaction();
     const rankList = await getRankList(connection, rankListId, true); ensureDraft(rankList);
-    const snapshot = rankList.formula_snapshot;
     for (const cadetId of [...new Set(cadetIds || [])]) {
       const [rows] = await connection.query(
         `SELECT c.*, dv.status AS document_verification_status
@@ -154,7 +154,17 @@ const addCandidates = async ({ rankListId, cadetIds, userId }) => {
       );
       const cadet = rows[0];
       if (!cadet) throw httpError(404, 'Candidate not found');
-      if (cadet.document_verification_status !== 'Verified') throw httpError(400, `${cadet.name_as_in_indos_cert} is not document verified`);
+      const [documents] = await connection.query(
+        `SELECT id, status FROM cadet_documents WHERE cadet_id=? FOR UPDATE`,
+        [cadetId],
+      );
+      if (
+        cadet.document_verification_status !== 'Verified' ||
+        !documents.length ||
+        documents.some((document) => document.status !== 'accepted')
+      ) {
+        throw httpError(400, `${cadet.name_as_in_indos_cert} is not approved from Recruitment Drive Documents`);
+      }
       if (!(cadet.workflow_phase === 'selected' || ['Selected','Medical Completed','CTV Assigned'].includes(cadet.status))) throw httpError(400, `${cadet.name_as_in_indos_cert} is not in the selected/document stage`);
       if (normalizeDepartment(cadet.course) !== rankList.department) throw httpError(400, `${cadet.name_as_in_indos_cert} does not belong to ${rankList.department}`);
       const academicScore = Number(cadet.imu_avg_all_semester_percentage);
@@ -170,13 +180,6 @@ const addCandidates = async ({ rankListId, cadetIds, userId }) => {
         `INSERT INTO allocations (id,rank_list_id,cadet_id,allocation_status,academic_score,is_active,added_by)
          VALUES (?,?,?,'Pending',?,1,?)`, [allocationId, rankListId, cadetId, academicScore, userId],
       );
-      for (const component of snapshot.components || []) {
-        await connection.query(
-          `INSERT INTO allocation_score_entries (id,allocation_id,course_id,course_name_snapshot,max_score_snapshot,weight_snapshot,updated_by)
-           VALUES (?,?,?,?,?,?,?)`,
-          [uuidv4(), allocationId, component.course_id, component.name, component.max_score, component.weight, userId],
-        );
-      }
     }
     await recalculateRanks(connection, rankListId);
     await connection.commit();

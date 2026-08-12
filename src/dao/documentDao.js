@@ -56,6 +56,16 @@ const createDocument = async (documentData) => {
     values,
   );
 
+  // A new document changes the reviewed set, so any previous candidate-level
+  // approval must be completed again from the Recruitment Drive Documents tab.
+  await db.query(
+    `UPDATE document_verifications
+     SET status = 'Revoked', remarks = 'A new document was added and requires review',
+         verified_at = NULL
+     WHERE cadet_id = ? AND status = 'Verified'`,
+    [cadet_id],
+  );
+
   return id;
 };
 
@@ -122,10 +132,16 @@ const getDocumentsByDrive = async (driveId) => {
       ${hasRequestExpiresAt ? 'cd.request_expires_at' : 'NULL AS request_expires_at'},
       ${hasLastReuploadRequestedAt ? 'cd.last_reupload_requested_at' : 'NULL AS last_reupload_requested_at'},
       ${hasRecruitmentCommunications ? "(SELECT MAX(sent_at) FROM recruitment_communications rc WHERE rc.cadet_id = c.id AND rc.communication_type = 'document_request' AND rc.send_status = 'sent')" : 'NULL'} AS document_email_date,
+      dv.status AS document_verification_status,
+      dv.remarks AS document_verification_remarks,
+      dv.verified_at AS document_verified_at,
+      COALESCE(NULLIF(TRIM(CONCAT_WS(' ', verifier.first_name, verifier.last_name)), ''), verifier.email) AS document_verified_by,
       cd.created_at,
       cd.updated_at
      FROM cadets c
      LEFT JOIN cadet_documents cd ON cd.cadet_id = c.id
+     LEFT JOIN document_verifications dv ON dv.cadet_id = c.id
+     LEFT JOIN users verifier ON verifier.id = dv.verified_by
      WHERE c.drive_id = ?
        AND (${phaseCondition})
      ORDER BY c.created_at DESC, cd.created_at DESC`,
@@ -159,8 +175,90 @@ const updateDocument = async (id, fields) => {
 };
 
 const deleteDocument = async (id) => {
-  const [result] = await db.query('DELETE FROM cadet_documents WHERE id = ?', [id]);
-  return result.affectedRows > 0;
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [documents] = await connection.query(
+      'SELECT cadet_id FROM cadet_documents WHERE id = ? FOR UPDATE',
+      [id],
+    );
+    if (!documents[0]) {
+      await connection.rollback();
+      return false;
+    }
+    const [result] = await connection.query('DELETE FROM cadet_documents WHERE id = ?', [id]);
+    await connection.query(
+      `UPDATE document_verifications
+       SET status = 'Revoked', remarks = 'The approved document set was changed',
+           verified_at = NULL
+       WHERE cadet_id = ? AND status = 'Verified'`,
+      [documents[0].cadet_id],
+    );
+    await connection.commit();
+    return result.affectedRows > 0;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const setCandidateDocumentVerification = async ({ cadetId, status, remarks, userId }) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [cadets] = await connection.query(
+      `SELECT id, name_as_in_indos_cert, workflow_phase, status
+       FROM cadets WHERE id = ? FOR UPDATE`,
+      [cadetId],
+    );
+    const cadet = cadets[0];
+    if (!cadet) throw Object.assign(new Error('Candidate not found'), { status: 404 });
+    if (!(cadet.workflow_phase === 'selected' || ['Selected', 'Medical Completed', 'CTV Assigned'].includes(cadet.status))) {
+      throw Object.assign(new Error('Only selected/document-stage candidates can be approved'), { status: 400 });
+    }
+
+    const [summaryRows] = await connection.query(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS accepted
+       FROM cadet_documents WHERE cadet_id = ?`,
+      [cadetId],
+    );
+    const total = Number(summaryRows[0]?.total || 0);
+    const accepted = Number(summaryRows[0]?.accepted || 0);
+    if (status === 'Verified' && (!total || accepted !== total)) {
+      throw Object.assign(
+        new Error('Accept every candidate document before approving for CTV Allocation'),
+        { status: 400 },
+      );
+    }
+
+    await connection.query(
+      `INSERT INTO document_verifications
+         (id, cadet_id, status, remarks, verified_by, verified_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE status = VALUES(status), remarks = VALUES(remarks),
+         verified_by = VALUES(verified_by), verified_at = VALUES(verified_at)`,
+      [uuidv4(), cadetId, status, remarks || null, userId, status === 'Verified' ? new Date() : null],
+    );
+    await connection.commit();
+    return { cadet, total, accepted };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const revokeCandidateDocumentVerification = async (cadetId, remarks) => {
+  await db.query(
+    `UPDATE document_verifications
+     SET status = 'Revoked', remarks = ?, verified_at = NULL
+     WHERE cadet_id = ? AND status = 'Verified'`,
+    [remarks, cadetId],
+  );
 };
 
 const getDocumentsByCadetForDrive = async (cadetId, driveId) => {
@@ -183,4 +281,6 @@ module.exports = {
   updateDocument,
   deleteDocument,
   getDocumentsByCadetForDrive,
+  setCandidateDocumentVerification,
+  revokeCandidateDocumentVerification,
 };

@@ -76,9 +76,27 @@ const hydrateCycle = async (cycleId) => {
       const [scores] = await db.query(
         `SELECT * FROM allocation_score_entries WHERE allocation_id IN (?) ORDER BY created_at`, [allocations.map((item) => item.id)],
       );
+      const [rankHistory] = await db.query(
+        `SELECT h.id,h.allocation_id,h.action,h.from_rank,h.to_rank,h.remarks,
+                h.changed_by,h.created_at,
+                NULLIF(TRIM(CONCAT_WS(' ',u.first_name,u.last_name)),'') AS changed_by_name,
+                u.email AS changed_by_email
+         FROM allocation_rank_history h
+         LEFT JOIN users u ON u.id=h.changed_by
+         WHERE h.rank_list_id=?
+           AND h.allocation_id IN (?)
+           AND h.action IN ('MoveUp','MoveDown')
+         ORDER BY h.created_at DESC,h.id DESC`,
+        [list.id, allocations.map((item) => item.id)],
+      );
       const grouped = scores.reduce((map, score) => { (map[score.allocation_id] ||= []).push(score); return map; }, {});
+      const groupedRankHistory = rankHistory.reduce((map, event) => {
+        (map[event.allocation_id] ||= []).push(event);
+        return map;
+      }, {});
       allocations.forEach((allocation) => {
         allocation.scores = grouped[allocation.id] || [];
+        allocation.rank_history = groupedRankHistory[allocation.id] || [];
         allocation.joining_plan_id = allocation.primary_joining_plan_id || allocation.secondary_joining_plan_id || null;
       });
     }
@@ -101,11 +119,72 @@ const createCycle = async (req, res) => {
   } catch (error) { errorResponse(res, error); }
 };
 
+const deleteCycle = async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [cycles] = await connection.query(
+      `SELECT id,allocation_number,status FROM allocation_cycles WHERE id=? FOR UPDATE`,
+      [req.params.id],
+    );
+    if (!cycles[0]) throw httpError(404, 'Allocation cycle not found');
+
+    const [finalizedLists] = await connection.query(
+      `SELECT department FROM allocation_rank_lists WHERE cycle_id=? AND status='Finalized' FOR UPDATE`,
+      [req.params.id],
+    );
+    if (finalizedLists.length) {
+      throw httpError(
+        409,
+        `Cannot delete this cycle because the ${finalizedLists.map((list) => list.department).join(' and ')} Rank List is finalized`,
+      );
+    }
+
+    const [joiningPlans] = await connection.query(
+      `SELECT jp.id FROM joining_plans jp
+       JOIN allocations a ON a.id=jp.allocation_id
+       JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
+       WHERE rl.cycle_id=? LIMIT 1 FOR UPDATE`,
+      [req.params.id],
+    );
+    if (joiningPlans.length) throw httpError(409, 'Cannot delete a cycle that has a Joining Plan');
+
+    const [onboardingRecords] = await connection.query(
+      `SELECT o.id FROM onboarding o
+       JOIN allocations a ON a.id=o.allocation_id
+       JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
+       WHERE rl.cycle_id=? LIMIT 1 FOR UPDATE`,
+      [req.params.id],
+    );
+    if (onboardingRecords.length) throw httpError(409, 'Cannot delete a cycle that has Onboarding records');
+
+    await connection.query(`DELETE FROM allocation_cycles WHERE id=?`, [req.params.id]);
+    await connection.commit();
+    try {
+      await logAction(req, 'DELETE_CTV_ALLOCATION', `Deleted allocation cycle ${cycles[0].allocation_number}`);
+    } catch (logError) {
+      console.error('Failed to record allocation deletion activity:', logError);
+    }
+    res.json({ success: true, message: `${cycles[0].allocation_number} deleted` });
+  } catch (error) {
+    await connection.rollback();
+    errorResponse(res, error);
+  } finally {
+    connection.release();
+  }
+};
+
 const listEligibleCandidates = async (req, res) => {
   try {
     const rankList = await getRankList(db, req.params.rankListId);
     const params = [];
-    let where = `WHERE (c.workflow_phase='selected' OR c.status IN ('Selected','Medical Completed','CTV Assigned'))`;
+    let where = `WHERE (c.workflow_phase='selected' OR c.status IN ('Selected','Medical Completed','CTV Assigned'))
+      AND dv.status='Verified'
+      AND EXISTS (SELECT 1 FROM cadet_documents cdv WHERE cdv.cadet_id=c.id)
+      AND NOT EXISTS (
+        SELECT 1 FROM cadet_documents cdv
+        WHERE cdv.cadet_id=c.id AND COALESCE(cdv.status,'') <> 'accepted'
+      )`;
     if (req.query.batch_year) { where += ' AND c.batch_year=?'; params.push(req.query.batch_year); }
     if (req.query.institute_id) { where += ' AND c.institute_id=?'; params.push(req.query.institute_id); }
     if (req.query.search) {
@@ -120,37 +199,17 @@ const listEligibleCandidates = async (req, res) => {
                      JOIN allocation_cycles acx ON acx.id=rlx.cycle_id
                      WHERE ax.cadet_id=c.id AND ax.is_active=1 AND acx.status='Active') AS already_allocated
        FROM cadets c LEFT JOIN institutes i ON i.id=c.institute_id
-       LEFT JOIN document_verifications dv ON dv.cadet_id=c.id
+       JOIN document_verifications dv ON dv.cadet_id=c.id
        ${where} ORDER BY c.batch_year DESC, i.institute_name, c.name_as_in_indos_cert`, params,
     );
     const data = rows.filter((row) => normalizeDepartment(row.course) === rankList.department).map((row) => {
       const academic = Number(row.academic_score);
       const reasons = [];
-      if (row.document_verification_status !== 'Verified') reasons.push('Document verification is not complete');
       if (!Number.isFinite(academic) || academic < 0 || academic > 100) reasons.push('IMU academic score is missing or invalid');
       if (row.already_allocated) reasons.push('Candidate already belongs to an active allocation');
       return { ...row, eligible: reasons.length === 0, ineligible_reasons: reasons };
     });
     res.json({ success: true, data });
-  } catch (error) { errorResponse(res, error); }
-};
-
-const verifyDocuments = async (req, res) => {
-  try {
-    const status = req.body.status || 'Verified';
-    if (!['Pending','Verified','Revoked'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid document verification status' });
-    if (status !== 'Pending' && !req.body.remarks?.trim()) return res.status(400).json({ success: false, message: 'Verification remarks are required' });
-    const [cadets] = await db.query(`SELECT id, name_as_in_indos_cert, workflow_phase, status FROM cadets WHERE id=?`, [req.params.cadetId]);
-    if (!cadets[0]) throw httpError(404, 'Candidate not found');
-    if (!(cadets[0].workflow_phase === 'selected' || ['Selected','Medical Completed'].includes(cadets[0].status))) throw httpError(400, 'Only selected/document-stage candidates can be verified');
-    await db.query(
-      `INSERT INTO document_verifications (id,cadet_id,status,remarks,verified_by,verified_at)
-       VALUES (?,?,?,?,?,?)
-       ON DUPLICATE KEY UPDATE status=VALUES(status),remarks=VALUES(remarks),verified_by=VALUES(verified_by),verified_at=VALUES(verified_at)`,
-      [uuidv4(), req.params.cadetId, status, req.body.remarks || null, req.user.id, status === 'Verified' ? new Date() : null],
-    );
-    await logAction(req, 'VERIFY_CADET_DOCUMENTS', `${status} document verification for ${cadets[0].name_as_in_indos_cert}: ${req.body.remarks || ''}`);
-    res.json({ success: true, message: `Document verification marked ${status}` });
   } catch (error) { errorResponse(res, error); }
 };
 
@@ -188,15 +247,60 @@ const updateScores = async (req, res) => {
     if (!allocationRows[0]) throw httpError(404, 'Candidate allocation not found');
     if (allocationRows[0].status !== 'Draft') throw httpError(409, 'Assessment scores are locked');
     const scores = Array.isArray(req.body.scores) ? req.body.scores : [];
+    const courseIds = scores.map((item) => String(item.course_id || '').trim());
+    if (courseIds.some((courseId) => !courseId)) throw httpError(400, 'Select an Assessment Type for every score');
+    if (new Set(courseIds).size !== courseIds.length) throw httpError(400, 'Each Assessment Type can be selected only once per cadet');
+
     const [entries] = await connection.query(`SELECT * FROM allocation_score_entries WHERE allocation_id=?`, [req.params.allocationId]);
     const entriesByCourse = new Map(entries.map((entry) => [entry.course_id, entry]));
-    for (const item of scores) {
-      const entry = entriesByCourse.get(item.course_id);
-      if (!entry) throw httpError(400, 'Score contains a course outside the allocation formula');
-      const value = item.score === '' || item.score === null ? null : Number(item.score);
-      if (value !== null && (!Number.isFinite(value) || value < 0 || value > 10)) throw httpError(400, `${entry.course_name_snapshot} score must be between 0 and 10`);
-      await connection.query(`UPDATE allocation_score_entries SET score=?,updated_by=? WHERE id=?`, [value, req.user.id, entry.id]);
+    const coursesById = new Map();
+    if (courseIds.length) {
+      const [courses] = await connection.query(
+        `SELECT id,name,status FROM assessment_courses WHERE id IN (?) FOR UPDATE`,
+        [courseIds],
+      );
+      courses.forEach((course) => coursesById.set(course.id, course));
     }
+
+    for (const item of scores) {
+      const courseId = String(item.course_id).trim();
+      const entry = entriesByCourse.get(courseId);
+      const course = coursesById.get(courseId);
+      if (!course) throw httpError(400, 'Selected Assessment Type was not found');
+      if (course.status !== 'Active' && !entry) throw httpError(400, `${course.name} is no longer active`);
+
+      const value = item.score === '' || item.score === null || item.score === undefined
+        ? null
+        : Number(item.score);
+      if (value === null) throw httpError(400, `${course.name} score is required`);
+      if (!Number.isFinite(value) || value < 0 || value > 10) {
+        throw httpError(400, `${course.name} score must be between 0 and 10`);
+      }
+
+      if (entry) {
+        await connection.query(
+          `UPDATE allocation_score_entries SET score=?,updated_by=? WHERE id=?`,
+          [value, req.user.id, entry.id],
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO allocation_score_entries
+           (id,allocation_id,course_id,course_name_snapshot,max_score_snapshot,weight_snapshot,score,updated_by)
+           VALUES (?,?,?,?,10,0,?,?)`,
+          [uuidv4(), req.params.allocationId, courseId, course.name, value, req.user.id],
+        );
+      }
+    }
+
+    if (courseIds.length) {
+      await connection.query(
+        `DELETE FROM allocation_score_entries WHERE allocation_id=? AND course_id NOT IN (?)`,
+        [req.params.allocationId, courseIds],
+      );
+    } else {
+      await connection.query(`DELETE FROM allocation_score_entries WHERE allocation_id=?`, [req.params.allocationId]);
+    }
+
     const finalScore = await updateFinalScore(connection, req.params.allocationId, req.user.id);
     await connection.commit(); res.json({ success: true, data: { final_score: finalScore } });
   } catch (error) { await connection.rollback(); errorResponse(res, error); }
@@ -450,29 +554,38 @@ const createJoiningPlan = async (req, res) => {
     if (allocation[`${prefix}_id`] === null || allocation[vesselRole === 'Primary' ? 'allocation_status' : 'secondary_allocation_status'] !== 'Allocated') {
       throw httpError(400, `${vesselRole} vessel must be Allocated before creating its Joining Plan`);
     }
+    const requestedDocuments = Array.isArray(req.body.required_documents)
+      ? req.body.required_documents
+      : String(req.body.required_documents || '').split(/[\n,]/);
     const item = {
       allocation_id: allocation.allocation_id,
       name: allocation[`${prefix}_name`],
       type_name: allocation[`${prefix}_type_name`],
       vessel_type: allocation[`${prefix}_type_text`],
-      location: allocation[`${prefix}_location`],
-      joining_date: allocation[`${prefix}_joining_date`],
+      location: String(req.body.location ?? allocation[`${prefix}_location`] ?? '').trim() || null,
+      joining_date: String(req.body.joining_date ?? allocation[`${prefix}_joining_date`] ?? '').trim(),
       total_seats: allocation[`${prefix}_total_seats`],
-      voyage_ref: allocation[`${prefix}_voyage_ref`],
-      reporting_port: allocation[`${prefix}_reporting_port`],
-      contact_person_name: allocation[`${prefix}_contact_name`],
-      contact_person_email: allocation[`${prefix}_contact_email`],
-      contact_person_phone: allocation[`${prefix}_contact_phone`],
-      communication_details: allocation[`${prefix}_communication`],
-      required_documents: allocation[`${prefix}_documents`],
+      voyage_ref: String(req.body.voyage_ref ?? allocation[`${prefix}_voyage_ref`] ?? '').trim() || null,
+      reporting_port: String(req.body.reporting_port ?? allocation[`${prefix}_reporting_port`] ?? '').trim(),
+      contact_person_name: String(req.body.contact_person_name ?? allocation[`${prefix}_contact_name`] ?? '').trim(),
+      contact_person_email: String(req.body.contact_person_email ?? allocation[`${prefix}_contact_email`] ?? '').trim() || null,
+      contact_person_phone: String(req.body.contact_person_phone ?? allocation[`${prefix}_contact_phone`] ?? '').trim() || null,
+      communication_details: String(req.body.communication_details ?? allocation[`${prefix}_communication`] ?? '').trim() || null,
+      required_documents: requestedDocuments.map((document) => String(document).trim()).filter(Boolean),
     };
     if (allocation.list_status !== 'Finalized') throw httpError(409, 'Finalize the department rank list before creating a Joining Plan');
+    if (!isValidIsoDate(item.joining_date)) {
+      throw httpError(400, 'A valid Joining Date is required');
+    }
+    if (!item.reporting_port) throw httpError(400, 'Reporting Port is required');
+    if (!item.contact_person_name) throw httpError(400, 'Contact Person is required');
+    if (item.contact_person_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.contact_person_email)) throw httpError(400, 'Contact Person email is invalid');
     const id = uuidv4();
     await db.query(
       `INSERT INTO joining_plans (id,allocation_id,vessel_role,status,vessel_name,vessel_type,location,joining_date,total_seats,voyage_ref,reporting_port,contact_person_name,contact_person_email,contact_person_phone,communication_details,required_documents,created_by)
        VALUES (?,?,?, 'Draft',?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE id=id`,
-      [id, item.allocation_id, vesselRole, item.name, item.type_name || item.vessel_type, item.location, item.joining_date, item.total_seats, item.voyage_ref, item.reporting_port, item.contact_person_name, item.contact_person_email, item.contact_person_phone, item.communication_details, item.required_documents ? JSON.stringify(parseJson(item.required_documents, [])) : null, req.user.id],
+      [id, item.allocation_id, vesselRole, item.name, item.type_name || item.vessel_type, item.location, item.joining_date, item.total_seats, item.voyage_ref, item.reporting_port, item.contact_person_name, item.contact_person_email, item.contact_person_phone, item.communication_details, JSON.stringify(item.required_documents), req.user.id],
     );
     const [plans] = await db.query(`SELECT * FROM joining_plans WHERE allocation_id=? AND vessel_role=?`, [item.allocation_id, vesselRole]);
     res.status(201).json({ success: true, data: plans[0] });
@@ -480,11 +593,18 @@ const createJoiningPlan = async (req, res) => {
 };
 
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[char]);
+const isValidIsoDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+};
 
 const recordCommunication = async (req, res) => {
   try {
     const { mode, informed_by, date_of_informing, confirmation_received, candidate_remarks, admin_remarks } = req.body;
     if (!['Email','Phone','WhatsApp'].includes(mode)) throw httpError(400, 'Select Email, Phone, or WhatsApp');
+    if (!date_of_informing || !isValidIsoDate(String(date_of_informing))) throw httpError(400, 'Select a valid Date of Informing');
+    if (String(date_of_informing) > new Date().toISOString().slice(0, 10)) throw httpError(400, 'Date of Informing cannot be in the future');
     const informedBy = informed_by || req.user.id;
     const [users] = await db.query(`SELECT id FROM users WHERE id=? AND status='active' AND LOWER(role) IN ('admin','superadmin')`, [informedBy]);
     if (!users[0]) throw httpError(400, 'Informed By must be an active Admin or Super Admin');
@@ -511,7 +631,7 @@ const recordCommunication = async (req, res) => {
               <tr><th align="left">Joining Date</th><td>${escapeHtml(plan.joining_date || 'TBD')}</td></tr>
               <tr><th align="left">Reporting Location</th><td>${escapeHtml(plan.reporting_port || plan.location || '-')}</td></tr>
               <tr><th align="left">Voyage Reference</th><td>${escapeHtml(plan.voyage_ref || '-')}</td></tr>
-              <tr><th align="left">Contact Person</th><td>${escapeHtml(plan.contact_person_name || '-')} ${escapeHtml(plan.contact_person_phone || '')}</td></tr>
+              <tr><th align="left">Contact Person</th><td>${escapeHtml(plan.contact_person_name || '-')} ${escapeHtml(plan.contact_person_phone || '')} ${escapeHtml(plan.contact_person_email || '')}</td></tr>
             </table>
             <p><strong>Required Documents:</strong> ${escapeHtml(documents.length ? documents.join(', ') : 'As advised by the administration')}</p>
             <p>${escapeHtml(plan.communication_details || '')}</p>`,
@@ -540,7 +660,14 @@ const listJoiningPlans = async (req, res) => {
               (SELECT delivery_status FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS email_delivery_status,
               (SELECT informed_at FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS last_informed_at,
               (SELECT confirmation_received FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS confirmation_received,
-              (SELECT admin_remarks FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS last_admin_remarks
+              (SELECT admin_remarks FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS last_admin_remarks,
+              (SELECT candidate_remarks FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS last_candidate_remarks,
+              (SELECT date_of_informing FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS last_date_of_informing,
+              (SELECT failure_reason FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS last_failure_reason,
+              (SELECT COALESCE(NULLIF(TRIM(CONCAT_WS(' ',u.first_name,u.last_name)),''),u.email)
+               FROM allocation_communications cm LEFT JOIN users u ON u.id=cm.informed_by
+               WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS last_informed_by,
+              (SELECT COUNT(*) FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id) AS communication_count
        FROM joining_plans jp JOIN allocations a ON a.id=jp.allocation_id JOIN cadets c ON c.id=a.cadet_id
        JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id JOIN allocation_cycles ac ON ac.id=rl.cycle_id
        WHERE (? IS NULL OR ac.id=?) ORDER BY jp.created_at DESC`, [req.query.cycle_id || null, req.query.cycle_id || null],
@@ -558,7 +685,7 @@ const listAdmins = async (req, res) => {
 };
 
 module.exports = {
-  listCycles, getCycle, createCycle, listEligibleCandidates, verifyDocuments, addCandidates,
+  listCycles, getCycle, createCycle, deleteCycle, listEligibleCandidates, addCandidates,
   removeCandidate, updateScores, updateVesselAllocation, moveRank, resetRanks,
   finalizeRankList, unlockRankList, createJoiningPlan, recordCommunication, listJoiningPlans, listAdmins,
 };

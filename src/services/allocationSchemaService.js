@@ -132,7 +132,7 @@ const ensureAllocationSupport = async () => {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_assessment_courses_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
   await db.query(`UPDATE assessment_courses SET department='Both',default_max_score=10 WHERE department<>'Both' OR default_max_score<>10`);
 
   await db.query(`CREATE TABLE IF NOT EXISTS score_formula_templates (
@@ -148,7 +148,7 @@ const ensureAllocationSupport = async () => {
     UNIQUE KEY uq_formula_name_department_version (name, department, version),
     KEY idx_formula_department_status (department, status),
     CONSTRAINT fk_formula_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await db.query(`CREATE TABLE IF NOT EXISTS score_formula_components (
     id VARCHAR(36) PRIMARY KEY,
@@ -161,7 +161,7 @@ const ensureAllocationSupport = async () => {
     UNIQUE KEY uq_formula_course (template_id, course_id),
     CONSTRAINT fk_formula_component_template FOREIGN KEY (template_id) REFERENCES score_formula_templates(id) ON DELETE CASCADE,
     CONSTRAINT fk_formula_component_course FOREIGN KEY (course_id) REFERENCES assessment_courses(id) ON DELETE RESTRICT
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await db.query(`CREATE TABLE IF NOT EXISTS vessel_types (
     id VARCHAR(36) PRIMARY KEY,
@@ -172,7 +172,7 @@ const ensureAllocationSupport = async () => {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_vessel_types_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await addColumn('vessels', 'vessel_type_id', 'VARCHAR(36) NULL AFTER vessel_type');
   await addColumn('vessels', 'department', "ENUM('Deck','Engine','Both') NOT NULL DEFAULT 'Both' AFTER vessel_type_id");
@@ -193,13 +193,13 @@ const ensureAllocationSupport = async () => {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_document_verification_cadet FOREIGN KEY (cadet_id) REFERENCES cadets(id) ON DELETE CASCADE,
     CONSTRAINT fk_document_verification_user FOREIGN KEY (verified_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await db.query(`CREATE TABLE IF NOT EXISTS allocation_year_sequences (
     allocation_year INT PRIMARY KEY,
     last_number INT NOT NULL DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await db.query(`CREATE TABLE IF NOT EXISTS allocation_cycles (
     id VARCHAR(36) PRIMARY KEY,
@@ -211,7 +211,7 @@ const ensureAllocationSupport = async () => {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_allocation_cycles_year (allocation_year, created_at),
     CONSTRAINT fk_allocation_cycle_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await db.query(`CREATE TABLE IF NOT EXISTS allocation_rank_lists (
     id VARCHAR(36) PRIMARY KEY,
@@ -233,7 +233,7 @@ const ensureAllocationSupport = async () => {
     CONSTRAINT fk_rank_list_formula FOREIGN KEY (formula_template_id) REFERENCES score_formula_templates(id) ON DELETE RESTRICT,
     CONSTRAINT fk_rank_list_finalized_user FOREIGN KEY (finalized_by) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_rank_list_unlocked_user FOREIGN KEY (unlocked_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
   if (!(await columnIsNullable('allocation_rank_lists', 'formula_template_id'))) {
     await db.query('ALTER TABLE allocation_rank_lists MODIFY formula_template_id VARCHAR(36) NULL');
   }
@@ -274,7 +274,7 @@ const ensureAllocationSupport = async () => {
     CONSTRAINT fk_allocation_score_allocation FOREIGN KEY (allocation_id) REFERENCES allocations(id) ON DELETE CASCADE,
     CONSTRAINT fk_allocation_score_course FOREIGN KEY (course_id) REFERENCES assessment_courses(id) ON DELETE RESTRICT,
     CONSTRAINT fk_allocation_score_user FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await db.query(
     `UPDATE allocation_score_entries ase
@@ -290,9 +290,54 @@ const ensureAllocationSupport = async () => {
       try { snapshot = JSON.parse(snapshot); } catch { snapshot = null; }
     }
     if (!snapshot || !Array.isArray(snapshot.components)) continue;
-    snapshot.scoring_method = 'SimpleTotal';
+    snapshot.scoring_method = 'AcademicAssessmentAverage';
     snapshot.components = snapshot.components.map((component) => ({ ...component, max_score: 10, weight: 0 }));
     await db.query(`UPDATE allocation_rank_lists SET formula_snapshot=? WHERE id=?`, [JSON.stringify(snapshot), row.id]);
+  }
+
+  await db.query(
+    `UPDATE allocations a
+     JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
+     LEFT JOIN (
+       SELECT allocation_id,
+              COUNT(*) AS score_count,
+              SUM(CASE WHEN score IS NULL THEN 1 ELSE 0 END) AS incomplete_count,
+              AVG((score / NULLIF(max_score_snapshot,0)) * 100) AS assessment_average_percentage
+       FROM allocation_score_entries
+       GROUP BY allocation_id
+     ) scores ON scores.allocation_id=a.id
+     SET a.final_score=CASE
+       WHEN a.academic_score BETWEEN 0 AND 100
+        AND scores.score_count>0
+        AND scores.incomplete_count=0
+       THEN ROUND((a.academic_score + scores.assessment_average_percentage) / 2, 2)
+       ELSE NULL
+     END
+     WHERE rl.status='Draft'`,
+  );
+
+  const [draftAutoLists] = await db.query(
+    `SELECT id FROM allocation_rank_lists WHERE status='Draft' AND ranking_mode='Auto'`,
+  );
+  for (const list of draftAutoLists) {
+    await db.query(
+      `UPDATE allocations SET current_rank=NULL WHERE rank_list_id=? AND is_active=1`,
+      [list.id],
+    );
+    const [rankedAllocations] = await db.query(
+      `SELECT a.id
+       FROM allocations a
+       JOIN cadets c ON c.id=a.cadet_id
+       WHERE a.rank_list_id=? AND a.is_active=1 AND a.final_score IS NOT NULL
+       ORDER BY a.final_score DESC,a.academic_score DESC,c.cadet_unique_id ASC`,
+      [list.id],
+    );
+    for (let index = 0; index < rankedAllocations.length; index += 1) {
+      await db.query(`UPDATE allocations SET current_rank=? WHERE id=?`, [
+        index + 1,
+        rankedAllocations[index].id,
+      ]);
+    }
   }
 
   await db.query(`CREATE TABLE IF NOT EXISTS allocation_rank_history (
@@ -309,7 +354,7 @@ const ensureAllocationSupport = async () => {
     CONSTRAINT fk_rank_history_list FOREIGN KEY (rank_list_id) REFERENCES allocation_rank_lists(id) ON DELETE CASCADE,
     CONSTRAINT fk_rank_history_allocation FOREIGN KEY (allocation_id) REFERENCES allocations(id) ON DELETE SET NULL,
     CONSTRAINT fk_rank_history_user FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await db.query(`CREATE TABLE IF NOT EXISTS joining_plans (
     id VARCHAR(36) PRIMARY KEY,
@@ -333,7 +378,7 @@ const ensureAllocationSupport = async () => {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_joining_plan_allocation FOREIGN KEY (allocation_id) REFERENCES allocations(id) ON DELETE CASCADE,
     CONSTRAINT fk_joining_plan_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await addColumn('joining_plans', 'vessel_role', "ENUM('Primary','Secondary') NOT NULL DEFAULT 'Primary' AFTER allocation_id");
   await addIndex('joining_plans', 'uq_joining_plan_allocation_role', 'UNIQUE INDEX uq_joining_plan_allocation_role (allocation_id, vessel_role)');
@@ -365,7 +410,7 @@ const ensureAllocationSupport = async () => {
     KEY idx_allocation_communications_plan (joining_plan_id, created_at),
     CONSTRAINT fk_allocation_communication_plan FOREIGN KEY (joining_plan_id) REFERENCES joining_plans(id) ON DELETE CASCADE,
     CONSTRAINT fk_allocation_communication_user FOREIGN KEY (informed_by) REFERENCES users(id) ON DELETE SET NULL
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await addColumn('onboarding', 'allocation_id', 'VARCHAR(36) NULL AFTER cadet_id');
   await addColumn('onboarding', 'updated_by', 'VARCHAR(36) NULL');

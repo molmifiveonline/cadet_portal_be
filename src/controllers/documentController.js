@@ -25,6 +25,10 @@ const groupDocumentsByCadet = (rows = []) => {
         status: row.status,
         workflow_phase: row.workflow_phase,
         document_email_date: row.document_email_date,
+        document_verification_status: row.document_verification_status || 'Pending',
+        document_verification_remarks: row.document_verification_remarks,
+        document_verified_at: row.document_verified_at,
+        document_verified_by: row.document_verified_by,
         documents: [],
       });
     }
@@ -56,6 +60,8 @@ const groupDocumentsByCadet = (rows = []) => {
 const getInstituteId = (user = {}) => user.instituteId || user.id;
 
 const isInstituteUser = (user = {}) => user.role === ROLES.INSTITUTE;
+
+const isAdminUser = (user = {}) => ['Admin', ROLES.SUPER_ADMIN].includes(user.role);
 
 const ensureInstituteOwnsCadet = async (req, cadet) => {
   if (!isInstituteUser(req.user)) return true;
@@ -197,13 +203,17 @@ const reviewDocument = async (req, res) => {
     const { id } = req.params;
     const { status, admin_remarks } = req.body;
 
+    if (!['accepted', 'rejected', 'reupload_requested'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Select a valid document review status' });
+    }
+
     const document = await documentDao.getDocumentById(id);
     if (!document) {
       return res.status(404).json({ success: false, message: 'Document not found' });
     }
 
-    if (isInstituteUser(req.user)) {
-      return res.status(403).json({ success: false, message: 'Institute users are not allowed to review documents' });
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({ success: false, message: 'Only Admin or Super Admin can review documents' });
     }
 
     await documentDao.updateDocument(id, {
@@ -213,6 +223,13 @@ const reviewDocument = async (req, res) => {
       reviewed_at: new Date(),
       last_reupload_requested_at: status === 'reupload_requested' ? new Date() : document.last_reupload_requested_at,
     });
+
+    if (status !== 'accepted') {
+      await documentDao.revokeCandidateDocumentVerification(
+        document.cadet_id,
+        'A document requires review before CTV Allocation approval',
+      );
+    }
 
     const recipient = await getInstituteRecipient(document.institute_id);
     if (recipient) {
@@ -247,6 +264,55 @@ const reviewDocument = async (req, res) => {
   } catch (error) {
     console.error('Error in reviewDocument:', error);
     res.status(500).json({ success: false, message: 'Failed to review document', error: error.message });
+  }
+};
+
+const reviewCandidateDocuments = async (req, res) => {
+  try {
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only Admin or Super Admin can approve documents for CTV Allocation',
+      });
+    }
+
+    const status = req.body.status || 'Verified';
+    const remarks = String(req.body.remarks || '').trim();
+    if (!['Verified', 'Revoked'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Select a valid approval status' });
+    }
+    if (!remarks) {
+      return res.status(400).json({ success: false, message: 'Approval remarks are required' });
+    }
+
+    const result = await documentDao.setCandidateDocumentVerification({
+      cadetId: req.params.cadet_id,
+      status,
+      remarks,
+      userId: req.user?.id || null,
+    });
+
+    if (req.user?.id) {
+      await activityLogDao.createLog(
+        req.user.id,
+        status === 'Verified' ? 'APPROVE_CADET_DOCUMENTS_FOR_CTV' : 'REVOKE_CADET_DOCUMENT_APPROVAL',
+        `${status === 'Verified' ? 'Approved' : 'Revoked'} CTV document approval for ${result.cadet.name_as_in_indos_cert}: ${remarks}`,
+        req.ip || req.connection.remoteAddress,
+      );
+    }
+
+    res.json({
+      success: true,
+      message: status === 'Verified'
+        ? 'All documents approved for CTV Allocation'
+        : 'CTV document approval revoked',
+    });
+  } catch (error) {
+    console.error('Error in reviewCandidateDocuments:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Failed to update candidate document approval',
+    });
   }
 };
 
@@ -293,8 +359,8 @@ const deleteDocument = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Document not found' });
     }
 
-    if (isInstituteUser(req.user)) {
-      return res.status(403).json({ success: false, message: 'Institute users are not allowed to delete documents' });
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({ success: false, message: 'Only Admin or Super Admin can delete documents' });
     }
 
     await documentDao.deleteDocument(id);
@@ -445,6 +511,7 @@ module.exports = {
   getDriveDocuments,
   uploadCadetDocument,
   reviewDocument,
+  reviewCandidateDocuments,
   downloadDocument,
   deleteDocument,
   createExternalDocumentRequest,
