@@ -21,6 +21,7 @@ module.exports = {
     CV: 5 * 1024 * 1024, // 5MB
     DOCUMENT: 5 * 1024 * 1024, // 5MB
     IMAGE: 5 * 1024 * 1024, // 5MB
+    INTERVIEW_DOCUMENT: 10 * 1024 * 1024, // 10MB
   },
 
   // Allowed File Types

@@ -8,6 +8,7 @@ const {
   INSTITUTE_UPLOAD_TYPES,
   SUBMISSION_STATUS,
   DRIVE_STATUS,
+  ROLES,
 } = require('../config/constants');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const { logAndSendEmail, emailTemplates } = require('../services/recruitmentCommunicationService');
@@ -41,6 +42,18 @@ const isPanamaInstitute = (institute = {}) =>
   normalizeInstituteUploadType(institute.institute_upload_type) ===
   INSTITUTE_UPLOAD_TYPES.PANAMA;
 
+const isSuperAdminRole = (role) => {
+  const normalized = String(role || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  return (
+    normalized === 'superadmin' ||
+    role === 'role-super-admin' ||
+    role === ROLES.SUPER_ADMIN
+  );
+};
+
 const INSTITUTE_UPLOAD_CLOSED_STATUSES = new Set([
   DRIVE_STATUS.RECEIVED,
   DRIVE_STATUS.SUBMITTED,
@@ -63,8 +76,7 @@ const submitInstituteExcel = async (req, res) => {
       return res.status(401).json({ message: 'Unauthorized. Please log in.' });
     }
 
-    const isAdmin =
-      req.user.role === 'role-super-admin' || req.user.role === 'SuperAdmin';
+    const isAdmin = isSuperAdminRole(req.user.role);
     let instituteId = req.user.instituteId;
 
     if (isAdmin) {

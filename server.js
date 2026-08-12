@@ -18,9 +18,12 @@ const {
   ensureInstituteUploadFormatSupport,
   ensureMultipleInterviewersSupport,
   ensureEvaluationParametersSupport,
+  ensureInterviewDocumentSupport,
+  ensureInterviewAttachmentsSupport,
   ensureMedicalReportsSupport,
   ensureMultipleMedicalAppointmentsSupport,
 } = require("./src/services/schemaUpgradeService");
+const { ensureAllocationSupport } = require("./src/services/allocationSchemaService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -32,6 +35,24 @@ const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(",").map((url) => url.trim())
   : [];
 
+const isPrivateDevelopmentOrigin = (origin) => {
+  try {
+    const parsedOrigin = new URL(origin);
+    const hostname = parsedOrigin.hostname;
+    const isPrivateHost =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.startsWith("10.") ||
+      hostname.startsWith("192.168.") ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
+
+    return ["http:", "https:"].includes(parsedOrigin.protocol) && isPrivateHost;
+  } catch (error) {
+    return false;
+  }
+};
+
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -40,6 +61,7 @@ app.use(
       if (
         allowedOrigins.length === 0 ||
         allowedOrigins.includes(origin) ||
+        isPrivateDevelopmentOrigin(origin) ||
         origin.endsWith(".vercel.app")
       ) {
         return callback(null, true);
@@ -82,8 +104,11 @@ app.listen(PORT, () => {
     .then(() => ensureInstituteUploadFormatSupport())
     .then(() => ensureMultipleInterviewersSupport())
     .then(() => ensureEvaluationParametersSupport())
+    .then(() => ensureInterviewDocumentSupport())
+    .then(() => ensureInterviewAttachmentsSupport())
     .then(() => ensureMedicalReportsSupport())
     .then(() => ensureMultipleMedicalAppointmentsSupport())
+    .then(() => ensureAllocationSupport())
     .then(() => warmCache())
     .catch((error) => {
       console.error("Schema upgrade failed:", error.message);

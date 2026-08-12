@@ -48,6 +48,7 @@ const authMiddleware = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
+    let currentRole = decoded.role;
 
     // Verify user/institute status in database (with caching)
     if (decoded.role === ROLES.INSTITUTE) {
@@ -77,9 +78,16 @@ const authMiddleware = async (req, res, next) => {
           return res.status(403).json({ message: 'Account is inactive' });
         }
       }
+
+      // Use the current database role instead of relying on a potentially
+      // stale role embedded in an older JWT.
+      currentRole = user.role || decoded.role;
     }
 
-    req.user = decoded;
+    req.user = {
+      ...decoded,
+      role: currentRole,
+    };
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
