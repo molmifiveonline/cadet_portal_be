@@ -9,6 +9,7 @@ router.use(authMiddleware);
 router.get('/drive', documentController.getDriveDocuments);
 router.post('/request-upload', documentController.requestDocumentUpload);
 router.post('/cadet/:cadet_id', upload.single('document'), documentController.uploadCadetDocument);
+router.put('/cadet/:cadet_id/verification', documentController.reviewCandidateDocuments);
 router.put('/:id/review', documentController.reviewDocument);
 router.get('/:id/download', documentController.downloadDocument);
 router.delete('/:id', documentController.deleteDocument);

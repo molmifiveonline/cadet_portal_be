@@ -18,7 +18,6 @@ router.post('/masters/vessel-types', requireSuperAdmin, masters.saveVesselType);
 router.put('/masters/vessel-types/:id', requireSuperAdmin, masters.saveVesselType);
 
 router.get('/admins', requirePermission('allocations', 'communicate'), controller.listAdmins);
-router.put('/document-verifications/:cadetId', requirePermission('allocations', 'edit'), controller.verifyDocuments);
 router.get('/joining-plans', requirePermission('allocations', 'view'), controller.listJoiningPlans);
 router.post('/joining-plans/:joiningPlanId/communications', requirePermission('allocations', 'communicate'), controller.recordCommunication);
 router.post('/candidate-allocations/:allocationId/joining-plan', requirePermission('allocations', 'edit'), controller.createJoiningPlan);
@@ -33,6 +32,7 @@ router.post('/rank-lists/:rankListId/finalize', requirePermission('allocations',
 router.post('/rank-lists/:rankListId/unlock', requireSuperAdmin, controller.unlockRankList);
 router.get('/', requirePermission('allocations', 'view'), controller.listCycles);
 router.post('/', requirePermission('allocations', 'create'), controller.createCycle);
+router.delete('/:id', requirePermission('allocations', 'edit'), controller.deleteCycle);
 router.get('/:id', requirePermission('allocations', 'view'), controller.getCycle);
 
 module.exports = router;
