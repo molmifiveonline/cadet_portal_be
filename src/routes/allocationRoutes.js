@@ -10,6 +10,7 @@ router.use(authMiddleware);
 router.get('/masters/courses', requirePermission('allocation-masters', 'view'), masters.listCourses);
 router.post('/masters/courses', requirePermission('allocation-masters', 'manage'), masters.saveCourse);
 router.put('/masters/courses/:id', requirePermission('allocation-masters', 'manage'), masters.saveCourse);
+router.delete('/masters/courses/:id', requirePermission('allocation-masters', 'manage'), masters.deleteCourse);
 router.get('/masters/formulas', requirePermission('allocation-masters', 'view'), masters.listFormulas);
 router.post('/masters/formulas', requireSuperAdmin, masters.createFormula);
 router.post('/masters/formulas/:id/activate', requireSuperAdmin, masters.activateFormula);

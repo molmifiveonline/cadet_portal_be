@@ -23,6 +23,14 @@ const {
 const getCadetDisplayName = (cadet = {}) =>
   cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || 'Cadet';
 
+const hasPassedMedical = (cadet = {}) => {
+  const medicalDecision = String(cadet.medical_final_decision || '').toLowerCase();
+  return (
+    cadet.workflow_result === 'medical_passed' ||
+    ['pass', 'fit'].includes(medicalDecision)
+  );
+};
+
 const getInstituteRecipient = async (instituteId, instituteCache = new Map()) => {
   if (!instituteId) return null;
 
@@ -186,12 +194,40 @@ const bulkConfirmCandidates = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Recruitment drive not found' });
     }
 
-    let selectedCadets;
-    if (Array.isArray(cadet_ids) && cadet_ids.length > 0) {
-      selectedCadets = await cadetDao.getCadetsByIds(cadet_ids);
-    } else {
-      selectedCadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
+    if (!Array.isArray(cadet_ids) || cadet_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select at least one medically passed cadet to confirm',
+      });
     }
+
+    const requestedIds = [...new Set(cadet_ids.map(String))];
+    const selectedCadets = await cadetDao.getCadetsByIds(requestedIds);
+    const selectedIdSet = new Set(selectedCadets.map((cadet) => String(cadet.id)));
+    const missingIds = requestedIds.filter((id) => !selectedIdSet.has(id));
+    const outsideDrive = selectedCadets.filter(
+      (cadet) => String(cadet.drive_id) !== String(drive_id),
+    );
+    const notPassed = selectedCadets.filter(
+      (cadet) =>
+        String(cadet.drive_id) === String(drive_id) &&
+        !hasPassedMedical(cadet),
+    );
+
+    if (missingIds.length > 0 || outsideDrive.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'One or more selected cadets do not belong to this recruitment drive',
+      });
+    }
+
+    if (notPassed.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only cadets who have passed the medical exam can be confirmed',
+      });
+    }
+
     const recipient = await getInstituteRecipient(drive.institute_id);
 
     if (selectedCadets.length > 0) {

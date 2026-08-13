@@ -80,6 +80,63 @@ const saveCourse = async (req, res) => {
   }
 };
 
+const deleteCourse = async (req, res) => {
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const [courses] = await connection.query(
+      `SELECT id, name FROM assessment_courses WHERE id=? FOR UPDATE`,
+      [req.params.id],
+    );
+    if (!courses[0]) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Assessment Type not found',
+      });
+    }
+
+    const [[usage]] = await connection.query(
+      `SELECT
+         (SELECT COUNT(*) FROM score_formula_components WHERE course_id=?) AS formula_count,
+         (SELECT COUNT(*) FROM allocation_score_entries WHERE course_id=?) AS score_count`,
+      [req.params.id, req.params.id],
+    );
+    if (Number(usage.formula_count) > 0 || Number(usage.score_count) > 0) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message:
+          'This Assessment Type is already in use and cannot be deleted. Deactivate it instead to preserve allocation history.',
+      });
+    }
+
+    await connection.query(`DELETE FROM assessment_courses WHERE id=?`, [
+      req.params.id,
+    ]);
+    await connection.commit();
+    return res.json({
+      success: true,
+      message: `${courses[0].name} deleted successfully`,
+    });
+  } catch (error) {
+    if (connection) await connection.rollback();
+    if (error.code === 'ER_ROW_IS_REFERENCED_2') {
+      error = Object.assign(
+        new Error(
+          'This Assessment Type is already in use and cannot be deleted. Deactivate it instead to preserve allocation history.',
+        ),
+        { status: 409 },
+      );
+    }
+    sendError(res, error);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
 const listFormulas = async (req, res) => {
   try {
     const params = [];
@@ -177,4 +234,4 @@ const saveVesselType = async (req, res) => {
   } catch (error) { if (error.code === 'ER_DUP_ENTRY') error = Object.assign(new Error('Vessel type already exists'), { status: 409 }); sendError(res, error); }
 };
 
-module.exports = { listCourses, saveCourse, listFormulas, createFormula, activateFormula, listVesselTypes, saveVesselType };
+module.exports = { listCourses, saveCourse, deleteCourse, listFormulas, createFormula, activateFormula, listVesselTypes, saveVesselType };

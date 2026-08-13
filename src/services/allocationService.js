@@ -43,7 +43,6 @@ const getAssessmentTypeSnapshot = async (connection, department) => {
     `SELECT id, code, name
      FROM assessment_courses WHERE status='Active' ORDER BY name`,
   );
-  if (!courses.length) throw httpError(400, 'Add at least one active Assessment Type before creating an allocation');
   return {
     name: 'Assessment Types',
     version: 1,

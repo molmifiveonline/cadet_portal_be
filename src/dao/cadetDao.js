@@ -137,7 +137,7 @@ const buildBaseSelect = async () => {
       iv.total_score,
       iv.final_decision AS interview_final_decision,
       iv.remarks AS interview_remarks,
-      ${interviewCompat.hasComments ? 'iv.comments' : 'NULL AS interview_comments'},
+      ${interviewCompat.hasComments ? 'iv.comments AS interview_comments' : 'NULL AS interview_comments'},
       ${interviewCompat.hasInviteRemark ? 'iv.invite_remark' : 'NULL AS interview_invite_remark'},
       ${interviewCompat.hasInviteDocumentLink ? 'iv.invite_document_link' : 'NULL AS interview_invite_document_link'},
       mr.id AS medical_result_id,
@@ -575,6 +575,15 @@ const getDriveCadets = async (
   let orderClause = `${orderBy} ${orderDirection}`;
   if (isInstitute) {
     orderClause = `CASE WHEN c.workflow_result = 'academic_data_collected' THEN 1 WHEN (COALESCE(c.shortlist_email_sent, 0) = 1 AND (c.workflow_phase IS NULL OR c.workflow_phase NOT IN ('interview', 'medical', 'selected', 'rejected'))) THEN 1 ELSE 0 END DESC, ${orderClause}`;
+  }
+  if (queue === 'shortlist') {
+    orderClause = `CASE
+      WHEN CAST(c.tenth_avg_percentage AS DECIMAL(10,2)) >= 60
+        AND CAST(c.twelfth_pcm_avg_percentage AS DECIMAL(10,2)) >= 60
+        AND CAST(c.twelfth_std_english AS DECIMAL(10,2)) >= 70
+      THEN 0
+      ELSE 1
+    END ASC, ${orderClause}`;
   }
 
   const [rows] = await db.query(
