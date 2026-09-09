@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { filterExistingColumns } = require('../services/schemaCompatibilityService');
+const { getEffectiveCesScore } = require('../services/assessmentScoreService');
 
 const createOrUpdateAssessment = async (assessmentData) => {
   const {
@@ -21,10 +22,8 @@ const createOrUpdateAssessment = async (assessmentData) => {
     mark_for_interview,
   } = assessmentData;
 
-  // Calculate score logic: CES (1st attempt only) + English + Essay
-  let ces_score = 0;
-  const ces1 = parseFloat(ces_test) || 0;
-  ces_score = ces1;
+  // Attempt 2 replaces Attempt 1 for scoring when it has been entered.
+  const ces_score = getEffectiveCesScore(ces_test, ces_test_2);
 
   const eng = parseFloat(english_test) || 0;
   const essay = parseFloat(essay_writing_mark) || 0;
