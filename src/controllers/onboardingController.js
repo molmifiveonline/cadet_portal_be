@@ -17,17 +17,48 @@ const sendError = (res, error) => {
 const listOnboarding = async (req, res) => {
   try {
     const params = [];
-    let where = `WHERE c.status IN ('CTV Assigned','Onboarded')`;
+    let where = `WHERE c.status IN ('CTV Assigned','Onboarded')
+      AND EXISTS (
+        SELECT 1 FROM joining_plans ready_jp
+        JOIN allocation_communications ready_cm ON ready_cm.joining_plan_id=ready_jp.id
+        WHERE ready_jp.allocation_id=o.allocation_id
+          AND (ready_cm.mode IN ('Phone','WhatsApp') OR ready_cm.delivery_status='Sent')
+      )`;
     if (req.query.status) { where += ' AND o.status=?'; params.push(req.query.status); }
     if (req.query.search) { where += ' AND (c.name_as_in_indos_cert LIKE ? OR c.cadet_unique_id LIKE ?)'; params.push(`%${req.query.search}%`, `%${req.query.search}%`); }
     const [rows] = await db.query(
       `SELECT o.*,c.cadet_unique_id,c.name_as_in_indos_cert,c.email_id,c.course,i.institute_name,
-              ac.allocation_number,rl.department,v.name AS vessel_name,v.joining_date,v.reporting_port
+              ac.allocation_number,rl.department,
+              COALESCE(
+                (SELECT ready_jp.vessel_name FROM joining_plans ready_jp
+                 JOIN allocation_communications ready_cm ON ready_cm.joining_plan_id=ready_jp.id
+                 WHERE ready_jp.allocation_id=o.allocation_id
+                   AND (ready_cm.mode IN ('Phone','WhatsApp') OR ready_cm.delivery_status='Sent')
+                 ORDER BY ready_cm.created_at DESC LIMIT 1),
+                v.name,sv.name
+              ) AS vessel_name,
+              COALESCE(
+                (SELECT ready_jp.joining_date FROM joining_plans ready_jp
+                 JOIN allocation_communications ready_cm ON ready_cm.joining_plan_id=ready_jp.id
+                 WHERE ready_jp.allocation_id=o.allocation_id
+                   AND (ready_cm.mode IN ('Phone','WhatsApp') OR ready_cm.delivery_status='Sent')
+                 ORDER BY ready_cm.created_at DESC LIMIT 1),
+                v.joining_date,sv.joining_date
+              ) AS joining_date,
+              COALESCE(
+                (SELECT ready_jp.reporting_port FROM joining_plans ready_jp
+                 JOIN allocation_communications ready_cm ON ready_cm.joining_plan_id=ready_jp.id
+                 WHERE ready_jp.allocation_id=o.allocation_id
+                   AND (ready_cm.mode IN ('Phone','WhatsApp') OR ready_cm.delivery_status='Sent')
+                 ORDER BY ready_cm.created_at DESC LIMIT 1),
+                v.reporting_port,sv.reporting_port
+              ) AS reporting_port
        FROM onboarding o JOIN cadets c ON c.id=o.cadet_id
        JOIN allocations a ON a.id=o.allocation_id JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
        JOIN allocation_cycles ac ON ac.id=rl.cycle_id LEFT JOIN institutes i ON i.id=c.institute_id
-       LEFT JOIN vessels v ON v.id=a.vessel_id ${where}
-       ORDER BY o.status='Pending' DESC,v.joining_date,c.name_as_in_indos_cert`, params,
+       LEFT JOIN vessels v ON v.id=a.vessel_id
+       LEFT JOIN vessels sv ON sv.id=a.secondary_vessel_id ${where}
+       ORDER BY o.status='Pending' DESC,joining_date,c.name_as_in_indos_cert`, params,
     );
     rows.forEach((row) => {
       row.completed_checks = CHECKS.reduce((total, key) => total + Number(row[key] || 0), 0);

@@ -376,6 +376,7 @@ const deleteHandwrittenDocument = async (req, res) => {
 const uploadInterviewAttachments = async (req, res) => {
   const uploadedFiles = req.files || [];
   let filesPersisted = false;
+  const maxInterviewSheets = 10;
 
   try {
     const { cadet_id } = req.params;
@@ -399,14 +400,19 @@ const uploadInterviewAttachments = async (req, res) => {
 
     const existingAttachments =
       await interviewDao.getInterviewAttachments(cadet_id);
-    if (existingAttachments.length > 0) {
+    if (
+      existingAttachments.length + uploadedFiles.length >
+      maxInterviewSheets
+    ) {
       await Promise.all(
         uploadedFiles.map((file) => removeStoredFile(file.filename)),
       );
       return res.status(409).json({
         success: false,
-        message:
-          'Interview sheets are already uploaded. Delete all existing sheets before uploading again.',
+        message: `A maximum of ${maxInterviewSheets} interview sheets is allowed. You can upload ${Math.max(
+          0,
+          maxInterviewSheets - existingAttachments.length,
+        )} more file(s).`,
       });
     }
 

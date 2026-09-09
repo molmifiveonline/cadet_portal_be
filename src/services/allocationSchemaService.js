@@ -57,10 +57,17 @@ const addConstraint = async (table, name, definition) => {
 };
 
 const seedPermissions = async () => {
+  // Administrator used to be created as a built-in system role. Remove only
+  // that legacy system record; a user-created Admin role has is_system_role=0
+  // and remains available like any other custom role.
   await db.query(
-    `INSERT INTO roles (id, name, display_name, description, is_system_role)
-     SELECT UUID(), 'Admin', 'Administrator', 'Operational administrator for recruitment, allocation, and onboarding', 1
-     WHERE NOT EXISTS (SELECT 1 FROM roles WHERE LOWER(name) = 'admin')`,
+    `DELETE rp FROM role_permissions rp
+     JOIN roles r ON r.id = rp.role_id
+     WHERE LOWER(r.name) = 'admin' AND r.is_system_role = 1`,
+  );
+  await db.query(
+    `DELETE FROM roles
+     WHERE LOWER(name) = 'admin' AND is_system_role = 1`,
   );
 
   const permissions = [
@@ -90,34 +97,6 @@ const seedPermissions = async () => {
     );
   }
 
-  const adminActions = [
-    ['allocations', 'view'],
-    ['allocations', 'create'],
-    ['allocations', 'edit'],
-    ['allocations', 'finalize'],
-    ['allocations', 'communicate'],
-    ['allocation-masters', 'view'],
-    ['allocation-masters', 'manage'],
-    ['onboarding', 'view'],
-    ['onboarding', 'edit'],
-    ['vessel-master', 'view'],
-    ['vessel-master', 'create'],
-    ['vessel-master', 'edit'],
-  ];
-
-  for (const [module, action] of adminActions) {
-    await db.query(
-      `INSERT INTO role_permissions (id, role_id, permission_id, granted)
-       SELECT UUID(), r.id, p.id, 1
-       FROM roles r JOIN permissions p ON p.module = ? AND p.action = ?
-       WHERE LOWER(r.name) = 'admin'
-         AND NOT EXISTS (
-           SELECT 1 FROM role_permissions rp
-           WHERE rp.role_id = r.id AND rp.permission_id = p.id
-         )`,
-      [module, action],
-    );
-  }
 };
 
 const ensureAllocationSupport = async () => {

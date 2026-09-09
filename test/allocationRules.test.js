@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   calculateFinalScore,
-  calculateSimpleTotal,
+  calculateAcademicAssessmentAverage,
   createRankMovePlan,
   hasAllocatedVessel,
   normalizeDepartment,
@@ -24,11 +24,24 @@ test('incomplete assessment returns no final score', () => {
   ]), null);
 });
 
-test('simple assessment scoring adds academic and manually entered scores', () => {
-  assert.equal(calculateSimpleTotal(80, [
-    { score: 10, max_score_snapshot: 20 },
-    { score: 15, max_score_snapshot: 25 },
-  ]), 105);
+test('assessment scoring averages normalized assessments with academics', () => {
+  assert.equal(calculateAcademicAssessmentAverage(80, [
+    { score: 8, max_score_snapshot: 10 },
+    { score: 6, max_score_snapshot: 10 },
+  ]), 75);
+});
+
+test('assessment average formula stays incomplete until every entered score is present', () => {
+  assert.equal(calculateAcademicAssessmentAverage(80, [
+    { score: 8, max_score_snapshot: 10 },
+    { score: null, max_score_snapshot: 10 },
+  ]), null);
+});
+
+test('assessment average formula rejects a score above the course maximum', () => {
+  assert.throws(() => calculateAcademicAssessmentAverage(80, [
+    { score: 11, max_score_snapshot: 10, course_name_snapshot: 'Navigation' },
+  ]), /between 0 and 10/);
 });
 
 test('out-of-range assessment score is rejected', () => {
