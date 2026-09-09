@@ -6,6 +6,9 @@ const {
   DISPLAY_STATUS,
   buildWorkflowUpdate,
 } = require('../services/recruitmentWorkflowService');
+const {
+  normalizeOptionalScore,
+} = require('../services/assessmentScoreService');
 
 const saveAssessment = async (req, res) => {
   try {
@@ -14,7 +17,7 @@ const saveAssessment = async (req, res) => {
       assessment_date,
       assessment_time,
       ces_test,
-      ces_test_2,
+      ces_test_2: normalizeOptionalScore(ces_test_2),
       english_test,
       essay_writing_mark,
       remarks,
