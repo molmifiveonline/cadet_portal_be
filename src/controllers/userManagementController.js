@@ -180,7 +180,7 @@ const updateUser = async (req, res, next) => {
       first_name,
       last_name,
       userStatus,
-      role || existingUser.role || 'Admin',
+      role || existingUser.role || 'SuperAdmin',
       shouldUpdatePassword ? password : null,
     );
 

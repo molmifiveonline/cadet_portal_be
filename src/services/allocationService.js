@@ -140,12 +140,21 @@ const createCycle = async ({ year, userId }) => {
   finally { connection.release(); }
 };
 
-const addCandidates = async ({ rankListId, cadetIds, userId }) => {
+const addCandidates = async ({ rankListId, cadetIds, candidates, userId }) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
     const rankList = await getRankList(connection, rankListId, true); ensureDraft(rankList);
-    for (const cadetId of [...new Set(cadetIds || [])]) {
+    const requestedCandidates = Array.isArray(candidates) && candidates.length
+      ? candidates
+      : (cadetIds || []).map((cadetId) => ({ cadet_id: cadetId }));
+    const uniqueCandidates = [...new Map(
+      requestedCandidates.map((item) => [String(item.cadet_id || '').trim(), item]),
+    ).values()].filter((item) => String(item.cadet_id || '').trim());
+    if (!uniqueCandidates.length) throw httpError(400, 'Select at least one valid candidate');
+    const added = [];
+    for (const candidateConfig of uniqueCandidates) {
+      const cadetId = String(candidateConfig.cadet_id).trim();
       const [rows] = await connection.query(
         `SELECT c.*, dv.status AS document_verification_status
          FROM cadets c LEFT JOIN document_verifications dv ON dv.cadet_id=c.id
@@ -174,14 +183,61 @@ const addCandidates = async ({ rankListId, cadetIds, userId }) => {
          WHERE a.cadet_id=? AND a.is_active=1 AND ac.status='Active' LIMIT 1`, [cadetId],
       );
       if (duplicates.length) throw httpError(409, `${cadet.name_as_in_indos_cert} already belongs to ${duplicates[0].allocation_number}`);
+
+      const scores = Array.isArray(candidateConfig.scores) ? candidateConfig.scores : [];
+      const courseIds = scores.map((score) => String(score.course_id || '').trim());
+      if (courseIds.some((courseId) => !courseId)) throw httpError(400, `Select an Assessment Type for every score entered for ${cadet.name_as_in_indos_cert}`);
+      if (new Set(courseIds).size !== courseIds.length) throw httpError(400, `Assessment Types must be unique for ${cadet.name_as_in_indos_cert}`);
+      const coursesById = new Map();
+      if (courseIds.length) {
+        const [courses] = await connection.query(
+          `SELECT id,name,status FROM assessment_courses WHERE id IN (?) FOR UPDATE`,
+          [courseIds],
+        );
+        courses.forEach((course) => coursesById.set(course.id, course));
+      }
+      const normalizedScores = scores.map((score) => {
+        const course = coursesById.get(String(score.course_id).trim());
+        const value = Number(score.score);
+        if (!course || course.status !== 'Active') throw httpError(400, `Select an active Assessment Type for ${cadet.name_as_in_indos_cert}`);
+        if (!Number.isFinite(value) || value < 0 || value > 10) throw httpError(400, `${course.name} score must be between 0 and 10`);
+        return { course_id: course.id, course_name: course.name, score: value, max_score_snapshot: 10 };
+      });
+
+      const vesselTypeId = String(candidateConfig.vessel_type_id || '').trim() || null;
+      if (vesselTypeId) {
+        const [types] = await connection.query(
+          `SELECT id,name,department,status FROM vessel_types WHERE id=? FOR UPDATE`,
+          [vesselTypeId],
+        );
+        const type = types[0];
+        if (!type || type.status !== 'Active' || ![rankList.department, 'Both'].includes(type.department)) {
+          throw httpError(400, `Select a compatible active vessel type for ${cadet.name_as_in_indos_cert}`);
+        }
+      }
+
       const allocationId = uuidv4();
+      const finalScore = normalizedScores.length
+        ? calculateAcademicAssessmentAverage(academicScore, normalizedScores)
+        : null;
       await connection.query(
-        `INSERT INTO allocations (id,rank_list_id,cadet_id,allocation_status,academic_score,is_active,added_by)
-         VALUES (?,?,?,'Pending',?,1,?)`, [allocationId, rankListId, cadetId, academicScore, userId],
+        `INSERT INTO allocations (id,rank_list_id,cadet_id,allocation_status,academic_score,final_score,vessel_type_id,is_active,added_by)
+         VALUES (?,?,?,'Pending',?,?,?,1,?)`,
+        [allocationId, rankListId, cadetId, academicScore, finalScore, vesselTypeId, userId],
       );
+      for (const score of normalizedScores) {
+        await connection.query(
+          `INSERT INTO allocation_score_entries
+           (id,allocation_id,course_id,course_name_snapshot,max_score_snapshot,weight_snapshot,score,updated_by)
+           VALUES (?,?,?,?,10,0,?,?)`,
+          [uuidv4(), allocationId, score.course_id, score.course_name, score.score, userId],
+        );
+      }
+      added.push({ allocation_id: allocationId, cadet_id: cadetId });
     }
     await recalculateRanks(connection, rankListId);
     await connection.commit();
+    return added;
   } catch (error) { await connection.rollback(); throw error; }
   finally { connection.release(); }
 };

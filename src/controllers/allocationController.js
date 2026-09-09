@@ -54,13 +54,27 @@ const hydrateCycle = async (cycleId) => {
     list.formula_snapshot = parseJson(list.formula_snapshot, {});
     const [allocations] = await db.query(
       `SELECT a.*, c.cadet_unique_id, c.name_as_in_indos_cert, c.email_id, c.course, c.batch_year,
+              c.tenth_avg_percentage,c.twelfth_pcm_avg_percentage,
+              c.imu_avg_all_semester_percentage AS profile_academic_score,
+              c.imu_sem_1_percentage,c.imu_sem_2_percentage,c.imu_sem_3_percentage,c.imu_sem_4_percentage,
+              c.imu_sem_5_percentage,c.imu_sem_6_percentage,c.imu_sem_7_percentage,c.imu_sem_8_percentage,
               i.institute_name, vt.name AS vessel_type_name, svt.name AS secondary_vessel_type_name,
               v.name AS vessel_name, v.total_seats, v.joining_date, v.location, v.voyage_ref, v.reporting_port,
               sv.name AS secondary_vessel_name, sv.total_seats AS secondary_total_seats,
               sv.joining_date AS secondary_joining_date, sv.location AS secondary_location,
               sv.voyage_ref AS secondary_voyage_ref, sv.reporting_port AS secondary_reporting_port,
               pjp.id AS primary_joining_plan_id, pjp.status AS primary_joining_plan_status,
-              sjp.id AS secondary_joining_plan_id, sjp.status AS secondary_joining_plan_status
+              sjp.id AS secondary_joining_plan_id, sjp.status AS secondary_joining_plan_status,
+              o.id AS onboarding_id, o.status AS onboarding_status,
+              (COALESCE(o.passport_verified,0) + COALESCE(o.medical_cert_verified,0)
+                + COALESCE(o.bank_details_verified,0) + COALESCE(o.agreement_signed,0)
+                + COALESCE(o.final_clearance,0)) AS onboarding_completed_checks,
+              EXISTS(
+                SELECT 1 FROM joining_plans ijp
+                JOIN allocation_communications ic ON ic.joining_plan_id=ijp.id
+                WHERE ijp.allocation_id=a.id
+                  AND (ic.mode IN ('Phone','WhatsApp') OR ic.delivery_status='Sent')
+              ) AS joining_intimation_complete
        FROM allocations a JOIN cadets c ON c.id=a.cadet_id
        LEFT JOIN institutes i ON i.id=c.institute_id
        LEFT JOIN vessel_types vt ON vt.id=a.vessel_type_id
@@ -69,6 +83,7 @@ const hydrateCycle = async (cycleId) => {
        LEFT JOIN vessels sv ON sv.id=a.secondary_vessel_id
        LEFT JOIN joining_plans pjp ON pjp.allocation_id=a.id AND pjp.vessel_role='Primary'
        LEFT JOIN joining_plans sjp ON sjp.allocation_id=a.id AND sjp.vessel_role='Secondary'
+       LEFT JOIN onboarding o ON o.allocation_id=a.id
        WHERE a.rank_list_id=? AND a.is_active=1
        ORDER BY a.current_rank IS NULL, a.current_rank, c.cadet_unique_id`, [list.id],
     );
@@ -215,9 +230,11 @@ const listEligibleCandidates = async (req, res) => {
 
 const addCandidates = async (req, res) => {
   try {
-    if (!Array.isArray(req.body.cadet_ids) || !req.body.cadet_ids.length) return res.status(400).json({ success: false, message: 'Select at least one candidate' });
-    await addCandidatesService({ rankListId: req.params.rankListId, cadetIds: req.body.cadet_ids, userId: req.user.id });
-    res.status(201).json({ success: true, message: 'Candidates added to allocation' });
+    const cadetIds = Array.isArray(req.body.cadet_ids) ? req.body.cadet_ids : [];
+    const candidates = Array.isArray(req.body.candidates) ? req.body.candidates : [];
+    if (!cadetIds.length && !candidates.length) return res.status(400).json({ success: false, message: 'Select at least one candidate' });
+    const added = await addCandidatesService({ rankListId: req.params.rankListId, cadetIds, candidates, userId: req.user.id });
+    res.status(201).json({ success: true, message: 'Candidates added to allocation', data: { added } });
   } catch (error) { errorResponse(res, error); }
 };
 
@@ -667,7 +684,10 @@ const listJoiningPlans = async (req, res) => {
               (SELECT COALESCE(NULLIF(TRIM(CONCAT_WS(' ',u.first_name,u.last_name)),''),u.email)
                FROM allocation_communications cm LEFT JOIN users u ON u.id=cm.informed_by
                WHERE cm.joining_plan_id=jp.id ORDER BY cm.created_at DESC LIMIT 1) AS last_informed_by,
-              (SELECT COUNT(*) FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id) AS communication_count
+              (SELECT COUNT(*) FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id) AS communication_count,
+              (SELECT COUNT(*) FROM allocation_communications cm
+               WHERE cm.joining_plan_id=jp.id
+                 AND (cm.mode IN ('Phone','WhatsApp') OR cm.delivery_status='Sent')) AS successful_communication_count
        FROM joining_plans jp JOIN allocations a ON a.id=jp.allocation_id JOIN cadets c ON c.id=a.cadet_id
        JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id JOIN allocation_cycles ac ON ac.id=rl.cycle_id
        WHERE (? IS NULL OR ac.id=?) ORDER BY jp.created_at DESC`, [req.query.cycle_id || null, req.query.cycle_id || null],
