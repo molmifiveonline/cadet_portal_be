@@ -19,6 +19,9 @@ const {
   logAndSendBatchEmail,
   emailTemplates,
 } = require('../services/recruitmentCommunicationService');
+const {
+  haveAllMedicalReportsPassed,
+} = require('../services/medicalReportStatusService');
 
 const getCadetDisplayName = (cadet = {}) =>
   cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || 'Cadet';
@@ -27,9 +30,13 @@ const hasPassedMedical = (cadet = {}) => {
   const medicalDecision = String(cadet.medical_final_decision || '').toLowerCase();
   return (
     cadet.workflow_result === 'medical_passed' ||
-    ['pass', 'fit'].includes(medicalDecision)
+    ['pass', 'fit', 'retest'].includes(medicalDecision)
   );
 };
+
+const canConfirmMedicalCadet = (cadet = {}) =>
+  hasPassedMedical(cadet) &&
+  haveAllMedicalReportsPassed(cadet.medical_report_results);
 
 const getInstituteRecipient = async (instituteId, instituteCache = new Map()) => {
   if (!instituteId) return null;
@@ -211,7 +218,7 @@ const bulkConfirmCandidates = async (req, res) => {
     const notPassed = selectedCadets.filter(
       (cadet) =>
         String(cadet.drive_id) === String(drive_id) &&
-        !hasPassedMedical(cadet),
+        !canConfirmMedicalCadet(cadet),
     );
 
     if (missingIds.length > 0 || outsideDrive.length > 0) {
@@ -224,7 +231,8 @@ const bulkConfirmCandidates = async (req, res) => {
     if (notPassed.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Only cadets who have passed the medical exam can be confirmed',
+        message:
+          'Only Pass or Retest cadets with all medical reports passed can be confirmed',
       });
     }
 

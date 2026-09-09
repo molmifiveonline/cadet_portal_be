@@ -41,6 +41,7 @@ const getInterviewCompatibility = async () => ({
 
 const getMedicalCompatibility = async () => ({
   hasFinalDecision: await hasColumn('cadet_medical_results', 'final_decision'),
+  hasReportResults: await hasColumn('cadet_medical_results', 'report_results'),
   hasPsychometricStatus: await hasColumn('cadet_medical_results', 'psychometric_status'),
   hasProfilingStatus: await hasColumn('cadet_medical_results', 'profiling_status'),
   hasInviteRemark: await hasColumn('cadet_medical_results', 'invite_remark'),
@@ -145,6 +146,7 @@ const buildBaseSelect = async () => {
       mr.appointment_time AS medical_time,
       mr.status AS fit_status,
       ${medicalCompat.hasFinalDecision ? 'mr.final_decision AS medical_final_decision' : 'NULL AS medical_final_decision'},
+      ${medicalCompat.hasReportResults ? 'mr.report_results AS medical_report_results' : 'NULL AS medical_report_results'},
       ${medicalCompat.hasPsychometricStatus ? 'mr.psychometric_status' : 'NULL AS psychometric_status'},
       ${medicalCompat.hasProfilingStatus ? 'mr.profiling_status' : 'NULL AS profiling_status'},
       mr.remarks AS medical_remarks,
