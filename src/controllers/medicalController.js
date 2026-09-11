@@ -6,14 +6,12 @@ const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const recruitmentCommunicationDao = require('../dao/recruitmentCommunicationDao');
 const medicalReportDao = require('../dao/medicalReportDao');
 const medicalCenterDao = require('../dao/medicalCenterDao');
-const documentController = require('./documentController');
 const {
   WORKFLOW_PHASES,
   DISPLAY_STATUS,
   buildWorkflowUpdate,
   COMMUNICATION_TYPES,
 } = require('../services/recruitmentWorkflowService');
-const { FRONTEND_URL } = require('../config/constants');
 const {
   logAndSendEmail,
   logAndSendBatchEmail,
@@ -22,6 +20,7 @@ const {
 const {
   haveAllMedicalReportsPassed,
 } = require('../services/medicalReportStatusService');
+const { normalizeEmailRecipients } = require('../utils/emailUtils');
 
 const getCadetDisplayName = (cadet = {}) =>
   cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || 'Cadet';
@@ -51,17 +50,6 @@ const getInstituteRecipient = async (instituteId, instituteCache = new Map()) =>
   if (!institute || !email) return null;
 
   return { institute, email };
-};
-
-const addDocumentRequestBatchItem = (batches, recipient, item) => {
-  const key = `${recipient.email}|${item.institute_id}`;
-  if (!batches.has(key)) {
-    batches.set(key, {
-      recipient,
-      items: [],
-    });
-  }
-  batches.get(key).items.push(item);
 };
 
 const saveMedicalResult = async (req, res) => {
@@ -286,7 +274,13 @@ const bulkConfirmCandidates = async (req, res) => {
 
 const bulkCollectAcademicData = async (req, res) => {
   try {
-    const { drive_id, cadet_ids } = req.body;
+    const { drive_id, cadet_ids, cc } = req.body;
+    let ccRecipients;
+    try {
+      ccRecipients = normalizeEmailRecipients(cc);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -308,6 +302,7 @@ const bulkCollectAcademicData = async (req, res) => {
     if (recipient) {
       await logAndSendEmail({
         to: recipient.email,
+        cc: ccRecipients,
         template: emailTemplates.stageInviteBatch,
         templateData: {
           subject: `Pending academic data request for ${drive.drive_name}`,
@@ -358,7 +353,7 @@ const bulkCollectAcademicData = async (req, res) => {
 
 const bulkCollectDocuments = async (req, res) => {
   try {
-    const { drive_id, remarks = '', document_link = '', cadet_ids } = req.body;
+    const { drive_id, cadet_ids } = req.body;
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -368,61 +363,6 @@ const bulkCollectDocuments = async (req, res) => {
       cadets = await cadetDao.getCadetsByIds(cadet_ids);
     } else {
       cadets = await cadetDao.getDriveCadets(drive_id, { queue: 'selected' });
-    }
-
-    const instituteCache = new Map();
-    const emailBatches = new Map();
-
-    for (const cadet of cadets) {
-      const candidateLink =
-        document_link ||
-        process.env.CANDIDATE_DOCUMENT_UPLOAD_LINK ||
-        `${FRONTEND_URL || ''}/drives/${drive_id}`;
-
-      await documentController.createExternalDocumentRequest({
-        cadet,
-        documentType: 'OTHER',
-        link: candidateLink,
-        sentBy: req.user?.id || null,
-        remarks,
-      });
-
-      const recipient = await getInstituteRecipient(cadet.institute_id, instituteCache);
-      if (recipient) {
-        addDocumentRequestBatchItem(emailBatches, recipient, {
-          drive_id,
-          cadetId: cadet.id,
-          cadetName: getCadetDisplayName(cadet),
-          cadetUniqueId: cadet.cadet_unique_id,
-          institute_id: cadet.institute_id,
-          documentLink: candidateLink,
-          remarks,
-        });
-      }
-    }
-
-    for (const batch of emailBatches.values()) {
-      await logAndSendBatchEmail({
-        to: batch.recipient.email,
-        template: emailTemplates.documentUploadRequestBatch,
-        templateData: {
-          subject: 'Document upload requested - MOLMI',
-          recipientName: batch.recipient.institute.institute_name,
-          cadets: batch.items,
-        },
-        communications: batch.items.map((item) => ({
-          drive_id: item.drive_id,
-          cadet_id: item.cadetId,
-          institute_id: item.institute_id,
-          communication_type: COMMUNICATION_TYPES.DOCUMENT_REQUEST,
-          remarks: item.remarks,
-          sent_by: req.user?.id || null,
-          payload_json: {
-            subject: 'Document upload requested - MOLMI',
-            ...item,
-          },
-        })),
-      });
     }
 
     if (cadets.length > 0) {
@@ -441,9 +381,9 @@ const bulkCollectDocuments = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Document collection initiated',
+      message: 'Cadets moved to the document process',
       data: {
-        requested_count: cadets.length,
+        moved_count: cadets.length,
       },
     });
   } catch (error) {

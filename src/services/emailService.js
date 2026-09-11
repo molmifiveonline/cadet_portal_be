@@ -1,5 +1,6 @@
 const nodemailer = require("nodemailer");
 const { formatDateForDisplay } = require("../utils/dateUtils");
+const { normalizeEmailRecipients } = require("../utils/emailUtils");
 
 // Create email transporter
 const createTransporter = () => {
@@ -43,6 +44,7 @@ const createTransporter = () => {
  * Send email
  * @param {Object} options - Email options
  * @param {string} options.to - Recipient email
+ * @param {string|string[]} [options.cc] - Optional CC recipients
  * @param {string} options.subject - Email subject
  * @param {string} options.text - Plain text content
  * @param {string} options.html - HTML content
@@ -52,10 +54,12 @@ const createTransporter = () => {
 const sendEmail = async (options) => {
   try {
     const transporter = createTransporter();
+    const cc = normalizeEmailRecipients(options.cc);
 
     const mailOptions = {
       from: `${process.env.EMAIL_FROM_NAME || "MOLMI Recruitment"} <${process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER}>`,
       to: options.to,
+      ...(cc.length > 0 && { cc }),
       subject: options.subject,
       text: options.text,
       html: options.html || options.text.replace(/\n/g, "<br>"),
