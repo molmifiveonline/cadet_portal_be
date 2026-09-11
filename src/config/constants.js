@@ -1,5 +1,13 @@
 // Application Constants
 
+const configuredFrontendUrls = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((url) => url.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const frontendUrl = configuredFrontendUrls[0] || 'http://localhost:3000';
+const instituteFrontendUrl = configuredFrontendUrls[1] || frontendUrl;
+
 module.exports = {
   // JWT
   JWT_SECRET: process.env.JWT_SECRET || 'fallback_secret',
@@ -160,6 +168,8 @@ module.exports = {
   EXTERNAL_LINK_EXPIRY_HOURS: 168,
   
   // Frontend URLs for absolute links
-  FRONTEND_URL: (process.env.FRONTEND_URL || '').split(',')[0].trim() || 'http://localhost:3000',
-  INSTITUTE_FRONTEND_URL: (process.env.FRONTEND_URL || '').split(',')[1]?.trim() || (process.env.FRONTEND_URL || '').split(',')[0].trim() || 'http://localhost:3001',
+  FRONTEND_URL: frontendUrl,
+  INSTITUTE_LOGIN_URL: (
+    process.env.INSTITUTE_LOGIN_URL || `${instituteFrontendUrl}/institute-login`
+  ).trim().replace(/\/+$/, ''),
 };

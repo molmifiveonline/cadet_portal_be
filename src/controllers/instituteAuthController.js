@@ -12,7 +12,7 @@ const {
   INSTITUTE_CREDENTIAL_EXPIRY_DAYS,
   INSTITUTE_UPLOAD_TYPES,
   DRIVE_STATUS,
-  INSTITUTE_FRONTEND_URL,
+  INSTITUTE_LOGIN_URL,
 } = require('../config/constants');
 const recruitmentDriveDao = require('../dao/recruitmentDriveDao');
 const shortlistService = require('../services/shortlistService');
@@ -25,10 +25,8 @@ const { ROLES } = require('../config/constants');
 const { formatDateForDisplay } = require('../utils/dateUtils');
 
 const INSTITUTE_RECRUITMENT_DRIVES_ROUTE = '/drives';
-const INSTITUTE_LOGIN_ROUTE = '/institute-login';
-
 const buildInstituteEmailLoginLink = (redirectPath = INSTITUTE_RECRUITMENT_DRIVES_ROUTE) =>
-  `${INSTITUTE_FRONTEND_URL}${INSTITUTE_LOGIN_ROUTE}?redirect=${encodeURIComponent(redirectPath)}`;
+  `${INSTITUTE_LOGIN_URL}?redirect=${encodeURIComponent(redirectPath)}`;
 
 const STATIC_INSTITUTE_REQUEST_EMAIL = {
   subject: 'Action Required: Submit Excel Data - MOLMI',
