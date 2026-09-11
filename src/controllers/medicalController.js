@@ -20,6 +20,7 @@ const {
 const {
   haveAllMedicalReportsPassed,
 } = require('../services/medicalReportStatusService');
+const { normalizeEmailRecipients } = require('../utils/emailUtils');
 
 const getCadetDisplayName = (cadet = {}) =>
   cadet.name_as_in_indos_cert || cadet.cadet_unique_id || cadet.id || 'Cadet';
@@ -273,7 +274,13 @@ const bulkConfirmCandidates = async (req, res) => {
 
 const bulkCollectAcademicData = async (req, res) => {
   try {
-    const { drive_id, cadet_ids } = req.body;
+    const { drive_id, cadet_ids, cc } = req.body;
+    let ccRecipients;
+    try {
+      ccRecipients = normalizeEmailRecipients(cc);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
     if (!drive_id) {
       return res.status(400).json({ success: false, message: 'drive_id is required' });
     }
@@ -295,6 +302,7 @@ const bulkCollectAcademicData = async (req, res) => {
     if (recipient) {
       await logAndSendEmail({
         to: recipient.email,
+        cc: ccRecipients,
         template: emailTemplates.stageInviteBatch,
         templateData: {
           subject: `Pending academic data request for ${drive.drive_name}`,

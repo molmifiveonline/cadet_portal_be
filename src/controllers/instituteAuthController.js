@@ -23,6 +23,7 @@ const { generateCadetCvTemplate } = require('../services/cvTemplateService');
 const notificationService = require('../services/notificationService');
 const { ROLES } = require('../config/constants');
 const { formatDateForDisplay } = require('../utils/dateUtils');
+const { normalizeEmailRecipients } = require('../utils/emailUtils');
 
 const INSTITUTE_RECRUITMENT_DRIVES_ROUTE = '/drives';
 const buildInstituteEmailLoginLink = (redirectPath = INSTITUTE_RECRUITMENT_DRIVES_ROUTE) =>
@@ -85,9 +86,16 @@ const normalizeCourseType = (value) => {
 
 const sendInstituteEmail = async (req, res) => {
   try {
-    const { instituteIds, batch_year, course_type } = req.body;
+    const { instituteIds, batch_year, course_type, cc } = req.body;
     const resolvedCourseType = normalizeCourseType(course_type);
     const resolvedRemarks = STATIC_INSTITUTE_REQUEST_EMAIL.remarks;
+    let ccRecipients = [];
+
+    try {
+      ccRecipients = normalizeEmailRecipients(cc);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
 
     if (!instituteIds) {
       return res.status(400).json({
@@ -226,6 +234,7 @@ const sendInstituteEmail = async (req, res) => {
       try {
         await logAndSendEmail({
           to: targetEmail,
+          cc: ccRecipients,
           template: () => emailContent,
           templateData: {
             instituteName: institute.institute_name,
@@ -235,6 +244,7 @@ const sendInstituteEmail = async (req, res) => {
             batch_year: batch_year || new Date().getFullYear(),
             course_type: resolvedCourseType,
             request_type: requestTemplate.requestType,
+            cc: ccRecipients,
           },
           drive_id: drive?.id || null,
           institute_id: id,
@@ -306,7 +316,14 @@ const sendInstituteEmail = async (req, res) => {
 
 const sendShortlistEmail = async (req, res) => {
   try {
-    const { instituteIds, cadetIds, subject, remarks, drive_id } = req.body;
+    const { instituteIds, cadetIds, subject, remarks, drive_id, cc } = req.body;
+    let ccRecipients = [];
+
+    try {
+      ccRecipients = normalizeEmailRecipients(cc);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
 
     if (!instituteIds) {
       return res.status(400).json({
@@ -473,6 +490,7 @@ const sendShortlistEmail = async (req, res) => {
 
         await logAndSendEmail({
           to: targetEmail,
+          cc: ccRecipients,
           template: () => ({
             ...emailContent,
             html: `${emailContent.html}<p>Please complete the attached cadet-wise Excel pending details template(s) and upload each completed file against the matching cadet in the portal.</p><p><strong>Remarks:</strong> ${remarks || 'No remarks provided.'}</p>`,
@@ -483,6 +501,7 @@ const sendShortlistEmail = async (req, res) => {
             remarks,
             driveName: drive?.drive_name,
             batch_year: resolvedBatchYear,
+            cc: ccRecipients,
           },
           drive_id: drive?.id || null,
           institute_id: id,

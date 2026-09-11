@@ -11,6 +11,7 @@ const {
   emailTemplates,
 } = require('../services/recruitmentCommunicationService');
 const { EXTERNAL_LINK_EXPIRY_HOURS, FRONTEND_URL, ROLES } = require('../config/constants');
+const { normalizeEmailRecipients } = require('../utils/emailUtils');
 
 const groupDocumentsByCadet = (rows = []) => {
   const grouped = new Map();
@@ -404,7 +405,13 @@ const createExternalDocumentRequest = async ({ cadet, documentType = 'OTHER', li
 
 const requestDocumentUpload = async (req, res) => {
   try {
-    const { drive_id, cadet_links, remarks, document_name, document_type } = req.body;
+    const { drive_id, cadet_links, remarks, document_name, document_type, cc } = req.body;
+    let ccRecipients;
+    try {
+      ccRecipients = normalizeEmailRecipients(cc);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
     let docTypes = req.body.document_types;
 
     if (!docTypes && document_type) {
@@ -472,6 +479,7 @@ const requestDocumentUpload = async (req, res) => {
       try {
         const result = await logAndSendBatchEmail({
           to: batch.recipient.email,
+          cc: ccRecipients,
           template: emailTemplates.documentUploadRequestBatch,
           templateData: {
             subject: 'Action Required: Document Upload - MOLMI',

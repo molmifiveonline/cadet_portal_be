@@ -3,6 +3,7 @@ const recruitmentCommunicationDao = require('../dao/recruitmentCommunicationDao'
 
 const logAndSendEmail = async ({
   to,
+  cc = [],
   template,
   templateData,
   drive_id = null,
@@ -18,6 +19,7 @@ const logAndSendEmail = async ({
   try {
     await sendEmail({
       to,
+      cc,
       subject: content.subject,
       html: content.html,
       attachments,
@@ -60,6 +62,7 @@ const logAndSendEmail = async ({
 
 const logAndSendBatchEmail = async ({
   to,
+  cc = [],
   template,
   templateData,
   communications = [],
@@ -74,6 +77,7 @@ const logAndSendBatchEmail = async ({
   try {
     await sendEmail({
       to,
+      cc,
       subject: content.subject,
       html: content.html,
       attachments,

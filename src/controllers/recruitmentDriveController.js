@@ -29,6 +29,7 @@ const {
   logAndSendBatchEmail,
   emailTemplates,
 } = require("../services/recruitmentCommunicationService");
+const { normalizeEmailRecipients } = require("../utils/emailUtils");
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "";
 const INVITE_CONCURRENCY = 5;
@@ -99,12 +100,14 @@ const sendStageInviteBatches = async ({
   communicationType,
   sentBy,
   attachments = [],
+  cc = [],
   showLocation = true,
   showLink = true,
 }) => {
   for (const batch of batches.values()) {
     await logAndSendBatchEmail({
       to: batch.recipient.email,
+      cc,
       template: emailTemplates.stageInviteBatch,
       templateData: {
         subject,
@@ -748,7 +751,13 @@ const shortlistCadets = async (req, res) => {
 const sendAssessmentInvites = async (req, res) => {
   try {
     const { id } = req.params;
-    let { cadets = [] } = req.body;
+    let { cadets = [], cc } = req.body;
+    let ccRecipients;
+    try {
+      ccRecipients = normalizeEmailRecipients(cc);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
 
     // Handle FormData stringified cadets
     if (typeof cadets === 'string') {
@@ -841,6 +850,7 @@ const sendAssessmentInvites = async (req, res) => {
       attachments,
       showLocation: false,
       showLink: false,
+      cc: ccRecipients,
     });
 
     res.json({
@@ -862,7 +872,13 @@ const sendAssessmentInvites = async (req, res) => {
 const sendInterviewInvites = async (req, res) => {
   try {
     const { id } = req.params;
-    const { cadets = [] } = req.body;
+    const { cadets = [], cc } = req.body;
+    let ccRecipients;
+    try {
+      ccRecipients = normalizeEmailRecipients(cc);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
     const instituteCache = new Map();
@@ -913,6 +929,7 @@ const sendInterviewInvites = async (req, res) => {
       communicationType: COMMUNICATION_TYPES.INTERVIEW_INVITE,
       sentBy: req.user?.id || null,
       showLocation: false,
+      cc: ccRecipients,
     });
 
     // Advance drive status to Assessment Completed when interview invites go out.
@@ -955,7 +972,13 @@ const sendInterviewInvites = async (req, res) => {
 const sendMedicalInvites = async (req, res) => {
   try {
     const { id } = req.params;
-    const { cadets = [] } = req.body;
+    const { cadets = [], cc } = req.body;
+    let ccRecipients;
+    try {
+      ccRecipients = normalizeEmailRecipients(cc);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
     const cadetIds = cadets.map((cadetInvite) => cadetInvite.cadet_id).filter(Boolean);
     const cadetMap = mapById(await cadetDao.getCadetsByIds(cadetIds));
     
@@ -1021,6 +1044,7 @@ const sendMedicalInvites = async (req, res) => {
       locationLabel: "Medical Location",
       communicationType: COMMUNICATION_TYPES.MEDICAL_INVITE,
       sentBy: req.user?.id || null,
+      cc: ccRecipients,
     });
 
     // Advance drive status to Interview Completed when medical invites go out.
