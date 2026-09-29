@@ -1,11 +1,13 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
+const withoutRetiredFields = ({ communication_details, ...vessel }) => vessel;
+
 const createVessel = async (vesselData) => {
   const id = uuidv4();
   const query = `
-    INSERT INTO vessels (id, name, imo_number, vessel_type, vessel_type_id, department, flag, status, location, total_seats, voyage_ref, reporting_port, joining_date, communication_details, contact_person_name, contact_person_email, contact_person_phone, required_documents)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO vessels (id, name, imo_number, vessel_type, vessel_type_id, department, flag, status, location, total_seats, voyage_ref, reporting_port, joining_date, contact_person_name, contact_person_email, contact_person_phone, required_documents)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   await db.query(query, [
     id,
@@ -21,7 +23,6 @@ const createVessel = async (vesselData) => {
     vesselData.voyage_ref || null,
     vesselData.reporting_port || null,
     vesselData.joining_date || null,
-    vesselData.communication_details || null,
     vesselData.contact_person_name || null,
     vesselData.contact_person_email || null,
     vesselData.contact_person_phone || null,
@@ -108,7 +109,7 @@ const getAllVessels = async (
   const [countRows] = await db.query(countQuery, params);
   const total = countRows[0].count;
 
-  return { data: rows, total };
+  return { data: rows.map(withoutRetiredFields), total };
 };
 
 const getVesselById = async (id) => {
@@ -123,7 +124,7 @@ const getVesselById = async (id) => {
     ),0) FROM allocations a WHERE a.is_active=1), 0) AS available_seats
     FROM vessels v WHERE v.id = ?`;
   const [rows] = await db.query(query, [id]);
-  return rows.length > 0 ? rows[0] : null;
+  return rows.length > 0 ? withoutRetiredFields(rows[0]) : null;
 };
 
 const updateVessel = async (id, vesselData) => {
@@ -141,7 +142,6 @@ const updateVessel = async (id, vesselData) => {
         voyage_ref = COALESCE(?, voyage_ref),
         reporting_port = COALESCE(?, reporting_port),
         joining_date = COALESCE(?, joining_date),
-        communication_details = COALESCE(?, communication_details),
         contact_person_name = COALESCE(?, contact_person_name),
         contact_person_email = COALESCE(?, contact_person_email),
         contact_person_phone = COALESCE(?, contact_person_phone),
@@ -161,7 +161,6 @@ const updateVessel = async (id, vesselData) => {
     vesselData.voyage_ref !== undefined ? vesselData.voyage_ref : null,
     vesselData.reporting_port !== undefined ? vesselData.reporting_port : null,
     vesselData.joining_date !== undefined ? vesselData.joining_date : null,
-    vesselData.communication_details !== undefined ? vesselData.communication_details : null,
     vesselData.contact_person_name !== undefined ? vesselData.contact_person_name : null,
     vesselData.contact_person_email !== undefined ? vesselData.contact_person_email : null,
     vesselData.contact_person_phone !== undefined ? vesselData.contact_person_phone : null,

@@ -11,14 +11,14 @@ const IMPORT_ACTIVITY_PATTERN = new RegExp(
   `^Imported (\\d+) cadets from submission (${UUID_PATTERN})(?: for drive (${UUID_PATTERN}))?$`,
 );
 
-const createLog = async (userId, action, details = '', ipAddress = null) => {
+const createLog = async (userId, action, details = '', ipAddress = null, connection = db) => {
   try {
     const id = uuidv4();
     const query = `
       INSERT INTO activity_logs (id, user_id, action, details, ip_address)
       VALUES (?, ?, ?, ?, ?)
     `;
-    await db.query(query, [id, userId, action, details, ipAddress]);
+    await connection.query(query, [id, userId, action, details, ipAddress]);
     return id;
   } catch (error) {
     console.error('Error creating activity log:', error);

@@ -3,6 +3,7 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 const { requirePermission, requireSuperAdmin } = require('../middleware/permissionMiddleware');
 const controller = require('../controllers/allocationController');
 const masters = require('../controllers/allocationMasterController');
+const vesselController = require('../controllers/vesselController');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -15,8 +16,8 @@ router.get('/masters/formulas', requirePermission('allocation-masters', 'view'),
 router.post('/masters/formulas', requireSuperAdmin, masters.createFormula);
 router.post('/masters/formulas/:id/activate', requireSuperAdmin, masters.activateFormula);
 router.get('/masters/vessel-types', requirePermission('allocation-masters', 'view'), masters.listVesselTypes);
-router.post('/masters/vessel-types', requireSuperAdmin, masters.saveVesselType);
-router.put('/masters/vessel-types/:id', requireSuperAdmin, masters.saveVesselType);
+router.post('/masters/vessel-types', requireSuperAdmin, vesselController.createVesselMasterType);
+router.put('/masters/vessel-types/:id', requireSuperAdmin, vesselController.updateVesselMasterType);
 
 router.get('/admins', requirePermission('allocations', 'communicate'), controller.listAdmins);
 router.get('/joining-plans', requirePermission('allocations', 'view'), controller.listJoiningPlans);

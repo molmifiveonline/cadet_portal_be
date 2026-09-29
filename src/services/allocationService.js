@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { calculateFinalScore, calculateAcademicAssessmentAverage, normalizeDepartment, sortAutoRank } = require('./allocationRules');
+const { createCycle } = require('./allocationCycleService');
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
@@ -34,27 +35,6 @@ const getFormulaSnapshot = async (connection, templateId, department) => {
       weight: Number(component.weight),
       max_score: Number(component.max_score),
       sort_order: component.sort_order,
-    })),
-  };
-};
-
-const getAssessmentTypeSnapshot = async (connection, department) => {
-  const [courses] = await connection.query(
-    `SELECT id, code, name
-     FROM assessment_courses WHERE status='Active' ORDER BY name`,
-  );
-  return {
-    name: 'Assessment Types',
-    version: 1,
-    department,
-    scoring_method: 'AcademicAssessmentAverage',
-    components: courses.map((course, index) => ({
-      course_id: course.id,
-      code: course.code,
-      name: course.name,
-      max_score: 10,
-      weight: 0,
-      sort_order: index,
     })),
   };
 };
@@ -108,36 +88,6 @@ const updateFinalScore = async (connection, allocationId, userId) => {
   await connection.query(`UPDATE allocations SET final_score=? WHERE id=?`, [finalScore, allocationId]);
   if (allocations[0].ranking_mode === 'Auto') await recalculateRanks(connection, allocations[0].list_id);
   return finalScore;
-};
-
-const createCycle = async ({ year, userId }) => {
-  const connection = await db.getConnection();
-  try {
-    await connection.beginTransaction();
-    const allocationYear = Number(year);
-    if (!Number.isInteger(allocationYear) || allocationYear < 2000 || allocationYear > 2100) throw httpError(400, 'A valid allocation year is required');
-    await connection.query(
-      `INSERT INTO allocation_year_sequences (allocation_year,last_number) VALUES (?,0)
-       ON DUPLICATE KEY UPDATE allocation_year=VALUES(allocation_year)`, [allocationYear],
-    );
-    const [sequences] = await connection.query(`SELECT last_number FROM allocation_year_sequences WHERE allocation_year=? FOR UPDATE`, [allocationYear]);
-    const nextNumber = Number(sequences[0].last_number) + 1;
-    await connection.query(`UPDATE allocation_year_sequences SET last_number=? WHERE allocation_year=?`, [nextNumber, allocationYear]);
-    const allocationNumber = `CTV-${allocationYear}-${String(nextNumber).padStart(4, '0')}`;
-    const cycleId = uuidv4();
-    const deckSnapshot = await getAssessmentTypeSnapshot(connection, 'Deck');
-    const engineSnapshot = await getAssessmentTypeSnapshot(connection, 'Engine');
-    await connection.query(`INSERT INTO allocation_cycles (id,allocation_number,allocation_year,created_by) VALUES (?,?,?,?)`, [cycleId, allocationNumber, allocationYear, userId]);
-    for (const snapshot of [deckSnapshot, engineSnapshot]) {
-      await connection.query(
-        `INSERT INTO allocation_rank_lists (id,cycle_id,department,formula_template_id,formula_snapshot) VALUES (?,?,?,?,?)`,
-        [uuidv4(), cycleId, snapshot.department, null, JSON.stringify(snapshot)],
-      );
-    }
-    await connection.commit();
-    return { id: cycleId, allocation_number: allocationNumber };
-  } catch (error) { await connection.rollback(); throw error; }
-  finally { connection.release(); }
 };
 
 const addCandidates = async ({ rankListId, cadetIds, candidates, userId }) => {
@@ -200,8 +150,9 @@ const addCandidates = async ({ rankListId, cadetIds, candidates, userId }) => {
         const course = coursesById.get(String(score.course_id).trim());
         const value = Number(score.score);
         if (!course || course.status !== 'Active') throw httpError(400, `Select an active Assessment Type for ${cadet.name_as_in_indos_cert}`);
-        if (!Number.isFinite(value) || value < 0 || value > 10) throw httpError(400, `${course.name} score must be between 0 and 10`);
-        return { course_id: course.id, course_name: course.name, score: value, max_score_snapshot: 10 };
+        if (score.score === '' || score.score === null || score.score === undefined) throw httpError(400, `${course.name} score is required`);
+        if (!Number.isFinite(value) || value < 0 || value > 100) throw httpError(400, `${course.name} score must be between 0 and 100`);
+        return { course_id: course.id, course_name: course.name, score: value, max_score_snapshot: 100 };
       });
 
       const vesselTypeId = String(candidateConfig.vessel_type_id || '').trim() || null;
@@ -229,11 +180,12 @@ const addCandidates = async ({ rankListId, cadetIds, candidates, userId }) => {
         await connection.query(
           `INSERT INTO allocation_score_entries
            (id,allocation_id,course_id,course_name_snapshot,max_score_snapshot,weight_snapshot,score,updated_by)
-           VALUES (?,?,?,?,10,0,?,?)`,
+           VALUES (?,?,?,?,100,0,?,?)`,
           [uuidv4(), allocationId, score.course_id, score.course_name, score.score, userId],
         );
       }
-      added.push({ allocation_id: allocationId, cadet_id: cadetId });
+      added.push({ allocation_id: allocationId, cadet_id: cadetId,
+        cadet_name: cadet.name_as_in_indos_cert, cadet_unique_id: cadet.cadet_unique_id });
     }
     await recalculateRanks(connection, rankListId);
     await connection.commit();

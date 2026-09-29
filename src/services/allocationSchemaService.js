@@ -1,5 +1,8 @@
 const db = require('../config/database');
 const { clearSchemaCache } = require('./schemaCompatibilityService');
+const { ensureVesselMasterTypes, migrateLegacyVesselTypes } = require('./vesselMasterService');
+const { splitCombinedCycles } = require('./allocationCycleService');
+const { migrateAssessmentScores } = require('./assessmentScaleService');
 
 const columnExists = async (table, column) => {
   const [rows] = await db.query(
@@ -56,6 +59,17 @@ const addConstraint = async (table, name, definition) => {
   }
 };
 
+const ensureDepartmentCycles = async () => {
+  await addColumn('allocation_cycles', 'department', "ENUM('Deck','Engine') NULL AFTER allocation_year");
+  const movedLists = await splitCombinedCycles();
+  if (await columnIsNullable('allocation_cycles', 'department')) {
+    await db.query("ALTER TABLE allocation_cycles MODIFY department ENUM('Deck','Engine') NOT NULL");
+    clearSchemaCache();
+  }
+  await addIndex('allocation_rank_lists', 'uq_rank_list_cycle', 'UNIQUE INDEX uq_rank_list_cycle (cycle_id)');
+  return movedLists;
+};
+
 const seedPermissions = async () => {
   // Administrator used to be created as a built-in system role. Remove only
   // that legacy system record; a user-created Admin role has is_system_role=0
@@ -105,14 +119,15 @@ const ensureAllocationSupport = async () => {
     code VARCHAR(50) NOT NULL UNIQUE,
     name VARCHAR(150) NOT NULL,
     department ENUM('Deck','Engine','Both') NOT NULL DEFAULT 'Both',
-    default_max_score DECIMAL(10,2) NOT NULL DEFAULT 10,
+    default_max_score DECIMAL(10,2) NOT NULL DEFAULT 100,
     status ENUM('Active','Inactive') NOT NULL DEFAULT 'Active',
     created_by VARCHAR(36) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_assessment_courses_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
-  await db.query(`UPDATE assessment_courses SET department='Both',default_max_score=10 WHERE department<>'Both' OR default_max_score<>10`);
+  await db.query(`ALTER TABLE assessment_courses ALTER COLUMN default_max_score SET DEFAULT 100`);
+  await db.query(`UPDATE assessment_courses SET department='Both',default_max_score=100 WHERE department<>'Both' OR default_max_score<>100`);
 
   await db.query(`CREATE TABLE IF NOT EXISTS score_formula_templates (
     id VARCHAR(36) PRIMARY KEY,
@@ -147,11 +162,15 @@ const ensureAllocationSupport = async () => {
     name VARCHAR(100) NOT NULL UNIQUE,
     department ENUM('Deck','Engine','Both') NOT NULL DEFAULT 'Both',
     status ENUM('Active','Inactive') NOT NULL DEFAULT 'Active',
+    is_master TINYINT(1) NOT NULL DEFAULT 0,
     created_by VARCHAR(36) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_vessel_types_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
+
+  await addColumn('vessel_types', 'is_master', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER status');
+  await ensureVesselMasterTypes();
 
   await addColumn('vessels', 'vessel_type_id', 'VARCHAR(36) NULL AFTER vessel_type');
   await addColumn('vessels', 'department', "ENUM('Deck','Engine','Both') NOT NULL DEFAULT 'Both' AFTER vessel_type_id");
@@ -184,6 +203,7 @@ const ensureAllocationSupport = async () => {
     id VARCHAR(36) PRIMARY KEY,
     allocation_number VARCHAR(30) NOT NULL UNIQUE,
     allocation_year INT NOT NULL,
+    department ENUM('Deck','Engine') NOT NULL,
     status ENUM('Active','Closed') NOT NULL DEFAULT 'Active',
     created_by VARCHAR(36) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -216,6 +236,7 @@ const ensureAllocationSupport = async () => {
   if (!(await columnIsNullable('allocation_rank_lists', 'formula_template_id'))) {
     await db.query('ALTER TABLE allocation_rank_lists MODIFY formula_template_id VARCHAR(36) NULL');
   }
+  await ensureDepartmentCycles();
 
   await addColumn('allocations', 'rank_list_id', 'VARCHAR(36) NULL AFTER id');
   await addColumn('allocations', 'academic_score', 'DECIMAL(10,2) NULL');
@@ -255,13 +276,7 @@ const ensureAllocationSupport = async () => {
     CONSTRAINT fk_allocation_score_user FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
-  await db.query(
-    `UPDATE allocation_score_entries ase
-     JOIN allocations a ON a.id=ase.allocation_id
-     JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
-     SET ase.max_score_snapshot=10
-     WHERE rl.status='Draft' AND ase.max_score_snapshot<>10`,
-  );
+  await migrateAssessmentScores();
   const [draftSnapshots] = await db.query(`SELECT id,formula_snapshot FROM allocation_rank_lists WHERE status='Draft'`);
   for (const row of draftSnapshots) {
     let snapshot = row.formula_snapshot;
@@ -270,7 +285,7 @@ const ensureAllocationSupport = async () => {
     }
     if (!snapshot || !Array.isArray(snapshot.components)) continue;
     snapshot.scoring_method = 'AcademicAssessmentAverage';
-    snapshot.components = snapshot.components.map((component) => ({ ...component, max_score: 10, weight: 0 }));
+    snapshot.components = snapshot.components.map((component) => ({ ...component, max_score: 100, weight: 0 }));
     await db.query(`UPDATE allocation_rank_lists SET formula_snapshot=? WHERE id=?`, [JSON.stringify(snapshot), row.id]);
   }
 
@@ -360,6 +375,8 @@ const ensureAllocationSupport = async () => {
   ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await addColumn('joining_plans', 'vessel_role', "ENUM('Primary','Secondary') NOT NULL DEFAULT 'Primary' AFTER allocation_id");
+  await addColumn('joining_plans', 'revision', 'INT NOT NULL DEFAULT 1');
+  await addColumn('joining_plans', 'requires_refresh', 'TINYINT(1) NOT NULL DEFAULT 0');
   await addIndex('joining_plans', 'uq_joining_plan_allocation_role', 'UNIQUE INDEX uq_joining_plan_allocation_role (allocation_id, vessel_role)');
   const [singleAllocationIndexes] = await db.query(
     `SELECT INDEX_NAME
@@ -391,6 +408,7 @@ const ensureAllocationSupport = async () => {
     CONSTRAINT fk_allocation_communication_user FOREIGN KEY (informed_by) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
+  await addColumn('allocation_communications', 'plan_revision', 'INT NOT NULL DEFAULT 1');
   await addColumn('onboarding', 'allocation_id', 'VARCHAR(36) NULL AFTER cadet_id');
   await addColumn('onboarding', 'updated_by', 'VARCHAR(36) NULL');
   await addColumn('onboarding', 'completed_by', 'VARCHAR(36) NULL');
@@ -400,7 +418,8 @@ const ensureAllocationSupport = async () => {
   await addConstraint('onboarding', 'fk_onboarding_updated_user', 'FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL');
   await addConstraint('onboarding', 'fk_onboarding_completed_user', 'FOREIGN KEY (completed_by) REFERENCES users(id) ON DELETE SET NULL');
 
+  await migrateLegacyVesselTypes();
   await seedPermissions();
 };
 
-module.exports = { ensureAllocationSupport };
+module.exports = { ensureAllocationSupport, ensureDepartmentCycles };
