@@ -314,11 +314,7 @@ const removeCandidate = async (req, res) => {
     if (rows[0].list_status !== 'Draft') throw httpError(409, 'Finalized candidates cannot be removed');
     const activityLabel = await allocationActivityLabel(connection, rows[0].id);
     await connection.query(`DELETE FROM allocations WHERE id=?`, [req.params.allocationId]);
-    if (rows[0].ranking_mode === 'Manual' && rows[0].current_rank) {
-      await connection.query(`UPDATE allocations SET current_rank=current_rank-1 WHERE rank_list_id=? AND is_active=1 AND current_rank>?`, [rows[0].rank_list_id, rows[0].current_rank]);
-    } else {
-      await recalculateRanks(connection, rows[0].rank_list_id, true);
-    }
+    await recalculateRanks(connection, rows[0].rank_list_id);
     await logAction(req, 'REMOVE_CTV_CANDIDATE', `Removed ${activityLabel}`, connection);
     await connection.commit(); res.json({ success: true, message: 'Candidate removed' });
   } catch (error) { await connection.rollback(); errorResponse(res, error); }
@@ -806,12 +802,34 @@ const listJoiningPlans = async (req, res) => {
               (SELECT COUNT(*) FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0) AS communication_count,
               (SELECT COUNT(*) FROM allocation_communications cm
                WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0
+                 AND cm.mode='Email' AND cm.delivery_status='Sent') AS successful_email_count,
+              (SELECT COUNT(*) FROM allocation_communications cm
+               WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0
                  AND (cm.mode IN ('Phone','WhatsApp') OR cm.delivery_status='Sent')) AS successful_communication_count
        FROM joining_plans jp JOIN allocations a ON a.id=jp.allocation_id JOIN cadets c ON c.id=a.cadet_id
        JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id JOIN allocation_cycles ac ON ac.id=rl.cycle_id
        WHERE (? IS NULL OR ac.id=?) ORDER BY jp.created_at DESC`, [req.query.cycle_id || null, req.query.cycle_id || null],
     );
     rows.forEach((row) => { row.required_documents = parseJson(row.required_documents, []); });
+    res.json({ success: true, data: rows });
+  } catch (error) { errorResponse(res, error); }
+};
+
+const listJoiningPlanCommunications = async (req, res) => {
+  try {
+    const [plans] = await db.query('SELECT id FROM joining_plans WHERE id=?', [req.params.joiningPlanId]);
+    if (!plans.length) throw httpError(404, 'Joining Plan not found');
+    const [rows] = await db.query(
+      `SELECT cm.id,cm.plan_revision,cm.mode,cm.informed_by,
+              DATE_FORMAT(cm.date_of_informing,'%Y-%m-%d') AS date_of_informing,
+              cm.informed_at,cm.confirmation_received,cm.candidate_remarks,cm.admin_remarks,
+              cm.delivery_status,cm.failure_reason,
+              COALESCE(NULLIF(TRIM(CONCAT_WS(' ',u.first_name,u.last_name)),''),u.email) AS informed_by_name
+       FROM allocation_communications cm
+       LEFT JOIN users u ON u.id=cm.informed_by
+       WHERE cm.joining_plan_id=? ORDER BY cm.created_at DESC,cm.id DESC`,
+      [req.params.joiningPlanId],
+    );
     res.json({ success: true, data: rows });
   } catch (error) { errorResponse(res, error); }
 };
@@ -826,5 +844,5 @@ const listAdmins = async (req, res) => {
 module.exports = {
   listCycles, getCycle, createCycle, deleteCycle, listEligibleCandidates, addCandidates,
   removeCandidate, updateScores, updateVesselAllocation, moveRank, resetRanks,
-  finalizeRankList, unlockRankList, createJoiningPlan, recordCommunication, listJoiningPlans, listAdmins,
+  finalizeRankList, unlockRankList, createJoiningPlan, recordCommunication, listJoiningPlans, listJoiningPlanCommunications, listAdmins,
 };

@@ -56,14 +56,22 @@ const ensureDraft = (rankList) => {
 
 const recalculateRanks = async (connection, rankListId, force = false) => {
   const rankList = await getRankList(connection, rankListId);
-  if (!force && rankList.ranking_mode === 'Manual') return;
   const [rows] = await connection.query(
-    `SELECT a.id, a.cadet_id, a.academic_score, a.final_score, c.cadet_unique_id
+    `SELECT a.id, a.cadet_id, a.academic_score, a.final_score, a.current_rank, c.cadet_unique_id
      FROM allocations a JOIN cadets c ON c.id=a.cadet_id
      WHERE a.rank_list_id=? AND a.is_active=1`, [rankListId],
   );
   await connection.query(`UPDATE allocations SET current_rank=NULL WHERE rank_list_id=? AND is_active=1`, [rankListId]);
-  const ranked = sortAutoRank(rows.filter((row) => row.final_score !== null));
+  const scored = sortAutoRank(rows.filter((row) => row.final_score !== null));
+  // Preserve the officer's manual order, but give newly scored cadets a rank too.
+  // Re-numbering also closes gaps when scores are cleared or a cadet is removed.
+  const ranked = !force && rankList.ranking_mode === 'Manual'
+    ? [
+      ...scored.filter((row) => Number(row.current_rank) > 0)
+        .sort((left, right) => Number(left.current_rank) - Number(right.current_rank)),
+      ...scored.filter((row) => !(Number(row.current_rank) > 0)),
+    ]
+    : scored;
   for (let index = 0; index < ranked.length; index += 1) {
     await connection.query(`UPDATE allocations SET current_rank=? WHERE id=?`, [index + 1, ranked[index].id]);
   }
@@ -86,7 +94,7 @@ const updateFinalScore = async (connection, allocationId, userId) => {
     ? calculateAcademicAssessmentAverage(allocations[0].academic_score, scores)
     : calculateFinalScore(allocations[0].academic_score, scores);
   await connection.query(`UPDATE allocations SET final_score=? WHERE id=?`, [finalScore, allocationId]);
-  if (allocations[0].ranking_mode === 'Auto') await recalculateRanks(connection, allocations[0].list_id);
+  await recalculateRanks(connection, allocations[0].list_id);
   return finalScore;
 };
 

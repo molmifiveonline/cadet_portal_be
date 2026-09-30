@@ -21,6 +21,7 @@ router.put('/masters/vessel-types/:id', requireSuperAdmin, vesselController.upda
 
 router.get('/admins', requirePermission('allocations', 'communicate'), controller.listAdmins);
 router.get('/joining-plans', requirePermission('allocations', 'view'), controller.listJoiningPlans);
+router.get('/joining-plans/:joiningPlanId/communications', requirePermission('allocations', 'view'), controller.listJoiningPlanCommunications);
 router.post('/joining-plans/:joiningPlanId/communications', requirePermission('allocations', 'communicate'), controller.recordCommunication);
 router.post('/candidate-allocations/:allocationId/joining-plan', requirePermission('allocations', 'edit'), controller.createJoiningPlan);
 router.put('/candidate-allocations/:allocationId/scores', requirePermission('allocations', 'edit'), controller.updateScores);
