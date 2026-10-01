@@ -7,6 +7,27 @@ const { requirePermission } = require('../middleware/permissionMiddleware');
 // All vessel routes require authentication
 router.use(authMiddleware);
 
+router.get(
+  '/master-types',
+  requirePermission('vessel-master', 'view'),
+  vesselController.getVesselMasterTypes,
+);
+router.post(
+  '/master-types',
+  requirePermission('vessel-master', 'create'),
+  vesselController.createVesselMasterType,
+);
+router.put(
+  '/master-types/:id',
+  requirePermission('vessel-master', 'edit'),
+  vesselController.updateVesselMasterType,
+);
+router.patch(
+  '/master-types/:id/status',
+  requirePermission('vessel-master', 'edit'),
+  vesselController.setVesselMasterTypeStatus,
+);
+
 // Get all vessels (read)
 router.get(
   '/',

@@ -11,7 +11,6 @@ const medicalCenterDao = require("../dao/medicalCenterDao");
 const recruitmentCommunicationDao = require("../dao/recruitmentCommunicationDao");
 const {
   DEFAULT_PAGE_SIZE,
-  ROLES,
   DRIVE_STATUS,
   SUBMISSION_STATUS,
 } = require("../config/constants");
@@ -455,61 +454,6 @@ const updateRecruitmentDrive = async (req, res) => {
     }
     res.status(500).json({
       message: "Error updating recruitment drive",
-      error: error.message,
-    });
-  }
-};
-
-const deleteRecruitmentDrive = async (req, res) => {
-  try {
-    if (req.user && req.user.role === ROLES.INSTITUTE) {
-      return res.status(403).json({
-        message: "Institute users are not allowed to delete recruitment drives",
-      });
-    }
-
-    const { id } = req.params;
-    const force = req.query.force === "true";
-
-    const deleteResult = await recruitmentDriveDao.deleteRecruitmentDrive(id, force);
-
-    if (deleteResult.reason === "not_found") {
-      return res.status(404).json({ message: "Recruitment drive not found" });
-    }
-
-    if (deleteResult.reason === "has_cadets") {
-      return res.status(409).json({
-        message:
-          "This recruitment drive has cadets/progress. Close the drive instead of deleting it.",
-        cadetCount: deleteResult.cadetCount,
-      });
-    }
-
-    if (!deleteResult.success) {
-      return res.status(500).json({
-        message: "Recruitment drive could not be deleted",
-      });
-    }
-
-    // Log activity
-    if (req.user && req.user.id) {
-      await activityLogDao.createLog(
-        req.user.id,
-        "DELETE_RECRUITMENT_DRIVE",
-        `Deleted recruitment drive: ${deleteResult.driveName || id}`,
-        req.ip || req.connection.remoteAddress,
-      );
-    }
-
-    res.json({
-      message: "Recruitment drive deleted successfully",
-      detachedSubmissions: deleteResult.detachedSubmissions,
-      detachedCommunications: deleteResult.detachedCommunications,
-    });
-  } catch (error) {
-    console.error("Delete Recruitment Drive Error:", error);
-    res.status(500).json({
-      message: "Error deleting recruitment drive",
       error: error.message,
     });
   }
@@ -1167,7 +1111,6 @@ module.exports = {
   getAllRecruitmentDrives,
   getRecruitmentDriveById,
   updateRecruitmentDrive,
-  deleteRecruitmentDrive,
   getRecruitmentDriveStats,
   getDriveCadetQueue,
   getDriveCommunications,

@@ -10,9 +10,38 @@ const hasValidPermissionPayload = (permissions) =>
   permissions.every(
     (permission) =>
       permission &&
-      permission.permissionId &&
+      typeof permission.permissionId === 'string' &&
+      permission.permissionId.trim().length > 0 &&
       typeof permission.granted === 'boolean',
   );
+
+const validatePermissionUpdate = async (role, permissions, res) => {
+  if (['superadmin', 'institute', 'cadet'].includes(role.name.toLowerCase())) {
+    res
+      .status(403)
+      .json({
+        success: false,
+        message: 'Permissions for this role are managed by the system',
+      });
+    return false;
+  }
+  const knownIds = new Set(
+    (await rolePermissionDao.getAllPermissions()).map(
+      (permission) => permission.id,
+    ),
+  );
+  const ids = permissions.map((permission) => permission.permissionId);
+  if (new Set(ids).size !== ids.length || ids.some((id) => !knownIds.has(id))) {
+    res
+      .status(400)
+      .json({
+        success: false,
+        message: 'Permissions must contain unique, valid permission IDs',
+      });
+    return false;
+  }
+  return true;
+};
 
 /* Get all roles */
 const getAllRoles = async (req, res) => {
@@ -62,13 +91,42 @@ const getRoleById = async (req, res) => {
 /* Create a new role */
 const createRole = async (req, res) => {
   try {
-    const { name, display_name, description } = req.body;
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    const display_name =
+      typeof req.body.display_name === 'string'
+        ? req.body.display_name.trim()
+        : '';
+    const description =
+      typeof req.body.description === 'string'
+        ? req.body.description.trim()
+        : '';
 
     if (!name || !display_name) {
       return res.status(400).json({
         success: false,
         message: 'Role name and display name are required',
       });
+    }
+
+    if (
+      !/^[A-Za-z][A-Za-z0-9_]{0,49}$/.test(name) ||
+      display_name.length > 100
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message:
+            'Use a role name of 1–50 letters, numbers or underscores, starting with a letter, and a display name of at most 100 characters',
+        });
+    }
+    if (['superadmin', 'institute', 'cadet'].includes(name.toLowerCase())) {
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message: 'This role name is reserved for the system',
+        });
     }
 
     // Check if role name already exists
@@ -123,12 +181,19 @@ const createRole = async (req, res) => {
 const updateRole = async (req, res) => {
   try {
     const { roleId } = req.params;
-    const { display_name, description } = req.body;
+    const display_name =
+      typeof req.body.display_name === 'string'
+        ? req.body.display_name.trim()
+        : '';
+    const description =
+      typeof req.body.description === 'string'
+        ? req.body.description.trim()
+        : '';
 
-    if (!display_name) {
+    if (!display_name || display_name.length > 100) {
       return res.status(400).json({
         success: false,
-        message: 'Display name is required',
+        message: 'Display name must contain 1–100 characters',
       });
     }
 
@@ -234,9 +299,9 @@ const deleteRole = async (req, res) => {
     }
   } catch (error) {
     console.error('Delete Role Error:', error);
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
-      message: 'Failed to delete role',
+      message: error.status ? error.message : 'Failed to delete role',
       error: error.message,
     });
   }
@@ -282,6 +347,11 @@ const getPermissionsByModule = async (req, res) => {
 const getRolePermissions = async (req, res) => {
   try {
     const { roleId } = req.params;
+    if (!(await rolePermissionDao.getRoleById(roleId))) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Role not found' });
+    }
     const permissions =
       await rolePermissionDao.getRolePermissionsByModule(roleId);
 
@@ -329,6 +399,8 @@ const updateRolePermissions = async (req, res) => {
       });
     }
 
+    if (!(await validatePermissionUpdate(role, permissions, res))) return;
+
     // Update permissions
     await rolePermissionDao.updateRolePermissions(roleId, permissions);
     clearPermissionCache();
@@ -364,7 +436,7 @@ const setRolePermission = async (req, res) => {
     const { roleId } = req.params;
     const { permissionId, granted } = req.body;
 
-    if (!permissionId || typeof granted !== 'boolean') {
+    if (!hasValidPermissionPayload([{ permissionId, granted }])) {
       return res.status(400).json({
         success: false,
         message: 'Permission ID and granted status are required',
@@ -378,6 +450,11 @@ const setRolePermission = async (req, res) => {
         message: 'Role not found',
       });
     }
+
+    if (
+      !(await validatePermissionUpdate(role, [{ permissionId, granted }], res))
+    )
+      return;
 
     const success = await rolePermissionDao.setRolePermission(
       roleId,

@@ -3,8 +3,10 @@ const assert = require('node:assert/strict');
 const {
   calculateFinalScore,
   calculateAcademicAssessmentAverage,
+  createDirectionalRankMovePlan,
   createRankMovePlan,
   hasAllocatedVessel,
+  isDepartmentCompatible,
   normalizeDepartment,
   sortAutoRank,
   validateFormula,
@@ -29,6 +31,17 @@ test('assessment scoring averages normalized assessments with academics', () => 
     { score: 8, max_score_snapshot: 10 },
     { score: 6, max_score_snapshot: 10 },
   ]), 75);
+});
+
+test('100-point assessment scoring preserves the previous final score', () => {
+  assert.equal(calculateAcademicAssessmentAverage(80, [
+    { score: 80, max_score_snapshot: 100 },
+    { score: 60, max_score_snapshot: 100 },
+  ]), 75);
+  assert.equal(calculateAcademicAssessmentAverage(74, [{ score: 70, max_score_snapshot: 100 }]), 72);
+  assert.equal(calculateAcademicAssessmentAverage(80, [{ score: 0, max_score_snapshot: 100 }]), 40);
+  assert.equal(calculateAcademicAssessmentAverage(80, [{ score: 100, max_score_snapshot: 100 }]), 90);
+  assert.throws(() => calculateAcademicAssessmentAverage(80, [{ score: 100.01, max_score_snapshot: 100 }]), /between 0 and 100/);
 });
 
 test('assessment average formula stays incomplete until every entered score is present', () => {
@@ -73,6 +86,15 @@ test('department normalization accepts imported course labels', () => {
   assert.equal(normalizeDepartment('General'), null);
 });
 
+test('vessel compatibility allows the exact department and Both only', () => {
+  assert.equal(isDepartmentCompatible('Deck', 'Deck'), true);
+  assert.equal(isDepartmentCompatible('Deck', 'Both'), true);
+  assert.equal(isDepartmentCompatible('Deck', 'Engine'), false);
+  assert.equal(isDepartmentCompatible('Engine', 'Engine'), true);
+  assert.equal(isDepartmentCompatible('Engine', 'Both'), true);
+  assert.equal(isDepartmentCompatible('Engine', 'Deck'), false);
+});
+
 test('finalization accepts Primary only, Secondary only, or both vessel allocations', () => {
   assert.equal(hasAllocatedVessel({ primaryVesselId: 'p1', primaryStatus: 'Allocated' }), true);
   assert.equal(hasAllocatedVessel({ secondaryVesselId: 's1', secondaryStatus: 'Allocated' }), true);
@@ -98,4 +120,27 @@ test('direct rank reorder shifts every rank between the old and new positions on
     rangeEnd: 3,
   });
   assert.throws(() => createRankMovePlan(2, 2, 5), /different target rank/);
+});
+
+test('directional rank movement supports multi-position moves and rejects the wrong direction', () => {
+  assert.deepEqual(createDirectionalRankMovePlan(9, 5, 15, 'up'), {
+    currentRank: 9,
+    targetRank: 5,
+    historyAction: 'MoveUp',
+    shiftDelta: 1,
+    rangeStart: 5,
+    rangeEnd: 8,
+  });
+  assert.deepEqual(createDirectionalRankMovePlan(5, 9, 15, 'down'), {
+    currentRank: 5,
+    targetRank: 9,
+    historyAction: 'MoveDown',
+    shiftDelta: -1,
+    rangeStart: 6,
+    rangeEnd: 9,
+  });
+  assert.throws(
+    () => createDirectionalRankMovePlan(9, 5, 15, 'down'),
+    /does not move the candidate down/,
+  );
 });

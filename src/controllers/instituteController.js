@@ -329,8 +329,8 @@ const deleteInstitute = async (req, res) => {
   } catch (error) {
     console.error('Delete Institute Error:', error);
     res
-      .status(500)
-      .json({ message: 'Error deleting institute', error: error.message });
+      .status(error.status || 500)
+      .json({ message: error.status ? error.message : 'Error deleting institute', error: error.message });
   }
 };
 

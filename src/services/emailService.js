@@ -630,37 +630,47 @@ const emailTemplates = {
   }),
 
   // Document status report email template
-  documentStatusReport: (data) => ({
-    subject: data.subject || "Document Status Update - MOLMI",
-    html: `
-      <p>Dear ${data.recipientName},</p>
-      <p>The status of uploaded documents${data.cadetName ? ` for cadet <strong>${data.cadetName}</strong>` : ''} has been updated by the MOLMI team.</p>
+  documentStatusReport: (data) => {
+    const documents = data.requiresReupload
+      ? (data.documents || []).filter(doc => doc.status === 'reupload_requested')
+      : (data.documents || []);
+    const cadetDetails = data.cadetName ? ` for cadet <strong>${escapeHtml(data.cadetName)}</strong>` : '';
+
+    return {
+      subject: data.subject || (data.requiresReupload
+        ? "Action Required: Document Re-upload - MOLMI"
+        : "Document Status Update - MOLMI"),
+      html: `
+      <p>Dear ${escapeHtml(data.recipientName)},</p>
+      ${data.requiresReupload
+        ? `<p>Please re-upload only the following documents${cadetDetails}, as requested by the MOLMI team.</p>`
+        : `<p>The status of uploaded documents${cadetDetails} has been updated by the MOLMI team.</p>`}
       <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%; max-width: 600px;">
         <thead>
           <tr style="background-color: #f0f4f8;">
             <th align="left">Document</th>
-            <th align="left">Status</th>
+            ${data.requiresReupload ? '' : '<th align="left">Status</th>'}
             <th align="left">Remarks</th>
           </tr>
         </thead>
         <tbody>
-          ${(data.documents || []).map(doc => `
+          ${documents.map(doc => `
             <tr>
-              <td>${doc.document_name}</td>
-              <td>${doc.status}</td>
-              <td>${doc.admin_remarks || '-'}</td>
+              <td>${escapeHtml(doc.document_name)}</td>
+              ${data.requiresReupload ? '' : `<td>${escapeHtml(doc.status)}</td>`}
+              <td>${escapeHtml(doc.admin_remarks || '-')}</td>
             </tr>
           `).join('')}
         </tbody>
       </table>
       ${data.requiresReupload ? `
-        <p style="color: #d97706; font-weight: bold; margin-top: 20px;">Action Required: Some documents require re-uploading.</p>
-        <p>Please use the OneDrive folder link below to upload the requested documents:</p>
-        <p><a href="${data.onedriveLink}" target="_blank" style="padding: 10px 20px; background-color: #0047AB; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Open OneDrive Folder</a></p>
+        <p>Please use the OneDrive folder link below to upload only the documents listed above:</p>
+        <p><a href="${escapeHtml(data.onedriveLink)}" target="_blank" style="padding: 10px 20px; background-color: #0047AB; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Open OneDrive Folder</a></p>
       ` : ''}
       <p>Best regards,<br/>MOLMI Administration</p>
-    `
-  }),
+    `,
+    };
+  },
 };
 
 module.exports = {

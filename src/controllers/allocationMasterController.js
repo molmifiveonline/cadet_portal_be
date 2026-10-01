@@ -1,7 +1,13 @@
 const db = require('../config/database');
+const activityLogDao = require('../dao/activityLogDao');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { normalizeDepartment, validateFormula } = require('../services/allocationRules');
+const { getAllocationMasterDependencySelect, getAllocationMasterDeletionInfo } = require('../services/allocationMasterDeletionService');
+
+const logAction = (req, action, details, connection = db) => activityLogDao.createLog(
+  req.user.id, action, details, req.ip || req.connection?.remoteAddress, connection,
+);
 
 const sendError = (res, error) => res.status(error.status || 500).json({
   success: false,
@@ -17,8 +23,8 @@ const listCourses = async (req, res) => {
       where += ' AND status = ?';
       params.push(req.query.status);
     }
-    const [rows] = await db.query(`SELECT * FROM assessment_courses ${where} ORDER BY status, name`, params);
-    res.json({ success: true, data: rows });
+    const [rows] = await db.query(`SELECT m.*, ${getAllocationMasterDependencySelect('assessment')} FROM assessment_courses m ${where} ORDER BY status, name`, params);
+    res.json({ success: true, data: rows.map(row => ({ ...row, ...getAllocationMasterDeletionInfo('assessment', row) })) });
   } catch (error) { sendError(res, error); }
 };
 
@@ -59,14 +65,22 @@ const saveCourse = async (req, res) => {
       ? rawCode
       : `${rawCode.slice(0, 41)}_${crypto.createHash('sha1').update(normalizedName).digest('hex').slice(0, 8).toUpperCase()}`);
     if (req.params.id) {
-      await db.query(`UPDATE assessment_courses SET name=?, department='Both', default_max_score=10, status=? WHERE id=?`, [normalizedName, status, id]);
+      await db.query(`UPDATE assessment_courses SET name=?, department='Both', default_max_score=100, status=? WHERE id=?`, [normalizedName, status, id]);
     } else {
-      await db.query(`INSERT INTO assessment_courses (id, code, name, department, default_max_score, status, created_by) VALUES (?, ?, ?, 'Both', 10, ?, ?)`, [id, code, normalizedName, status, req.user.id]);
+      await db.query(`INSERT INTO assessment_courses (id, code, name, department, default_max_score, status, created_by) VALUES (?, ?, ?, 'Both', 100, ?, ?)`, [id, code, normalizedName, status, req.user.id]);
     }
+    const previous = existingRows[0];
+    const action = !previous ? 'CREATE_ASSESSMENT_TYPE'
+      : previous.status !== status && previous.name === normalizedName
+        ? (status === 'Active' ? 'ACTIVATE_ASSESSMENT_TYPE' : 'DEACTIVATE_ASSESSMENT_TYPE')
+        : 'UPDATE_ASSESSMENT_TYPE';
+    await logAction(req, action, previous
+      ? `Updated Assessment Type ${previous.name} to ${normalizedName}; status: ${previous.status} to ${status}`
+      : `Created Assessment Type ${normalizedName}; status: ${status}`);
     res.status(req.params.id ? 200 : 201).json({
       success: true,
       message: req.params.id ? 'Assessment Type updated' : 'Assessment Type added',
-      data: { id, code, name: normalizedName, department: 'Both', default_max_score: 10, status },
+      data: { id, code, name: normalizedName, department: 'Both', default_max_score: 100, status },
     });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -99,23 +113,22 @@ const deleteCourse = async (req, res) => {
     }
 
     const [[usage]] = await connection.query(
-      `SELECT
-         (SELECT COUNT(*) FROM score_formula_components WHERE course_id=?) AS formula_count,
-         (SELECT COUNT(*) FROM allocation_score_entries WHERE course_id=?) AS score_count`,
-      [req.params.id, req.params.id],
+      `SELECT ${getAllocationMasterDependencySelect('assessment', true)} FROM assessment_courses m WHERE m.id = ?`,
+      [req.params.id],
     );
-    if (Number(usage.formula_count) > 0 || Number(usage.score_count) > 0) {
+    const deletion = getAllocationMasterDeletionInfo('assessment', usage);
+    if (!deletion.can_delete) {
       await connection.rollback();
       return res.status(409).json({
         success: false,
-        message:
-          'This Assessment Type is already in use and cannot be deleted. Deactivate it instead to preserve allocation history.',
+        message: deletion.delete_blocked_reason,
       });
     }
 
     await connection.query(`DELETE FROM assessment_courses WHERE id=?`, [
       req.params.id,
     ]);
+    await logAction(req, 'DELETE_ASSESSMENT_TYPE', `Deleted Assessment Type ${courses[0].name}`, connection);
     await connection.commit();
     return res.json({
       success: true,
@@ -183,6 +196,8 @@ const createFormula = async (req, res) => {
       const component = components[index];
       await connection.query(`INSERT INTO score_formula_components (id,template_id,course_id,weight,max_score,sort_order) VALUES (?,?,?,?,?,?)`, [uuidv4(), id, component.course_id, component.weight, component.max_score, index]);
     }
+    await logAction(req, 'CREATE_SCORE_FORMULA',
+      `Created ${normalizedDepartment} score formula ${name.trim()} v${versionRows[0].version}; status: ${activate ? 'Active' : 'Draft'}`, connection);
     await connection.commit();
     res.status(201).json({ success: true, data: { id, version: versionRows[0].version } });
   } catch (error) {
@@ -200,6 +215,8 @@ const activateFormula = async (req, res) => {
     if (!rows[0]) throw Object.assign(new Error('Formula template not found'), { status: 404 });
     await connection.query(`UPDATE score_formula_templates SET status='Inactive' WHERE department=? AND status='Active'`, [rows[0].department]);
     await connection.query(`UPDATE score_formula_templates SET status='Active' WHERE id=?`, [req.params.id]);
+    await logAction(req, 'ACTIVATE_SCORE_FORMULA',
+      `Activated ${rows[0].department} score formula ${rows[0].name} v${rows[0].version}`, connection);
     await connection.commit(); res.json({ success: true, message: 'Formula activated' });
   } catch (error) { if (connection) await connection.rollback(); sendError(res, error); }
   finally { if (connection) connection.release(); }
@@ -207,13 +224,13 @@ const activateFormula = async (req, res) => {
 
 const listVesselTypes = async (req, res) => {
   try {
-    const params = []; let where = 'WHERE 1=1';
+    const params = []; let where = 'WHERE vt.is_master = 1';
     if (req.query.department) { where += " AND vt.department IN (?, 'Both')"; params.push(normalizeDepartment(req.query.department)); }
     if (req.query.status) { where += ' AND vt.status=?'; params.push(req.query.status); }
     const [rows] = await db.query(
       `SELECT vt.*, COUNT(v.id) AS active_vessel_count
        FROM vessel_types vt
-       JOIN vessels v ON v.vessel_type_id=vt.id AND v.status='Active'
+       LEFT JOIN vessels v ON v.vessel_type_id=vt.id AND v.status='Active'
        ${where}
        GROUP BY vt.id
        ORDER BY vt.status, vt.name`,
@@ -223,15 +240,4 @@ const listVesselTypes = async (req, res) => {
   } catch (error) { sendError(res, error); }
 };
 
-const saveVesselType = async (req, res) => {
-  try {
-    const { name, department = 'Both', status = 'Active' } = req.body;
-    if (!name?.trim() || !['Deck','Engine','Both'].includes(department)) return res.status(400).json({ success: false, message: 'Valid name and department are required' });
-    const id = req.params.id || uuidv4();
-    if (req.params.id) await db.query(`UPDATE vessel_types SET name=?,department=?,status=? WHERE id=?`, [name.trim(), department, status, id]);
-    else await db.query(`INSERT INTO vessel_types (id,name,department,status,created_by) VALUES (?,?,?,?,?)`, [id, name.trim(), department, status, req.user.id]);
-    res.status(req.params.id ? 200 : 201).json({ success: true, data: { id } });
-  } catch (error) { if (error.code === 'ER_DUP_ENTRY') error = Object.assign(new Error('Vessel type already exists'), { status: 409 }); sendError(res, error); }
-};
-
-module.exports = { listCourses, saveCourse, deleteCourse, listFormulas, createFormula, activateFormula, listVesselTypes, saveVesselType };
+module.exports = { listCourses, saveCourse, deleteCourse, listFormulas, createFormula, activateFormula, listVesselTypes };

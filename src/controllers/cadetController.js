@@ -11,6 +11,7 @@ const {
   SUBMISSION_STATUS,
 } = require('../config/constants');
 const { DISPLAY_STATUS, WORKFLOW_PHASES } = require('../services/recruitmentWorkflowService');
+const { normalizeCadetDatabaseValues } = require('../utils/cadetDataUtils');
 const {
   parseExcelFile,
   findHeaderRow,
@@ -409,6 +410,11 @@ const getInstitutePendingRequestSummary = async (req, res) => {
 const createCadet = async (req, res) => {
   try {
     let cadetData = req.body;
+    try {
+      cadetData = normalizeCadetDatabaseValues(cadetData);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
     cadetData.status = cadetData.status || DISPLAY_STATUS.UPLOADED;
     cadetData.workflow_phase = cadetData.workflow_phase || WORKFLOW_PHASES.UPLOADED;
     cadetData.workflow_result = cadetData.workflow_result || 'pending';
@@ -502,6 +508,11 @@ const updateCadet = async (req, res) => {
   try {
     const { id } = req.params;
     let cadetData = { ...req.body };
+    try {
+      cadetData = normalizeCadetDatabaseValues(cadetData);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
 
     // Prevent overwriting sensitive or managed fields
     delete cadetData.id;

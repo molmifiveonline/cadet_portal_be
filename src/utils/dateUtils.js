@@ -39,7 +39,16 @@ const formatDateForDisplay = (date) => {
   return `${day}-${month}-${year}`;
 };
 
+// UNIX_TIMESTAMP() preserves the database instant without mysql2 interpreting
+// a TIMESTAMP using the Node process's local timezone.
+const unixTimestampToIso = (seconds) => {
+  if (seconds === null || seconds === undefined || seconds === '') return null;
+  const date = new Date(Number(seconds) * 1000);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
 module.exports = {
   formatDateForDisplay,
   parseDateValue,
+  unixTimestampToIso,
 };

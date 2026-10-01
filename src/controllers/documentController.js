@@ -65,6 +65,10 @@ const isInstituteUser = (user = {}) => user.role === ROLES.INSTITUTE;
 const isAdminUser = (user = {}) => ['Admin', ROLES.SUPER_ADMIN].includes(user.role);
 
 const ensureInstituteOwnsCadet = async (req, cadet) => {
+  if (req.user?.role === ROLES.CADET) {
+    const cadetId = await require('../dao/dashboardDao').resolveCadetId(req.user.id);
+    return Boolean(cadetId && cadetId === cadet?.id);
+  }
   if (!isInstituteUser(req.user)) return true;
   return cadet?.institute_id === getInstituteId(req.user);
 };
@@ -142,6 +146,9 @@ const getDriveDocuments = async (req, res) => {
 
 const uploadCadetDocument = async (req, res) => {
   try {
+    if (req.user?.role === ROLES.CADET) {
+      return res.status(403).json({ message: 'Use your dashboard document checklist to complete requested uploads' });
+    }
     const { cadet_id } = req.params;
     const { document_name, document_type } = req.body;
 
@@ -245,7 +252,9 @@ const reviewDocument = async (req, res) => {
         to: recipient.email,
         template: emailTemplates.documentStatusReport,
         templateData: {
-          subject: `Document Status Update - MOLMI`,
+          subject: requiresReupload
+            ? 'Action Required: Document Re-upload - MOLMI'
+            : 'Document Status Update - MOLMI',
           recipientName: recipient.institute.institute_name,
           cadetName: document.name_as_in_indos_cert,
           documents: allCadetDocuments,
@@ -322,7 +331,7 @@ const downloadDocument = async (req, res) => {
     const { id } = req.params;
     const document = await documentDao.getDocumentById(id);
 
-    if (!document || !document.document_data) {
+    if (!document) {
       return res.status(404).json({ success: false, message: 'Document file not found' });
     }
 
@@ -330,17 +339,23 @@ const downloadDocument = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Unauthorized access to this document' });
     }
 
+    if (req.user?.role === ROLES.CADET) {
+      const cadetId = await require('../dao/dashboardDao').resolveCadetId(req.user.id);
+      if (!cadetId || cadetId !== document.cadet_id) return res.status(403).json({ message: 'Unauthorized access to this document' });
+    }
+
     res.set({
       'Content-Type': document.document_mime_type || 'application/octet-stream',
-      'Content-Disposition': `attachment; filename="${document.original_filename || document.document_name}"`,
+      'Content-Disposition': `attachment; filename="${String(document.original_filename || document.document_name || 'document').replace(/[\r\n"\\]/g, '_')}"`,
+      'X-Content-Type-Options': 'nosniff',
     });
     const fs = require('fs');
     const path = require('path');
-    const filePath = path.join(__dirname, '../../uploads', document.document_name);
+    const filePath = path.join(__dirname, '../../uploads', path.basename(document.document_name || ''));
     
     if (document.document_data) {
       res.send(document.document_data);
-    } else if (fs.existsSync(filePath)) {
+    } else if (document.original_filename && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       res.sendFile(filePath);
     } else {
       res.status(404).json({ success: false, message: 'File not found on disk' });

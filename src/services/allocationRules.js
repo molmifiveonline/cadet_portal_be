@@ -7,6 +7,13 @@ const normalizeDepartment = (value) => {
   return null;
 };
 
+const isDepartmentCompatible = (candidateDepartment, resourceDepartment) => {
+  const candidate = normalizeDepartment(candidateDepartment);
+  const resource = String(resourceDepartment || 'Both').trim().toLowerCase();
+  if (!candidate) return false;
+  return resource === 'both' || resource === candidate.toLowerCase();
+};
+
 const validateFormula = ({ academic_weight, components = [] }) => {
   const academicWeight = Number(academic_weight);
   if (!Number.isFinite(academicWeight) || academicWeight < 0 || academicWeight > 100) {
@@ -97,13 +104,30 @@ const createRankMovePlan = (currentRankValue, targetRankValue, totalRankedValue)
     : { currentRank, targetRank, historyAction: 'MoveDown', shiftDelta: -1, rangeStart: currentRank + 1, rangeEnd: targetRank };
 };
 
+const createDirectionalRankMovePlan = (currentRank, targetRank, totalRanked, direction) => {
+  if (!['up', 'down'].includes(direction)) throw new Error('Rank direction must be up or down');
+  const plan = createRankMovePlan(currentRank, targetRank, totalRanked);
+  const expectedAction = direction === 'up' ? 'MoveUp' : 'MoveDown';
+  if (plan.historyAction !== expectedAction) {
+    throw new Error(`The selected target rank does not move the candidate ${direction}`);
+  }
+  return plan;
+};
+
 module.exports = {
+  ensureAllocationEnabled: (record) => {
+    if (record?.deleted_at || record?.cycle_deleted_at) {
+      throw Object.assign(new Error('This allocation is disabled and can only be viewed'), { status: 409 });
+    }
+  },
   roundScore,
   normalizeDepartment,
+  isDepartmentCompatible,
   validateFormula,
   calculateFinalScore,
   calculateAcademicAssessmentAverage,
   sortAutoRank,
   hasAllocatedVessel,
   createRankMovePlan,
+  createDirectionalRankMovePlan,
 };
