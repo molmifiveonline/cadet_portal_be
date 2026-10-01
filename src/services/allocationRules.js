@@ -115,6 +115,11 @@ const createDirectionalRankMovePlan = (currentRank, targetRank, totalRanked, dir
 };
 
 module.exports = {
+  ensureAllocationEnabled: (record) => {
+    if (record?.deleted_at || record?.cycle_deleted_at) {
+      throw Object.assign(new Error('This allocation is disabled and can only be viewed'), { status: 409 });
+    }
+  },
   roundScore,
   normalizeDepartment,
   isDepartmentCompatible,

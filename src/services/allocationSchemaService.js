@@ -3,6 +3,8 @@ const { clearSchemaCache } = require('./schemaCompatibilityService');
 const { ensureVesselMasterTypes, migrateLegacyVesselTypes } = require('./vesselMasterService');
 const { splitCombinedCycles } = require('./allocationCycleService');
 const { migrateAssessmentScores } = require('./assessmentScaleService');
+const { ensureRolePermissionCatalog } = require('./rolePermissionCatalog');
+const { ensureAllocationSoftDeleteSupport } = require('./allocationSoftDeleteSchema');
 
 const columnExists = async (table, column) => {
   const [rows] = await db.query(
@@ -71,6 +73,7 @@ const ensureDepartmentCycles = async () => {
 };
 
 const seedPermissions = async () => {
+  await ensureRolePermissionCatalog();
   // Administrator used to be created as a built-in system role. Remove only
   // that legacy system record; a user-created Admin role has is_system_role=0
   // and remains available like any other custom role.
@@ -83,34 +86,6 @@ const seedPermissions = async () => {
     `DELETE FROM roles
      WHERE LOWER(name) = 'admin' AND is_system_role = 1`,
   );
-
-  const permissions = [
-    ['allocations', 'view', 'View CTV Allocations'],
-    ['allocations', 'create', 'Create CTV Allocations'],
-    ['allocations', 'edit', 'Edit CTV Allocations'],
-    ['allocations', 'finalize', 'Finalize CTV Rank Lists'],
-    ['allocations', 'communicate', 'Send Joining Intimations'],
-    ['allocation-masters', 'view', 'View Allocation Masters'],
-    ['allocation-masters', 'manage', 'Manage Allocation Masters'],
-    ['onboarding', 'view', 'View Onboarding'],
-    ['onboarding', 'edit', 'Update Onboarding'],
-    ['vessel-master', 'view', 'View Vessel Master'],
-    ['vessel-master', 'create', 'Create Vessels'],
-    ['vessel-master', 'edit', 'Edit Vessels'],
-    ['vessel-master', 'delete', 'Delete Vessels'],
-  ];
-
-  for (const [module, action, displayName] of permissions) {
-    await db.query(
-      `INSERT INTO permissions (id, module, action, display_name, description)
-       SELECT UUID(), ?, ?, ?, ?
-       WHERE NOT EXISTS (
-         SELECT 1 FROM permissions WHERE module = ? AND action = ?
-       )`,
-      [module, action, displayName, displayName, module, action],
-    );
-  }
-
 };
 
 const ensureAllocationSupport = async () => {
@@ -212,6 +187,8 @@ const ensureAllocationSupport = async () => {
     CONSTRAINT fk_allocation_cycle_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
+  await ensureAllocationSoftDeleteSupport();
+
   await db.query(`CREATE TABLE IF NOT EXISTS allocation_rank_lists (
     id VARCHAR(36) PRIMARY KEY,
     cycle_id VARCHAR(36) NOT NULL,
@@ -277,7 +254,7 @@ const ensureAllocationSupport = async () => {
   ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
 
   await migrateAssessmentScores();
-  const [draftSnapshots] = await db.query(`SELECT id,formula_snapshot FROM allocation_rank_lists WHERE status='Draft'`);
+  const [draftSnapshots] = await db.query(`SELECT rl.id,rl.formula_snapshot FROM allocation_rank_lists rl JOIN allocation_cycles ac ON ac.id=rl.cycle_id WHERE rl.status='Draft' AND ac.deleted_at IS NULL`);
   for (const row of draftSnapshots) {
     let snapshot = row.formula_snapshot;
     if (typeof snapshot === 'string') {
@@ -292,6 +269,7 @@ const ensureAllocationSupport = async () => {
   await db.query(
     `UPDATE allocations a
      JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
+     JOIN allocation_cycles ac ON ac.id=rl.cycle_id
      LEFT JOIN (
        SELECT allocation_id,
               COUNT(*) AS score_count,
@@ -307,11 +285,11 @@ const ensureAllocationSupport = async () => {
        THEN ROUND((a.academic_score + scores.assessment_average_percentage) / 2, 2)
        ELSE NULL
      END
-     WHERE rl.status='Draft'`,
+     WHERE rl.status='Draft' AND ac.deleted_at IS NULL`,
   );
 
   const [draftAutoLists] = await db.query(
-    `SELECT id FROM allocation_rank_lists WHERE status='Draft' AND ranking_mode='Auto'`,
+    `SELECT rl.id FROM allocation_rank_lists rl JOIN allocation_cycles ac ON ac.id=rl.cycle_id WHERE rl.status='Draft' AND rl.ranking_mode='Auto' AND ac.deleted_at IS NULL`,
   );
   for (const list of draftAutoLists) {
     await db.query(

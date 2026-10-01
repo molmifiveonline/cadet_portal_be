@@ -5,6 +5,10 @@ const {
   filterExistingColumns,
   hasColumn,
 } = require('../services/schemaCompatibilityService');
+const {
+  getInstituteDependencySelect,
+  getInstituteDeletionInfo,
+} = require('../services/instituteDeletionService');
 
 const createInstitute = async (instituteData) => {
   const {
@@ -44,7 +48,7 @@ const getAllInstitutes = async (
   hasSubmissions = false,
   courseType = '',
 ) => {
-  let query = 'SELECT DISTINCT i.* FROM institutes i';
+  let query = `SELECT DISTINCT i.*, ${getInstituteDependencySelect()} FROM institutes i`;
   let countQuery = 'SELECT COUNT(DISTINCT i.id) as total FROM institutes i';
   let queryParams = [];
   let countParams = [];
@@ -102,7 +106,10 @@ const getAllInstitutes = async (
   const [rows] = await db.query(query, queryParams);
   const [[{ total }]] = await db.query(countQuery, countParams);
 
-  return { data: rows, total };
+  return {
+    data: rows.map((row) => ({ ...row, ...getInstituteDeletionInfo(row) })),
+    total,
+  };
 };
 
 const getInstituteById = async (id) => {
@@ -214,8 +221,38 @@ const updateInstitute = async (id, instituteData) => {
 };
 
 const deleteInstitute = async (id) => {
-  const [result] = await db.query('DELETE FROM institutes WHERE id = ?', [id]);
-  return result.affectedRows > 0;
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    // Lock the parent first so foreign-key inserts cannot race with deletion.
+    const [institutes] = await connection.query(
+      'SELECT id FROM institutes WHERE id = ? FOR UPDATE',
+      [id],
+    );
+    if (!institutes.length) {
+      await connection.rollback();
+      return false;
+    }
+    const [[links]] = await connection.query(
+      `SELECT ${getInstituteDependencySelect(true)} FROM institutes i WHERE i.id = ?`,
+      [id],
+    );
+    const deletion = getInstituteDeletionInfo(links);
+    if (!deletion.can_delete) {
+      throw Object.assign(new Error(deletion.delete_blocked_reason), { status: 409 });
+    }
+    const [result] = await connection.query('DELETE FROM institutes WHERE id = ?', [id]);
+    await connection.commit();
+    return result.affectedRows > 0;
+  } catch (error) {
+    await connection.rollback();
+    if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) {
+      throw Object.assign(new Error('Cannot delete this institute because other records depend on it.'), { status: 409 });
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 const createSubmission = async (

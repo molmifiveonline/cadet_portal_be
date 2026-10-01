@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { getAllocationMasterDependencySelect, getAllocationMasterDeletionInfo, deleteUnusedVessel } = require('../services/allocationMasterDeletionService');
 
 const withoutRetiredFields = ({ communication_details, ...vessel }) => vessel;
 
@@ -91,16 +92,8 @@ const getAllVessels = async (
   }
 
   // Data query
-  const dataQuery = `SELECT v.*,
-    (SELECT COALESCE(SUM(
-      (a.vessel_id=v.id AND a.allocation_status IN ('Allocated','Hold'))
-      + (a.secondary_vessel_id=v.id AND a.secondary_allocation_status IN ('Allocated','Hold'))
-    ),0) FROM allocations a WHERE a.is_active=1) AS reserved_seats,
-    GREATEST(v.total_seats - (SELECT COALESCE(SUM(
-      (a.vessel_id=v.id AND a.allocation_status IN ('Allocated','Hold'))
-      + (a.secondary_vessel_id=v.id AND a.secondary_allocation_status IN ('Allocated','Hold'))
-    ),0) FROM allocations a WHERE a.is_active=1), 0) AS available_seats
-    FROM vessels v${whereClause} ORDER BY ${safeSortKey} ${safeSortDir} LIMIT ? OFFSET ?`;
+  const dataQuery = `SELECT m.*, ${getAllocationMasterDependencySelect('vessel')}
+    FROM vessels m${whereClause} ORDER BY ${safeSortKey} ${safeSortDir} LIMIT ? OFFSET ?`;
   const dataParams = [...params, limit, offset];
   const [rows] = await db.query(dataQuery, dataParams);
 
@@ -109,19 +102,11 @@ const getAllVessels = async (
   const [countRows] = await db.query(countQuery, params);
   const total = countRows[0].count;
 
-  return { data: rows.map(withoutRetiredFields), total };
+  return { data: rows.map(row => ({ ...withoutRetiredFields(row), ...getAllocationMasterDeletionInfo('vessel', row) })), total };
 };
 
 const getVesselById = async (id) => {
-  const query = `SELECT v.*,
-    (SELECT COALESCE(SUM(
-      (a.vessel_id=v.id AND a.allocation_status IN ('Allocated','Hold'))
-      + (a.secondary_vessel_id=v.id AND a.secondary_allocation_status IN ('Allocated','Hold'))
-    ),0) FROM allocations a WHERE a.is_active=1) AS reserved_seats,
-    GREATEST(v.total_seats - (SELECT COALESCE(SUM(
-      (a.vessel_id=v.id AND a.allocation_status IN ('Allocated','Hold'))
-      + (a.secondary_vessel_id=v.id AND a.secondary_allocation_status IN ('Allocated','Hold'))
-    ),0) FROM allocations a WHERE a.is_active=1), 0) AS available_seats
+  const query = `SELECT v.*
     FROM vessels v WHERE v.id = ?`;
   const [rows] = await db.query(query, [id]);
   return rows.length > 0 ? withoutRetiredFields(rows[0]) : null;
@@ -170,11 +155,7 @@ const updateVessel = async (id, vesselData) => {
   return result.affectedRows > 0;
 };
 
-const deleteVessel = async (id) => {
-  const query = `DELETE FROM vessels WHERE id = ?`;
-  const [result] = await db.query(query, [id]);
-  return result.affectedRows > 0;
-};
+const deleteVessel = (id) => deleteUnusedVessel(id);
 
 module.exports = {
   createVessel,

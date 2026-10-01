@@ -10,7 +10,7 @@ test('allocation ranking with MySQL temporary tables', {
   const connection = await db.getConnection();
   const rows = async (sql, params = []) => (await connection.query(sql, params))[0];
   const definitions = {
-    allocation_cycles: 'id VARCHAR(36) PRIMARY KEY, allocation_number VARCHAR(30), allocation_year INT, status VARCHAR(20)',
+    allocation_cycles: 'id VARCHAR(36) PRIMARY KEY, allocation_number VARCHAR(30), allocation_year INT, status VARCHAR(20), deleted_at TIMESTAMP NULL DEFAULT NULL',
     allocation_rank_lists: 'id VARCHAR(36) PRIMARY KEY, cycle_id VARCHAR(36), department VARCHAR(20), status VARCHAR(20), ranking_mode VARCHAR(20), formula_snapshot JSON',
     cadets: 'id VARCHAR(36) PRIMARY KEY, cadet_unique_id VARCHAR(50), name_as_in_indos_cert VARCHAR(100), course VARCHAR(50), imu_avg_all_semester_percentage DECIMAL(10,2), status VARCHAR(30), workflow_phase VARCHAR(30)',
     allocations: 'id VARCHAR(36) PRIMARY KEY, rank_list_id VARCHAR(36), cadet_id VARCHAR(36), academic_score DECIMAL(10,2), final_score DECIMAL(10,2), current_rank INT NULL, is_active TINYINT DEFAULT 1, allocation_status VARCHAR(30), vessel_type_id VARCHAR(36), added_by VARCHAR(36)',
@@ -22,7 +22,7 @@ test('allocation ranking with MySQL temporary tables', {
   };
   const reset = async () => {
     for (const table of Object.keys(definitions)) await connection.query(`DELETE FROM ${table}`);
-    await connection.query("INSERT INTO allocation_cycles VALUES ('cycle','CTV-TEST',2090,'Active')");
+    await connection.query("INSERT INTO allocation_cycles (id,allocation_number,allocation_year,status) VALUES ('cycle','CTV-TEST',2090,'Active')");
     await connection.query("INSERT INTO allocation_rank_lists VALUES ('list','cycle','Deck','Draft','Manual',?)", [JSON.stringify({ scoring_method: 'AcademicAssessmentAverage' })]);
     await connection.query(`INSERT INTO cadets VALUES
       ('first','C-001','First Cadet','Deck',74,'Selected','selected'),

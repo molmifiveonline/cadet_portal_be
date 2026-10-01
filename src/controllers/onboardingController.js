@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { ensureAllocationEnabled } = require('../services/allocationRules');
 const activityLogDao = require('../dao/activityLogDao');
 const { CHECKS, buildChecklistUpdate } = require('../services/onboardingRules');
 
@@ -10,7 +11,7 @@ const sendError = (res, error) => {
 const listOnboarding = async (req, res) => {
   try {
     const params = [];
-    let where = `WHERE (
+    let where = `WHERE ac.deleted_at IS NULL AND a.is_active=1 AND (
       (o.status='Pending' AND c.status='CTV Assigned')
       OR (o.status='Onboarded' AND c.status='Onboarded')
     )`;
@@ -65,7 +66,7 @@ const updateChecklist = async (req, res) => {
     await connection.beginTransaction();
     const [rows] = await connection.query(
       `SELECT o.*,c.name_as_in_indos_cert,c.cadet_unique_id,c.status AS cadet_status,rl.status AS rank_list_status,
-              rl.department,ac.allocation_number
+              rl.department,ac.allocation_number,ac.deleted_at AS cycle_deleted_at
        FROM onboarding o
        JOIN cadets c ON c.id=o.cadet_id
        JOIN allocations a ON a.id=o.allocation_id
@@ -74,6 +75,7 @@ const updateChecklist = async (req, res) => {
        WHERE o.id=? FOR UPDATE`, [req.params.id],
     );
     if (!rows[0]) throw Object.assign(new Error('Onboarding record not found'), { status: 404 });
+    ensureAllocationEnabled(rows[0]);
     if (rows[0].status === 'Onboarded') throw Object.assign(new Error('Completed onboarding records are locked'), { status: 409 });
     if (rows[0].cadet_status !== 'CTV Assigned' || rows[0].rank_list_status !== 'Finalized') {
       throw Object.assign(new Error('Only CTV Assigned candidates from a finalized rank list can be onboarded'), { status: 409 });

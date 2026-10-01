@@ -1,6 +1,6 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
-const { calculateFinalScore, calculateAcademicAssessmentAverage, normalizeDepartment, sortAutoRank } = require('./allocationRules');
+const { calculateFinalScore, calculateAcademicAssessmentAverage, normalizeDepartment, sortAutoRank, ensureAllocationEnabled } = require('./allocationRules');
 const { createCycle } = require('./allocationCycleService');
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
@@ -41,11 +41,12 @@ const getFormulaSnapshot = async (connection, templateId, department) => {
 
 const getRankList = async (connection, rankListId, lock = false) => {
   const [rows] = await connection.query(
-    `SELECT rl.*, ac.allocation_number, ac.allocation_year
+    `SELECT rl.*, ac.allocation_number, ac.allocation_year, ac.deleted_at AS cycle_deleted_at
      FROM allocation_rank_lists rl JOIN allocation_cycles ac ON ac.id=rl.cycle_id
      WHERE rl.id=? ${lock ? 'FOR UPDATE' : ''}`, [rankListId],
   );
   if (!rows[0]) throw httpError(404, 'Rank list not found');
+  ensureAllocationEnabled(rows[0]);
   rows[0].formula_snapshot = parseJson(rows[0].formula_snapshot, {});
   return rows[0];
 };
@@ -79,10 +80,12 @@ const recalculateRanks = async (connection, rankListId, force = false) => {
 
 const updateFinalScore = async (connection, allocationId, userId) => {
   const [allocations] = await connection.query(
-    `SELECT a.*, rl.formula_snapshot, rl.id AS list_id, rl.status AS list_status, rl.ranking_mode
-     FROM allocations a JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id WHERE a.id=?`, [allocationId],
+    `SELECT a.*, rl.formula_snapshot, rl.id AS list_id, rl.status AS list_status, rl.ranking_mode, ac.deleted_at AS cycle_deleted_at
+     FROM allocations a JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
+     JOIN allocation_cycles ac ON ac.id=rl.cycle_id WHERE a.id=?`, [allocationId],
   );
   if (!allocations[0]) throw httpError(404, 'Candidate allocation not found');
+  ensureAllocationEnabled(allocations[0]);
   if (allocations[0].list_status !== 'Draft') throw httpError(409, 'Assessment scores are locked');
   const snapshot = parseJson(allocations[0].formula_snapshot, {});
   const [scores] = await connection.query(
@@ -120,6 +123,7 @@ const addCandidates = async ({ rankListId, cadetIds, candidates, userId }) => {
       );
       const cadet = rows[0];
       if (!cadet) throw httpError(404, 'Candidate not found');
+      if (cadet.status === 'Onboarded' || cadet.workflow_result === 'onboarded') throw httpError(409, 'Onboarded cadets cannot be added to another allocation');
       const [documents] = await connection.query(
         `SELECT id, status FROM cadet_documents WHERE cadet_id=? FOR UPDATE`,
         [cadetId],
@@ -138,7 +142,7 @@ const addCandidates = async ({ rankListId, cadetIds, candidates, userId }) => {
       const [duplicates] = await connection.query(
         `SELECT ac.allocation_number FROM allocations a
          JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id JOIN allocation_cycles ac ON ac.id=rl.cycle_id
-         WHERE a.cadet_id=? AND a.is_active=1 AND ac.status='Active' LIMIT 1`, [cadetId],
+         WHERE a.cadet_id=? AND a.is_active=1 AND ac.status='Active' AND ac.deleted_at IS NULL LIMIT 1`, [cadetId],
       );
       if (duplicates.length) throw httpError(409, `${cadet.name_as_in_indos_cert} already belongs to ${duplicates[0].allocation_number}`);
 

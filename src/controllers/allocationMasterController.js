@@ -3,6 +3,7 @@ const activityLogDao = require('../dao/activityLogDao');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { normalizeDepartment, validateFormula } = require('../services/allocationRules');
+const { getAllocationMasterDependencySelect, getAllocationMasterDeletionInfo } = require('../services/allocationMasterDeletionService');
 
 const logAction = (req, action, details, connection = db) => activityLogDao.createLog(
   req.user.id, action, details, req.ip || req.connection?.remoteAddress, connection,
@@ -22,8 +23,8 @@ const listCourses = async (req, res) => {
       where += ' AND status = ?';
       params.push(req.query.status);
     }
-    const [rows] = await db.query(`SELECT * FROM assessment_courses ${where} ORDER BY status, name`, params);
-    res.json({ success: true, data: rows });
+    const [rows] = await db.query(`SELECT m.*, ${getAllocationMasterDependencySelect('assessment')} FROM assessment_courses m ${where} ORDER BY status, name`, params);
+    res.json({ success: true, data: rows.map(row => ({ ...row, ...getAllocationMasterDeletionInfo('assessment', row) })) });
   } catch (error) { sendError(res, error); }
 };
 
@@ -112,17 +113,15 @@ const deleteCourse = async (req, res) => {
     }
 
     const [[usage]] = await connection.query(
-      `SELECT
-         (SELECT COUNT(*) FROM score_formula_components WHERE course_id=?) AS formula_count,
-         (SELECT COUNT(*) FROM allocation_score_entries WHERE course_id=?) AS score_count`,
-      [req.params.id, req.params.id],
+      `SELECT ${getAllocationMasterDependencySelect('assessment', true)} FROM assessment_courses m WHERE m.id = ?`,
+      [req.params.id],
     );
-    if (Number(usage.formula_count) > 0 || Number(usage.score_count) > 0) {
+    const deletion = getAllocationMasterDeletionInfo('assessment', usage);
+    if (!deletion.can_delete) {
       await connection.rollback();
       return res.status(409).json({
         success: false,
-        message:
-          'This Assessment Type is already in use and cannot be deleted. Deactivate it instead to preserve allocation history.',
+        message: deletion.delete_blocked_reason,
       });
     }
 

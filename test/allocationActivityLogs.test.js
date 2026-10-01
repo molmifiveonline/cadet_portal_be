@@ -14,6 +14,7 @@ test('allocation and master actions appear in Activity Logs', {
   const originalGetConnection = db.getConnection;
   const emailService = require('../src/services/emailService');
   const originalSendEmail = emailService.sendEmail;
+  let emailSendCount = 0;
   const prefix = `audit_test_${randomUUID().replace(/-/g, '').slice(0, 12)}_`;
   const tables = [
     'activity_logs', 'users', 'institutes', 'cadets', 'cadet_documents',
@@ -38,7 +39,7 @@ test('allocation and master actions appear in Activity Logs', {
       commit: connection.commit.bind(connection), rollback: connection.rollback.bind(connection),
       release() {},
     });
-    emailService.sendEmail = async () => { throw new Error('Simulated email failure; no email sent'); };
+    emailService.sendEmail = async () => { emailSendCount++; throw new Error('No email may be sent'); };
     const allocation = require('../src/controllers/allocationController');
     const vessel = require('../src/controllers/vesselController');
     const master = require('../src/controllers/allocationMasterController');
@@ -137,6 +138,29 @@ test('allocation and master actions appear in Activity Logs', {
       await invoke(allocation.createCycle, { body: { year: 2090, department: 'Both' }, status: 400 });
     });
 
+    await t.test('recorded seat counts do not limit primary or secondary allocation', async () => {
+      await query("UPDATE vessels SET total_seats=0 WHERE id='vessel-Deck'");
+      await query(`INSERT INTO vessels (id,name,imo_number,vessel_type_id,vessel_type,department,status,total_seats)
+        VALUES ('record-only-secondary','Record Only Secondary','IMO-record-only',?,'Audit Vessel Type','Deck','Active',1)`, [typeId]);
+      for (const candidate of candidates.Deck) {
+        await invoke(allocation.updateVesselAllocation, { params: { allocationId: candidate.allocation_id }, body: {
+          vessel_id: 'vessel-Deck', vessel_type_id: typeId, allocation_status: 'Allocated',
+          secondary_vessel_id: 'record-only-secondary', secondary_vessel_type_id: typeId, secondary_allocation_status: 'Hold',
+        }, action: 'UPDATE_CTV_VESSEL_ALLOCATION' });
+      }
+      const [assigned] = await rows("SELECT COUNT(*) AS count FROM allocations WHERE vessel_id='vessel-Deck' AND secondary_vessel_id='record-only-secondary'");
+      assert.equal(assigned.count, 2);
+      const vesselRecords = require('../src/dao/vesselDao');
+      const primary = await vesselRecords.getVesselById('vessel-Deck');
+      const secondary = await vesselRecords.getVesselById('record-only-secondary');
+      assert.equal(primary.total_seats, 0);
+      assert.equal(secondary.total_seats, 1);
+      assert.ok(!('available_seats' in secondary));
+      assert.ok(!('reserved_seats' in secondary));
+      const listed = await vesselRecords.getAllVessels(10, 0, 'Record Only');
+      assert.equal(listed.data[0].total_seats, 1);
+    });
+
     await t.test('Scores, vessel assignments, rank changes, rank resets and removals log details', async () => {
       const deckId = candidates.Deck[0].allocation_id;
       for (const score of [0, 100, 72.5, 70]) {
@@ -167,70 +191,82 @@ test('allocation and master actions appear in Activity Logs', {
       assert.equal(engineCadet.status, 'Selected');
     });
 
-    await t.test('Joining plans, communications and failed email attempts have distinct entries', async () => {
+    await t.test('Joining plans and recorded communications have audit entries without email delivery', async () => {
       const request = { params: { allocationId: candidates.Deck[0].allocation_id }, body: {
         vessel_role: 'Primary', joining_date: '2090-01-01', reporting_port: 'Test Port', contact_person_name: 'Test Contact',
       } };
       const plan = await invoke(allocation.createJoiningPlan, { ...request, action: 'CREATE_CTV_JOINING_PLAN', status: 201, details: /Primary.*Deck allocation/ });
       await invoke(allocation.createJoiningPlan, { ...request, status: 201 });
       const date = new Date().toISOString().slice(0, 10);
-      for (const mode of ['Phone', 'WhatsApp', 'Email']) {
+      for (const mode of ['Email', 'Phone', 'WhatsApp']) {
         await invoke(allocation.recordCommunication, { params: { joiningPlanId: plan.id }, body: { mode, date_of_informing: date, confirmation_received: true },
-          action: mode === 'Email' ? 'CTV_COMMUNICATION_FAILED' : 'RECORD_CTV_COMMUNICATION', status: mode === 'Email' ? 502 : 201,
-          details: new RegExp(mode === 'Email' ? 'Failed Email attempt' : `Recorded ${mode}`) });
+          action: 'RECORD_CTV_COMMUNICATION', status: 201,
+          details: new RegExp(`Recorded ${mode}`) });
+        assert.equal(emailSendCount, 0);
+        if (mode === 'Email') {
+          const visible = await invoke(allocation.listJoiningPlans);
+          assert.equal(visible.find(item => item.id === plan.id).successful_communication_count, 1);
+          assert.equal(visible.find(item => item.id === plan.id).successful_email_count, 0);
+          assert.equal(visible.find(item => item.id === plan.id).email_delivery_status, null);
+          assert.equal(visible.find(item => item.id === plan.id).status, 'Confirmed');
+          const detail = await invoke(allocation.getCycle, { params: { id: cycles.Deck.id } });
+          assert.equal(Number(detail.rank_lists[0].allocations[0].joining_intimation_complete), 1);
+          const summary = await invoke(allocation.listCycles);
+          assert.equal(summary.find(item => item.id === cycles.Deck.id).informed_count, 1);
+        }
       }
     });
 
-    await t.test('finalized lists allow vessel changes while preserving ranks and reviewing affected joining plans', async () => {
+    await t.test('each vessel stays editable until its own joining plan exists', async () => {
       const deckId = candidates.Deck[0].allocation_id;
-      const before = await rows('SELECT id,final_score,current_rank FROM allocations ORDER BY id');
       await invoke(allocation.updateVesselAllocation, { params: { allocationId: candidates.Engine[0].allocation_id }, body: {
         vessel_id: 'vessel-Engine', vessel_type_id: typeId, allocation_status: 'Allocated',
       }, action: 'UPDATE_CTV_VESSEL_ALLOCATION' });
       const [engineCadet] = await rows('SELECT status FROM cadets WHERE id=?', ['engine-one']);
       assert.equal(engineCadet.status, 'CTV Assigned');
-      for (const id of ['deck-replacement', 'deck-secondary', 'deck-full']) {
+      const before = await rows('SELECT * FROM allocations WHERE id=?', [deckId]);
+      const plansBefore = await rows('SELECT * FROM joining_plans WHERE allocation_id=?', [deckId]);
+      const communicationsBefore = await rows('SELECT * FROM allocation_communications WHERE joining_plan_id=? ORDER BY id', [plansBefore[0].id]);
+      for (const body of [
+        { vessel_id: 'replacement', vessel_type_id: typeId, allocation_status: 'Allocated' },
+        { vessel_id: 'vessel-Deck', vessel_type_id: typeId, allocation_status: 'Cancelled' },
+      ]) {
+        await invoke(allocation.updateVesselAllocation, { params: { allocationId: deckId }, body, status: 409 });
+      }
+      assert.deepEqual(await rows('SELECT * FROM allocations WHERE id=?', [deckId]), before);
+      assert.deepEqual(await rows('SELECT * FROM joining_plans WHERE allocation_id=?', [deckId]), plansBefore);
+
+      // A Primary plan must not prevent allocating or replacing an unplanned Secondary.
+      for (const id of ['secondary-one', 'secondary-two']) {
         await query(`INSERT INTO vessels (id,name,imo_number,vessel_type_id,vessel_type,department,status,total_seats)
-          VALUES (?,?,?,?,'Audit Vessel Type','Deck','Active',?)`, [id, id, id, typeId, id === 'deck-full' ? 0 : 20]);
+          VALUES (?,?,?,?,'Audit Vessel Type','Deck','Active',20)`, [id, `Audit ${id}`, `IMO-${id}`, typeId]);
+        await invoke(allocation.updateVesselAllocation, { params: { allocationId: deckId }, body: {
+          vessel_id: 'vessel-Deck', vessel_type_id: typeId, allocation_status: 'Allocated',
+          secondary_vessel_id: id, secondary_vessel_type_id: typeId, secondary_allocation_status: 'Allocated',
+        }, action: 'UPDATE_CTV_VESSEL_ALLOCATION' });
+        const [saved] = await rows('SELECT * FROM allocations WHERE id=?', [deckId]);
+        assert.equal(saved.vessel_id, before[0].vessel_id);
+        assert.equal(saved.vessel_type_id, before[0].vessel_type_id);
+        assert.equal(saved.allocation_status, before[0].allocation_status);
+        assert.equal(saved.secondary_vessel_id, id);
+        assert.deepEqual(await rows('SELECT * FROM joining_plans WHERE allocation_id=?', [deckId]), plansBefore);
+        assert.deepEqual(await rows('SELECT * FROM allocation_communications WHERE joining_plan_id=? ORDER BY id', [plansBefore[0].id]), communicationsBefore);
       }
-      const assignments = {
-        vessel_id: 'vessel-Deck', vessel_type_id: typeId, allocation_status: 'Allocated',
-        secondary_vessel_id: 'deck-secondary', secondary_vessel_type_id: typeId, secondary_allocation_status: 'Allocated',
-      };
-      await invoke(allocation.updateVesselAllocation, { params: { allocationId: deckId }, body: assignments, action: 'UPDATE_CTV_VESSEL_ALLOCATION' });
-      let [plan] = await rows('SELECT * FROM joining_plans WHERE allocation_id=?', [deckId]);
-      assert.equal(plan.requires_refresh, 0, 'Changing Secondary must not invalidate the Primary plan');
-      const oldContacts = await rows('SELECT * FROM allocation_communications WHERE joining_plan_id=? ORDER BY id', [plan.id]);
-      await invoke(allocation.updateVesselAllocation, { params: { allocationId: deckId }, body: { ...assignments, vessel_id: 'deck-replacement' }, action: 'UPDATE_CTV_VESSEL_ALLOCATION' });
-      [plan] = await rows('SELECT * FROM joining_plans WHERE id=?', [plan.id]);
-      assert.equal(plan.requires_refresh, 1);
-      assert.equal(plan.status, 'Needs Review');
-      const date = new Date().toISOString().slice(0, 10);
-      await invoke(allocation.recordCommunication, { params: { joiningPlanId: plan.id }, body: { mode: 'Phone', date_of_informing: date }, status: 409 });
-      let visible = await invoke(allocation.listJoiningPlans);
-      assert.equal(visible.find((item) => item.id === plan.id).successful_communication_count, 0);
-      const revised = await invoke(allocation.createJoiningPlan, { params: { allocationId: deckId }, body: {
-        vessel_role: 'Primary', joining_date: '2090-02-01', reporting_port: 'Updated Port', contact_person_name: 'Updated Contact',
-      }, action: 'UPDATE_CTV_JOINING_PLAN', status: 201, details: /vessel-Deck|Audit Deck Ship/ });
-      assert.equal(revised.id, plan.id);
-      assert.equal(revised.vessel_name, 'deck-replacement');
-      assert.equal(revised.requires_refresh, 0);
-      assert.equal(revised.revision, 2);
-      assert.deepEqual(await rows('SELECT * FROM allocation_communications WHERE joining_plan_id=? ORDER BY id', [plan.id]), oldContacts);
-      visible = await invoke(allocation.listJoiningPlans);
-      assert.equal(visible.find((item) => item.id === plan.id).successful_communication_count, 0);
-      await invoke(allocation.recordCommunication, { params: { joiningPlanId: plan.id }, body: { mode: 'Phone', date_of_informing: date },
-        action: 'RECORD_CTV_COMMUNICATION', status: 201 });
-      visible = await invoke(allocation.listJoiningPlans);
-      assert.equal(visible.find((item) => item.id === plan.id).successful_communication_count, 1);
-      for (const [vessel_id, status] of [['vessel-Engine', 400], ['deck-full', 409]]) {
-        await invoke(allocation.updateVesselAllocation, { params: { allocationId: deckId }, body: { ...assignments, vessel_id }, status });
+      const secondaryPlan = await invoke(allocation.createJoiningPlan, { params: { allocationId: deckId }, body: {
+        vessel_role: 'Secondary', joining_date: '2090-02-01', reporting_port: 'Second Port', contact_person_name: 'Test Contact',
+      }, action: 'CREATE_CTV_JOINING_PLAN', status: 201 });
+      assert.equal(secondaryPlan.vessel_name, 'Audit secondary-two');
+      const after = await rows('SELECT * FROM allocations WHERE id=?', [deckId]);
+      for (const changedRole of ['Primary', 'Secondary']) {
+        await invoke(allocation.updateVesselAllocation, { params: { allocationId: deckId }, body: {
+          vessel_id: changedRole === 'Primary' ? 'secondary-one' : 'vessel-Deck', vessel_type_id: typeId, allocation_status: 'Allocated',
+          secondary_vessel_id: changedRole === 'Secondary' ? 'secondary-one' : 'secondary-two', secondary_vessel_type_id: typeId, secondary_allocation_status: 'Allocated',
+        }, status: 409 });
       }
+      assert.deepEqual(await rows('SELECT * FROM allocations WHERE id=?', [deckId]), after);
       await invoke(allocation.moveRank, { params: { allocationId: deckId }, body: { direction: 'down', remarks: 'Blocked after finalize' }, status: 409 });
       await invoke(allocation.resetRanks, { params: { rankListId: lists.Deck.id }, body: { remarks: 'Blocked after finalize' }, status: 409 });
       await invoke(allocation.removeCandidate, { params: { allocationId: deckId }, status: 409 });
-      assert.deepEqual(await rows('SELECT id,final_score,current_rank FROM allocations ORDER BY id'), before);
-      assert.ok((await rows('SELECT status FROM allocation_rank_lists')).every((list) => list.status === 'Finalized'));
     });
 
     await t.test('Onboarding changes, unlocking and deletion retain department context', async () => {
@@ -247,7 +283,8 @@ test('allocation and master actions appear in Activity Logs', {
         action: 'UNLOCK_CTV_RANK_LIST', details: /Engine.*Review Engine list/ });
       await invoke(allocation.unlockRankList, { params: { rankListId: lists.Deck.id }, body: { remarks: 'Not allowed after onboarding' }, status: 409 });
       const empty = await invoke(allocation.createCycle, { body: { year: 2090, department: 'Engine' }, action: 'CREATE_CTV_ALLOCATION', status: 201 });
-      await invoke(allocation.deleteCycle, { params: { id: empty.id }, action: 'DELETE_CTV_ALLOCATION', details: /Engine allocation/ });
+      await invoke(allocation.deleteCycle, { params: { id: empty.id }, body: { reason: 'Created by mistake' }, action: 'DISABLE_CTV_ALLOCATION', details: /Engine allocation/ });
+      assert.ok((await rows('SELECT deleted_at FROM allocation_cycles WHERE id=?', [empty.id]))[0].deleted_at);
       const visible = await logs.getLogsLast3Months(100, 0, cycles.Deck.allocation_number);
       assert.ok(visible.length > 5);
       assert.ok(visible.every((log) => log.display_name === 'Audit Tester'));
@@ -280,6 +317,84 @@ test('allocation and master actions appear in Activity Logs', {
       assert.ok(deck.rank_lists[0].admin_remarks_history.some((event) => event.action === 'Reset' && event.remarks === 'Restore score order'));
       assert.ok(deck.rank_lists[0].admin_remarks_history.every((event) => event.action !== 'Unlock'));
       assert.equal(deck.rank_lists[0].allocations[0].rank_history[0].remarks, 'Review priority');
+    });
+
+    await t.test('disabling preserves history and releases a cadet for one new active allocation', async () => {
+      const create = () => invoke(allocation.createCycle, {
+        body: { year: 2090, department: 'Deck' }, action: 'CREATE_CTV_ALLOCATION', status: 201,
+      });
+      const oldCycle = await create();
+      const newCycle = await create();
+      const [oldList] = await rows('SELECT id FROM allocation_rank_lists WHERE cycle_id=?', [oldCycle.id]);
+      const [newList] = await rows('SELECT id FROM allocation_rank_lists WHERE cycle_id=?', [newCycle.id]);
+      await query(`INSERT INTO cadets (id,institute_id,cadet_unique_id,name_as_in_indos_cert,email_id,course,status,workflow_phase,imu_avg_all_semester_percentage)
+        VALUES ('soft-cadet','audit-institute','SOFT-001','Reallocated Cadet','soft@example.invalid','Deck','Selected','selected',80)`);
+      await query("INSERT INTO document_verifications (id,cadet_id,status) VALUES ('verify-soft','soft-cadet','Verified')");
+      await query("INSERT INTO cadet_documents (id,cadet_id,document_name,document_type,status) VALUES ('doc-soft','soft-cadet','Test Document','Other','accepted')");
+      const body = { candidates: [{ cadet_id: 'soft-cadet', scores: [{ course_id: courseId, score: 90 }] }] };
+      const first = await invoke(allocation.addCandidates, {
+        params: { rankListId: oldList.id }, body, action: 'ADD_CTV_CANDIDATES', status: 201,
+      });
+      const oldAllocationId = first.added[0].allocation_id;
+      await invoke(allocation.updateVesselAllocation, { params: { allocationId: oldAllocationId }, body: {
+        vessel_id: 'vessel-Deck', vessel_type_id: typeId, allocation_status: 'Allocated',
+      }, action: 'UPDATE_CTV_VESSEL_ALLOCATION' });
+      const snapshot = await invoke(allocation.getCycle, { params: { id: oldCycle.id } });
+      const recordsBefore = await rows('SELECT * FROM allocations WHERE id=?', [oldAllocationId]);
+      const scoresBefore = await rows('SELECT * FROM allocation_score_entries WHERE allocation_id=?', [oldAllocationId]);
+      const eligible = () => invoke(allocation.listEligibleCandidates, { params: { rankListId: newList.id } });
+      assert.ok(!(await eligible()).some((cadet) => cadet.id === 'soft-cadet'));
+      await invoke(allocation.addCandidates, { params: { rankListId: newList.id }, body, status: 409 });
+
+      const beforeDisable = Date.now();
+      await invoke(allocation.deleteCycle, { params: { id: oldCycle.id }, body: { reason: '  Move cadets to the replacement drive  ' },
+        action: 'DISABLE_CTV_ALLOCATION', details: /Move cadets to the replacement drive/ });
+      const history = await invoke(allocation.getCycle, { params: { id: oldCycle.id } });
+      assert.equal(history.deleted_by, 'audit-user');
+      assert.equal(history.deleted_by_name, 'Audit Tester');
+      assert.equal(history.delete_reason, 'Move cadets to the replacement drive');
+      assert.ok(new Date(history.deleted_at).getTime() >= beforeDisable - 2000);
+      assert.ok(new Date(history.deleted_at).getTime() <= Date.now() + 2000);
+      assert.deepEqual(history.rank_lists, snapshot.rank_lists);
+      const listed = (await invoke(allocation.listCycles)).find((cycle) => cycle.id === oldCycle.id);
+      assert.equal(listed.deleted_at, history.deleted_at);
+      assert.equal(listed.candidate_count, 1);
+      assert.equal(listed.allocated_count, 1);
+      assert.ok((await eligible()).some((cadet) => cadet.id === 'soft-cadet' && cadet.eligible));
+
+      const second = await invoke(allocation.addCandidates, { params: { rankListId: newList.id }, body,
+        action: 'ADD_CTV_CANDIDATES', status: 201 });
+      assert.notEqual(second.added[0].allocation_id, oldAllocationId);
+      assert.deepEqual(await rows('SELECT * FROM allocations WHERE id=?', [oldAllocationId]), recordsBefore);
+      assert.deepEqual(await rows('SELECT * FROM allocation_score_entries WHERE allocation_id=?', [oldAllocationId]), scoresBefore);
+      assert.ok(!(await eligible()).some((cadet) => cadet.id === 'soft-cadet'));
+      await invoke(allocation.addCandidates, { params: { rankListId: newList.id }, body, status: 409 });
+      await invoke(allocation.updateScores, { params: { allocationId: oldAllocationId }, body: { scores: [{ course_id: courseId, score: 10 }] }, status: 409 });
+      await invoke(allocation.removeCandidate, { params: { allocationId: oldAllocationId }, status: 409 });
+      await invoke(allocation.finalizeRankList, { params: { rankListId: oldList.id }, body: { remarks: 'Must remain disabled' }, status: 409 });
+      await invoke(allocation.deleteCycle, { params: { id: oldCycle.id }, body: { reason: 'Repeated request' }, status: 409 });
+      assert.deepEqual(await rows('SELECT * FROM allocations WHERE id=?', [oldAllocationId]), recordsBefore);
+      assert.deepEqual(await rows('SELECT * FROM allocation_score_entries WHERE allocation_id=?', [oldAllocationId]), scoresBefore);
+      assert.equal(emailSendCount, 0);
+    });
+
+    await t.test('Activity Logs preserve actual event time across database session timezones', async () => {
+      const [[{ zone }]] = await physicalQuery('SELECT @@session.time_zone AS zone');
+      try {
+        for (const timeZone of ['+00:00', '+05:30', '-07:00']) {
+          await physicalQuery('SET SESSION time_zone=?', [timeZone]);
+          const before = Date.now();
+          const id = await logs.createLog('audit-user', 'TIMEZONE_CHECK', 'India timestamp verification', null, { query });
+          const [stored] = await rows('SELECT UNIX_TIMESTAMP(created_at) AS epoch FROM activity_logs WHERE id=?', [id]);
+          const visible = await logs.getLogsLast3Months(10, 0, 'TIMEZONE_CHECK');
+          const timestamp = visible.find((item) => item.id === id).created_at;
+          assert.equal(timestamp, new Date(Number(stored.epoch) * 1000).toISOString());
+          assert.ok(new Date(timestamp).getTime() >= before - 2000);
+          assert.ok(new Date(timestamp).getTime() <= Date.now() + 2000);
+        }
+      } finally {
+        await physicalQuery('SET SESSION time_zone=?', [zone]);
+      }
     });
 
     await t.test('an audit entry written in a rolled-back transaction is not published', async () => {

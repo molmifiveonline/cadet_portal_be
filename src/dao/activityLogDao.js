@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { ACTIVITY_LOG_RETENTION_MONTHS } = require('../config/constants');
+const { unixTimestampToIso } = require('../utils/dateUtils');
 
 const UUID_PATTERN =
   '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
@@ -135,7 +136,7 @@ const getLogsLast3Months = async (
         al.id,
         al.action,
         al.details,
-        al.created_at,
+        UNIX_TIMESTAMP(al.created_at) AS created_at,
         COALESCE(u.email, JSON_UNQUOTE(JSON_EXTRACT(i.contact_emails, '$[0].email'))) as user_email,
         COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), i.institute_name, 'Unknown') as display_name,
         COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), i.institute_name, 'Unknown') as user_name
@@ -189,7 +190,10 @@ const getLogsLast3Months = async (
     params.push(limit, offset);
 
     const [rows] = await db.query(query, params);
-    return enrichLogDetails(rows);
+    return enrichLogDetails(rows.map((row) => ({
+      ...row,
+      created_at: unixTimestampToIso(row.created_at),
+    })));
   } catch (error) {
     console.error('Error fetching logs for last 3 months:', error);
     throw error;

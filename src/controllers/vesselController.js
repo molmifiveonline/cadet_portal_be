@@ -319,7 +319,10 @@ const deleteVessel = async (req, res, next) => {
       });
     }
 
-    await vesselDao.deleteVessel(id);
+    const deleted = await vesselDao.deleteVessel(id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Vessel not found' });
+    }
 
     await activityLogDao.createLog(
       req.user.id,

@@ -5,7 +5,6 @@ const {
   getAllRecruitmentDrives,
   getRecruitmentDriveById,
   updateRecruitmentDrive,
-  deleteRecruitmentDrive,
   getRecruitmentDriveStats,
   getDriveCadetQueue,
   getDriveCommunications,
@@ -46,7 +45,6 @@ router.get('/', allowInstituteOrPermission('recruitment_drives', 'view'), getAll
 router.get('/pending-count', getPendingDriveCount);
 router.get('/:id', allowInstituteOrPermission('recruitment_drives', 'view'), getRecruitmentDriveById);
 router.put('/:id', requirePermission('recruitment_drives', 'edit'), updateRecruitmentDrive);
-router.delete('/:id', requirePermission('recruitment_drives', 'delete'), deleteRecruitmentDrive);
 router.get('/:id/stats', allowInstituteOrPermission('recruitment_drives', 'view'), getRecruitmentDriveStats);
 router.get('/:id/cadets', allowInstituteOrPermission('recruitment_drives', 'view'), getDriveCadetQueue);
 router.get('/:id/communications', requirePermission('recruitment_drives', 'view'), getDriveCommunications);

@@ -1,6 +1,6 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/authMiddleware');
-const { requirePermission, requireSuperAdmin } = require('../middleware/permissionMiddleware');
+const { requirePermission, requireAnyPermission, requireSuperAdmin } = require('../middleware/permissionMiddleware');
 const controller = require('../controllers/allocationController');
 const masters = require('../controllers/allocationMasterController');
 const vesselController = require('../controllers/vesselController');
@@ -8,17 +8,19 @@ const vesselController = require('../controllers/vesselController');
 const router = express.Router();
 router.use(authMiddleware);
 
-router.get('/masters/courses', requirePermission('allocation-masters', 'view'), masters.listCourses);
-router.post('/masters/courses', requirePermission('allocation-masters', 'manage'), masters.saveCourse);
+const readAllocationLookup = requireAnyPermission([['allocations', 'view'], ['allocation-masters', 'view']]);
+router.get('/masters/courses', readAllocationLookup, masters.listCourses);
+router.post('/masters/courses', requirePermission('allocation-masters', 'create'), masters.saveCourse);
 router.put('/masters/courses/:id', requirePermission('allocation-masters', 'manage'), masters.saveCourse);
 router.delete('/masters/courses/:id', requirePermission('allocation-masters', 'manage'), masters.deleteCourse);
 router.get('/masters/formulas', requirePermission('allocation-masters', 'view'), masters.listFormulas);
 router.post('/masters/formulas', requireSuperAdmin, masters.createFormula);
 router.post('/masters/formulas/:id/activate', requireSuperAdmin, masters.activateFormula);
-router.get('/masters/vessel-types', requirePermission('allocation-masters', 'view'), masters.listVesselTypes);
+router.get('/masters/vessel-types', readAllocationLookup, masters.listVesselTypes);
 router.post('/masters/vessel-types', requireSuperAdmin, vesselController.createVesselMasterType);
 router.put('/masters/vessel-types/:id', requireSuperAdmin, vesselController.updateVesselMasterType);
 
+router.get('/vessels', requirePermission('allocations', 'view'), vesselController.getAllVessels);
 router.get('/admins', requirePermission('allocations', 'communicate'), controller.listAdmins);
 router.get('/joining-plans', requirePermission('allocations', 'view'), controller.listJoiningPlans);
 router.get('/joining-plans/:joiningPlanId/communications', requirePermission('allocations', 'view'), controller.listJoiningPlanCommunications);

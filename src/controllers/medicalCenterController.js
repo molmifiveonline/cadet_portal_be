@@ -182,7 +182,10 @@ const deleteMedicalCenter = async (req, res, next) => {
         .json({ success: false, message: 'Medical center not found' });
     }
 
-    await medicalCenterDao.deleteMedicalCenter(id);
+    const deleted = await medicalCenterDao.deleteMedicalCenter(id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Medical center not found' });
+    }
 
     await activityLogDao.createLog(
       req.user.id,

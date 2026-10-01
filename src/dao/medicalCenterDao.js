@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { getMedicalDependencySelect, getMedicalDeletionInfo, deleteUnusedMedicalMaster } = require('../services/medicalMasterDeletionService');
 
 const createMedicalCenter = async (centerData) => {
   const id = uuidv4();
@@ -87,7 +88,7 @@ const getAllMedicalCenters = async (
   }
 
   // Data query
-  const dataQuery = `SELECT * FROM medical_centers${whereClause} ORDER BY ${safeSortKey} ${safeSortDir} LIMIT ? OFFSET ?`;
+  const dataQuery = `SELECT m.*, ${getMedicalDependencySelect('center')} FROM medical_centers m${whereClause} ORDER BY ${safeSortKey} ${safeSortDir} LIMIT ? OFFSET ?`;
   const dataParams = [...params, limit, offset];
   const [rows] = await db.query(dataQuery, dataParams);
 
@@ -128,7 +129,7 @@ const getAllMedicalCenters = async (
   const [countRows] = await db.query(countQuery, params);
   const total = countRows[0].count;
 
-  return { data: populatedRows, total };
+  return { data: populatedRows.map(row => ({ ...row, ...getMedicalDeletionInfo('center', row) })), total };
 };
 
 const getMedicalCenterById = async (id) => {
@@ -168,11 +169,7 @@ const updateMedicalCenter = async (id, updateData) => {
   return result.affectedRows > 0;
 };
 
-const deleteMedicalCenter = async (id) => {
-  const query = `DELETE FROM medical_centers WHERE id = ?`;
-  const [result] = await db.query(query, [id]);
-  return result.affectedRows > 0;
-};
+const deleteMedicalCenter = (id) => deleteUnusedMedicalMaster('center', id);
 
 module.exports = {
   createMedicalCenter,

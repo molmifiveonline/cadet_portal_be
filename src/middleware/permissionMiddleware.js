@@ -5,8 +5,10 @@ const { ROLES } = require('../config/constants');
 // Cache TTL: 120 seconds
 const permissionCache = new Map();
 const CACHE_TTL = 120 * 1000;
+let cacheVersion = 0;
 
 const clearPermissionCache = () => {
+  cacheVersion += 1;
   permissionCache.clear();
 };
 
@@ -18,16 +20,16 @@ const getCachedPermission = async (roleName, moduleName, action) => {
     return cached.result;
   }
 
+  const version = cacheVersion;
   const result = await rolePermissionDao.userHasPermission(
     roleName,
     moduleName,
     action,
   );
 
-  permissionCache.set(cacheKey, {
-    result,
-    timestamp: Date.now(),
-  });
+  if (version !== cacheVersion)
+    return getCachedPermission(roleName, moduleName, action);
+  permissionCache.set(cacheKey, { result, timestamp: Date.now() });
 
   return result;
 };

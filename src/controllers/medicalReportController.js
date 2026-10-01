@@ -153,7 +153,10 @@ const deleteMedicalReport = async (req, res, next) => {
       });
     }
 
-    await medicalReportDao.deleteMedicalReport(id);
+    const deleted = await medicalReportDao.deleteMedicalReport(id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Medical Report not found' });
+    }
 
     if (req.user && req.user.id) {
       await activityLogDao.createLog(
