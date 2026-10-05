@@ -4,6 +4,7 @@ const {
   login,
   forgotPassword,
   resetPassword,
+  validateResetToken,
 } = require('../controllers/authController');
 const {
   requestInstituteOtp,
@@ -14,6 +15,7 @@ const {
 router.post('/login', login);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
+router.post('/validate-reset-token', validateResetToken);
 
 // Institute OTP Login
 router.post('/institute/request-otp', requestInstituteOtp);

@@ -14,7 +14,23 @@ const instituteDao = require('../dao/instituteDao');
 const {
   PASSWORD_LENGTH_MESSAGE,
   isValidPasswordLength,
+  getEmailValidationMessage,
 } = require('../utils/validationUtils');
+const {
+  PASSWORD_RESET_EXPIRY_MINUTES,
+  INVALID_RESET_LINK_MESSAGE,
+  PASSWORD_RESET_REQUEST_MESSAGE,
+  PASSWORD_RESET_LIMIT_MESSAGE,
+  createPasswordResetToken,
+  isValidPasswordResetToken,
+  hashPasswordResetToken,
+} = require('../services/passwordResetService');
+
+const rejectResetLink = (res) =>
+  res.status(400).json({
+    message: INVALID_RESET_LINK_MESSAGE,
+    code: 'INVALID_RESET_TOKEN',
+  });
 
 const login = async (req, res) => {
   try {
@@ -116,32 +132,49 @@ const login = async (req, res) => {
 };
 
 const forgotPassword = async (req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
-    const { email } = req.body;
-    if (!email) {
+    const { email } = req.body || {};
+    if (typeof email !== 'string' || !email.trim()) {
       return res.status(400).json({ message: 'Email is required' });
     }
+    const emailMessage = getEmailValidationMessage(email.trim());
+    if (emailMessage) return res.status(400).json({ message: emailMessage });
 
-    const user = await UserDao.findUserByEmail(email);
+    const user = await UserDao.findUserByEmail(email.trim());
     if (!user) {
-      return res
-        .status(404)
-        .json({ message: 'This email address does not exist.' });
+      return res.json({ message: PASSWORD_RESET_REQUEST_MESSAGE });
     }
 
-    const resetLink = `${FRONTEND_URL}/reset-password?id=${user.id}`;
-    const template = emailTemplates.forgotPassword({ resetLink });
+    const token = createPasswordResetToken();
+    const tokenHash = hashPasswordResetToken(token);
+    const result = await UserDao.issuePasswordResetToken(user.id, tokenHash);
+    if (result.limitReached) {
+      res.set('Retry-After', String(result.retryAfterSeconds));
+      return res.status(429).json({
+        message: PASSWORD_RESET_LIMIT_MESSAGE,
+        code: 'PASSWORD_RESET_LIMIT_REACHED',
+        retryAfterSeconds: result.retryAfterSeconds,
+      });
+    }
+    if (!result.issued) return res.json({ message: PASSWORD_RESET_REQUEST_MESSAGE });
 
-    // Only attempt to send email if SMTP is configured, else just log it for dev
-    if (process.env.SMTP_USER) {
+    const resetLink = `${FRONTEND_URL}/reset-password?token=${token}`;
+    const template = emailTemplates.forgotPassword({
+      resetLink,
+      expiryMinutes: PASSWORD_RESET_EXPIRY_MINUTES,
+    });
+
+    try {
       await sendEmail({
-        to: email,
+        to: user.email,
         subject: template.subject,
         html: template.html,
-        text: 'Reset Password',
+        text: `Reset your MOLMI password: ${resetLink}\nThis link expires in ${PASSWORD_RESET_EXPIRY_MINUTES} minutes and can be used only once.`,
       });
-    } else {
-      console.log(`[DEV] Forgot Password Link for ${email}: ${resetLink}`);
+    } catch (error) {
+      await UserDao.revokePasswordResetToken(user.id, tokenHash);
+      throw error;
     }
 
     // Log activity
@@ -149,21 +182,37 @@ const forgotPassword = async (req, res) => {
       user.id,
       'PASSWORD_RESET_REQUEST',
       `User requested password reset`,
-      req.ip || req.connection.remoteAddress,
+      req.ip || req.connection?.remoteAddress,
     );
 
-    res.json({ message: 'A password reset link has been sent to your email.' });
+    res.json({ message: PASSWORD_RESET_REQUEST_MESSAGE });
   } catch (error) {
-    console.error('Forgot Password Error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Forgot Password Error:', error.code || error.name);
+    res.status(500).json({ message: 'Unable to send a reset email. Please try again later.' });
+  }
+};
+
+const validateResetToken = async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const { token } = req.body || {};
+    if (!isValidPasswordResetToken(token)) return rejectResetLink(res);
+    const user = await UserDao.findUserByPasswordResetToken(hashPasswordResetToken(token));
+    if (!user) return rejectResetLink(res);
+    return res.json({ message: 'Reset link is valid.' });
+  } catch (error) {
+    console.error('Reset Link Validation Error:', error.code || error.name);
+    return res.status(500).json({ message: 'Unable to verify this reset link. Please try again.' });
   }
 };
 
 const resetPassword = async (req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
-    const { userId, password, confirm_password } = req.body;
+    const { token, password, confirm_password } = req.body || {};
+    if (!isValidPasswordResetToken(token)) return rejectResetLink(res);
 
-    if (!userId || !password || !confirm_password) {
+    if (!password || !confirm_password) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
@@ -175,43 +224,37 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ message: PASSWORD_LENGTH_MESSAGE });
     }
 
+    const tokenHash = hashPasswordResetToken(token);
+    const user = await UserDao.findUserByPasswordResetToken(tokenHash);
+    if (!user) return rejectResetLink(res);
     const hashedPassword = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
-    const updated = await UserDao.updateUserPassword(userId, hashedPassword);
+    const updated = await UserDao.consumePasswordResetToken(user.id, tokenHash, hashedPassword);
+    if (!updated) return rejectResetLink(res);
 
-    if (updated) {
-      // Get user info for email and logging
-      const user = await UserDao.findUserById(userId);
+    await activityLogDao.createLog(
+      user.id,
+      'PASSWORD_RESET',
+      'User reset their password',
+      req.ip || req.connection?.remoteAddress,
+    );
 
-      // Optionally send a confirmation email
-      if (user && process.env.SMTP_USER) {
-        const template = emailTemplates.resetPasswordSuccess();
-        await sendEmail({
-          to: user.email,
-          subject: template.subject,
-          html: template.html,
-          text: 'Password Reset Successful',
-        });
-      }
-
-      // Log activity (reuse the user variable)
-      if (user) {
-        await activityLogDao.createLog(
-          userId,
-          'PASSWORD_RESET',
-          `User reset their password`,
-          req.ip || req.connection.remoteAddress,
-        );
-      }
-
-      res.json({ message: 'Your password has been successfully updated.' });
-    } else {
-      res
-        .status(400)
-        .json({ message: 'Failed to update password. User not found.' });
+    // A notification failure must not report failure after the password changed.
+    try {
+      const template = emailTemplates.resetPasswordSuccess();
+      await sendEmail({
+        to: user.email,
+        subject: template.subject,
+        html: template.html,
+        text: 'Your MOLMI password has been successfully updated.',
+      });
+    } catch (error) {
+      console.error('Password Reset Confirmation Email Error:', error.code || error.name);
     }
+
+    return res.json({ message: 'Your password has been successfully updated.' });
   } catch (error) {
-    console.error('Reset Password Error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Reset Password Error:', error.code || error.name);
+    return res.status(500).json({ message: 'Unable to reset your password. Please try again.' });
   }
 };
 
@@ -219,4 +262,5 @@ module.exports = {
   login,
   forgotPassword,
   resetPassword,
+  validateResetToken,
 };
