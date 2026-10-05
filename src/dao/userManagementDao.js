@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const { ensurePasswordResetSupport } = require('../services/schemaUpgradeService');
 
 const getUsers = async (
   limit,
@@ -114,9 +115,10 @@ const updateUser = async (
   let params;
 
   if (password) {
+    await ensurePasswordResetSupport();
     const hashedPassword = await bcrypt.hash(password, 10);
     query =
-      'UPDATE users SET email = ?, first_name = ?, last_name = ?, status = ?, role = ?, password = ? WHERE id = ?';
+      'UPDATE users SET email = ?, first_name = ?, last_name = ?, status = ?, role = ?, password = ?, password_reset_token_hash = NULL, password_reset_expires_at = NULL, password_reset_requested_at = NULL WHERE id = ?';
     params = [
       email,
       first_name || '',

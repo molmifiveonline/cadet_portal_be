@@ -541,6 +541,7 @@ const emailTemplates = {
                     <p style="margin: 0 0 18px; font-size: 16px; color: #333333; line-height: 1.6;">Hello,</p>
 
                     <p style="margin: 0 0 18px; font-size: 16px; color: #444444; line-height: 1.6;">We received a request to reset your password for the MOLMI Cadet Management Portal. If you made this request, please click the button below to set a new password.</p>
+                    <p style="margin: 0 0 18px; font-size: 14px; color: #444444; line-height: 1.6;"><strong>This link expires in ${data.expiryMinutes || 15} minutes and can be used only once.</strong> After resetting your password, request a new link using Forgot Password whenever you need to reset it again. Only the latest reset link will work.</p>
                   </td>
                 </tr>
 

@@ -54,6 +54,44 @@ const runSchemaChange = async (query, duplicateCodes = []) => {
   }
 };
 
+let passwordResetSchemaPromise;
+const ensurePasswordResetSupport = () => {
+  if (!passwordResetSchemaPromise) {
+    passwordResetSchemaPromise = (async () => {
+      for (const [column, definition] of [
+        ['password_reset_token_hash', 'CHAR(64) NULL'],
+        ['password_reset_expires_at', 'DATETIME(3) NULL'],
+        ['password_reset_requested_at', 'DATETIME(3) NULL'],
+      ]) {
+        if (!(await columnExists('users', column))) {
+          await runSchemaChange(
+            `ALTER TABLE users ADD COLUMN ${column} ${definition}`,
+            ['ER_DUP_FIELDNAME'],
+          );
+        }
+      }
+      if (!(await indexExists('users', 'idx_users_password_reset_token_hash'))) {
+        await runSchemaChange(
+          'ALTER TABLE users ADD UNIQUE INDEX idx_users_password_reset_token_hash (password_reset_token_hash)',
+          ['ER_DUP_KEYNAME'],
+        );
+      }
+      await db.query(
+        `CREATE TABLE IF NOT EXISTS password_reset_requests (
+          token_hash CHAR(64) PRIMARY KEY,
+          user_id VARCHAR(36) NOT NULL,
+          requested_at DATETIME(3) NOT NULL,
+          KEY idx_password_reset_requests_user_time (user_id, requested_at)
+        ) ENGINE=InnoDB`,
+      );
+    })().catch((error) => {
+      passwordResetSchemaPromise = undefined;
+      throw error;
+    });
+  }
+  return passwordResetSchemaPromise;
+};
+
 const ensureIndexIfColumns = async (tableName, indexName, columns = []) => {
   const hasTable = await tableExists(tableName);
   if (!hasTable) return;
@@ -496,6 +534,7 @@ const ensureInstituteUploadFormatSupport = async () => {
 };
 
 module.exports = {
+  ensurePasswordResetSupport,
   ensureSubmissionDriveContext,
   ensurePerformanceIndexes,
   ensureInstituteUploadFormatSupport,

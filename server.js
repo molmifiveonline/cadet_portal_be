@@ -22,6 +22,7 @@ const {
   ensureInterviewAttachmentsSupport,
   ensureMedicalReportsSupport,
   ensureMultipleMedicalAppointmentsSupport,
+  ensurePasswordResetSupport,
 } = require("./src/services/schemaUpgradeService");
 const { ensureAllocationSupport } = require("./src/services/allocationSchemaService");
 
@@ -109,6 +110,7 @@ app.listen(PORT, () => {
     .then(() => ensureMedicalReportsSupport())
     .then(() => ensureMultipleMedicalAppointmentsSupport())
     .then(() => ensureAllocationSupport())
+    .then(() => ensurePasswordResetSupport())
     .then(() => warmCache())
     .catch((error) => {
       console.error("Schema upgrade failed:", error.message);
