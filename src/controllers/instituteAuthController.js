@@ -37,15 +37,14 @@ const STATIC_INSTITUTE_REQUEST_EMAIL = {
       subject: 'Action Required: Submit Excel Data - MOLMI',
       requestType: 'Cadet details',
       description:
-        'Please submit the requested cadet details using the attached Excel format. Fill in all required fields and upload the completed file through the MOLMI Institute Portal.',
-      attachmentFilename:
-        'TME-B.Tech(ME)-IMU Chennai -2026 Passing out-MOL-Revised.xlsx',
+        'Please submit the requested cadet details using the attached Excel template. Read the Instructions sheet before filling it in. The populated details are examples only; replace them with actual cadet details, remove any unused example rows, and upload the completed file through the MOLMI Institute Portal. If in doubt, please call your MOLMI contact for clarification.',
+      attachmentFilename: 'Cadet-Details-Template.xlsx',
       attachmentPath: path.join(
         __dirname,
         '..',
         'assets',
         'email-attachments',
-        'TME-B.Tech(ME)-IMU Chennai -2026 Passing out-MOL-Revised.xlsx',
+        'Cadet-Details-Template.xlsx',
       ),
     },
     [INSTITUTE_UPLOAD_TYPES.PANAMA]: {
