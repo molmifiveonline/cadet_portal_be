@@ -6,7 +6,6 @@ const configuredFrontendUrls = (process.env.FRONTEND_URL || '')
   .filter(Boolean);
 
 const frontendUrl = configuredFrontendUrls[0] || 'http://localhost:3000';
-const instituteFrontendUrl = configuredFrontendUrls[1] || frontendUrl;
 
 module.exports = {
   // JWT
@@ -168,8 +167,9 @@ module.exports = {
   EXTERNAL_LINK_EXPIRY_HOURS: 168,
   
   // Frontend URLs for absolute links
+  // The first FRONTEND_URL is the portal base; remaining URLs are CORS origins.
   FRONTEND_URL: frontendUrl,
   INSTITUTE_LOGIN_URL: (
-    process.env.INSTITUTE_LOGIN_URL || `${instituteFrontendUrl}/institute-login`
+    process.env.INSTITUTE_LOGIN_URL || `${frontendUrl}/institute-login`
   ).trim().replace(/\/+$/, ''),
 };
