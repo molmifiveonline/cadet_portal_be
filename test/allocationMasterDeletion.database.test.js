@@ -19,6 +19,7 @@ test(
       'assessment_courses',
       'score_formula_components',
       'allocation_score_entries',
+      'allocation_workflow_history',
     ];
     const prefix = `master_delete_test_${randomBytes(6).toString('hex')}_`;
     const names = Object.fromEntries(

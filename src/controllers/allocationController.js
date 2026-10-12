@@ -1,7 +1,7 @@
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const activityLogDao = require('../dao/activityLogDao');
-const { normalizeDepartment, isDepartmentCompatible, hasAllocatedVessel, createDirectionalRankMovePlan, ensureAllocationEnabled } = require('../services/allocationRules');
+const { normalizeDepartment, createDirectionalRankMovePlan, ensureAllocationEnabled } = require('../services/allocationRules');
 const { unixTimestampToIso } = require('../utils/dateUtils');
 const {
   httpError,
@@ -60,7 +60,7 @@ const listCycles = async (req, res) => {
           JOIN allocation_communications informed_cm ON informed_cm.joining_plan_id=informed_jp.id
           WHERE informed_jp.allocation_id=a.id
             AND informed_jp.requires_refresh=0 AND informed_cm.plan_revision=informed_jp.revision
-            AND (informed_cm.mode IN ('Phone','WhatsApp') OR (informed_cm.mode='Email' AND (informed_cm.delivery_status='Sent' OR informed_cm.delivery_status IS NULL)))
+            AND (informed_cm.mode='Email' AND informed_cm.delivery_status='Sent')
         ) THEN a.id END) AS informed_count,
         COUNT(DISTINCT CASE WHEN a.is_active=1 AND o.status='Onboarded' THEN a.id END) AS onboarded_count
        FROM allocation_cycles ac
@@ -78,7 +78,15 @@ const listCycles = async (req, res) => {
 const hydrateCycle = async (cycleId) => {
   const [cycles] = await db.query(
     `SELECT ac.*,UNIX_TIMESTAMP(ac.deleted_at) AS deleted_at_epoch,
-      COALESCE(NULLIF(TRIM(CONCAT_WS(' ',du.first_name,du.last_name)),''),du.email,ac.deleted_by) AS deleted_by_name
+      COALESCE(NULLIF(TRIM(CONCAT_WS(' ',du.first_name,du.last_name)),''),du.email,ac.deleted_by) AS deleted_by_name,
+      (SELECT COUNT(*) FROM joining_plans jp
+       JOIN allocations a ON a.id=jp.allocation_id
+       JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
+       WHERE rl.cycle_id=ac.id) AS existing_joining_plan_count,
+      (SELECT COUNT(*) FROM onboarding o
+       JOIN allocations a ON a.id=o.allocation_id
+       JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
+       WHERE rl.cycle_id=ac.id) AS existing_onboarding_count
      FROM allocation_cycles ac LEFT JOIN users du ON du.id=ac.deleted_by WHERE ac.id=?`, [cycleId],
   );
   if (!cycles[0]) throw httpError(404, 'Allocation cycle not found');
@@ -118,7 +126,7 @@ const hydrateCycle = async (cycleId) => {
               pjp.requires_refresh AS primary_joining_plan_requires_refresh,
               sjp.id AS secondary_joining_plan_id, sjp.status AS secondary_joining_plan_status,
               sjp.requires_refresh AS secondary_joining_plan_requires_refresh,
-              o.id AS onboarding_id, o.status AS onboarding_status,
+              o.id AS onboarding_id, o.status AS onboarding_status,o.admission_source AS onboarding_admission_source,
               (COALESCE(o.passport_verified,0) + COALESCE(o.medical_cert_verified,0)
                 + COALESCE(o.bank_details_verified,0) + COALESCE(o.agreement_signed,0)
                 + COALESCE(o.final_clearance,0)) AS onboarding_completed_checks,
@@ -127,7 +135,7 @@ const hydrateCycle = async (cycleId) => {
                 JOIN allocation_communications ic ON ic.joining_plan_id=ijp.id
                 WHERE ijp.allocation_id=a.id
                   AND ijp.requires_refresh=0 AND ic.plan_revision=ijp.revision
-                  AND (ic.mode IN ('Phone','WhatsApp') OR (ic.mode='Email' AND (ic.delivery_status='Sent' OR ic.delivery_status IS NULL)))
+                  AND (ic.mode='Email' AND ic.delivery_status='Sent')
               ) AS joining_intimation_complete
        FROM allocations a JOIN cadets c ON c.id=a.cadet_id
        LEFT JOIN institutes i ON i.id=c.institute_id
@@ -332,6 +340,10 @@ const removeCandidate = async (req, res) => {
     if (!rows[0]) throw httpError(404, 'Candidate allocation not found');
     ensureAllocationEnabled(rows[0]);
     if (rows[0].list_status !== 'Draft') throw httpError(409, 'Finalized candidates cannot be removed');
+    const [[history]] = await connection.query(`SELECT
+      EXISTS(SELECT 1 FROM allocation_workflow_history WHERE allocation_id=?) AS has_history,
+      EXISTS(SELECT 1 FROM onboarding WHERE allocation_id=? AND admission_source IS NOT NULL) AS admitted`, [rows[0].id,rows[0].id]);
+    if (history.has_history || history.admitted) throw httpError(409, 'This candidate has allocation history and cannot be removed. Cancel the vessel allocation instead.');
     const activityLabel = await allocationActivityLabel(connection, rows[0].id);
     await connection.query(`DELETE FROM allocations WHERE id=?`, [req.params.allocationId]);
     await recalculateRanks(connection, rows[0].rank_list_id);
@@ -421,98 +433,7 @@ const updateScores = async (req, res) => {
   finally { connection.release(); }
 };
 
-const updateVesselAllocation = async (req, res) => {
-  const connection = await db.getConnection();
-  try {
-    await connection.beginTransaction();
-    const [rows] = await connection.query(
-      `SELECT a.*,rl.department,rl.status AS list_status,ac.deleted_at AS cycle_deleted_at FROM allocations a JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id JOIN allocation_cycles ac ON ac.id=rl.cycle_id WHERE a.id=? FOR UPDATE`, [req.params.allocationId],
-    );
-    if (!rows[0]) throw httpError(404, 'Candidate allocation not found');
-    ensureAllocationEnabled(rows[0]);
-    const allocation = rows[0];
-    const [onboarding] = await connection.query('SELECT status FROM onboarding WHERE allocation_id=? FOR UPDATE', [allocation.id]);
-    if (onboarding[0]?.status === 'Onboarded') throw httpError(409, 'Vessel assignments cannot change after onboarding is complete');
-    const [joiningPlans] = await connection.query('SELECT vessel_role FROM joining_plans WHERE allocation_id=? FOR UPDATE', [allocation.id]);
-    const plannedRoles = new Set(joiningPlans.map((plan) => plan.vessel_role));
-    const allowedStatuses = ['Pending','Allocated','Hold','Cancelled'];
-    const primaryStatus = req.body.primary_allocation_status || req.body.allocation_status || 'Pending';
-    const secondaryStatus = req.body.secondary_allocation_status || 'Pending';
-    if (!allowedStatuses.includes(primaryStatus) || !allowedStatuses.includes(secondaryStatus)) throw httpError(400, 'Invalid vessel allocation status');
-
-    const primaryVesselId = req.body.vessel_id || null;
-    const secondaryVesselId = req.body.secondary_vessel_id || null;
-    if (primaryVesselId && secondaryVesselId && primaryVesselId === secondaryVesselId) throw httpError(400, 'Primary and Secondary must be different vessels');
-
-    const vesselIds = [primaryVesselId, secondaryVesselId].filter(Boolean).sort();
-    const [vessels] = vesselIds.length
-      ? await connection.query(`SELECT * FROM vessels WHERE id IN (?) ORDER BY id FOR UPDATE`, [vesselIds])
-      : [[]];
-    const vesselsById = new Map(vessels.map((vessel) => [vessel.id, vessel]));
-
-    const requestedTypeIds = [...new Set([
-      req.body.vessel_type_id,
-      req.body.secondary_vessel_type_id,
-      ...vessels.map((vessel) => vessel.vessel_type_id),
-    ].filter(Boolean))];
-    const [types] = requestedTypeIds.length
-      ? await connection.query(`SELECT * FROM vessel_types WHERE id IN (?)`, [requestedTypeIds])
-      : [[]];
-    const typesById = new Map(types.map((type) => [type.id, type]));
-
-    const slots = [
-      { label: 'Primary', vesselId: primaryVesselId, typeId: req.body.vessel_type_id || null, status: primaryStatus },
-      { label: 'Secondary', vesselId: secondaryVesselId, typeId: req.body.secondary_vessel_type_id || null, status: secondaryStatus },
-    ];
-    for (const slot of slots) {
-      const vessel = slot.vesselId ? vesselsById.get(slot.vesselId) : null;
-      slot.typeId ||= vessel?.vessel_type_id || null;
-      if (plannedRoles.has(slot.label)) {
-        const prefix = slot.label === 'Secondary' ? 'secondary_' : '';
-        if (slot.vesselId !== (allocation[`${prefix}vessel_id`] || null)
-          || slot.typeId !== (allocation[`${prefix}vessel_type_id`] || null)
-          || slot.status !== allocation[`${prefix}allocation_status`]) {
-          throw httpError(409, `${slot.label} vessel assignment cannot change after its Joining Plan has been created`);
-        }
-        // Preserve the planned assignment while validating changes to the other vessel.
-        continue;
-      }
-      const requiresVessel = ['Allocated','Hold'].includes(slot.status);
-      if (requiresVessel && !slot.vesselId) throw httpError(400, `${slot.label} status ${slot.status} requires an actual vessel`);
-      if (!slot.vesselId && !slot.typeId) continue;
-
-      if (slot.vesselId && (!vessel || vessel.status !== 'Active')) throw httpError(400, `Select an active ${slot.label.toLowerCase()} vessel`);
-      if (vessel && !isDepartmentCompatible(allocation.department, vessel.department)) throw httpError(400, `${slot.label} vessel is not available for this candidate department`);
-      const type = slot.typeId ? typesById.get(slot.typeId) : null;
-      if (!type || type.status !== 'Active' || !isDepartmentCompatible(allocation.department, type.department)) throw httpError(400, `${slot.label} vessel type is incompatible`);
-      if (vessel && vessel.vessel_type_id !== type.id) throw httpError(400, `${slot.label} vessel does not match its selected vessel type`);
-
-    }
-    await connection.query(
-      `UPDATE allocations
-       SET vessel_type_id=?,vessel_id=?,allocation_status=?,
-           secondary_vessel_type_id=?,secondary_vessel_id=?,secondary_allocation_status=?,admin_remarks=?
-       WHERE id=?`,
-      [slots[0].typeId, primaryVesselId, primaryStatus, slots[1].typeId, secondaryVesselId, secondaryStatus, req.body.admin_remarks || null, allocation.id],
-    );
-    if (allocation.list_status === 'Finalized') {
-      const allocated = hasAllocatedVessel({ primaryVesselId, primaryStatus, secondaryVesselId, secondaryStatus });
-      await connection.query(
-        `UPDATE cadets SET status=?,workflow_phase=?,workflow_result=?,workflow_updated_at=NOW() WHERE id=?`,
-        [allocated ? 'CTV Assigned' : (allocation.previous_cadet_status || 'Selected'),
-          allocated ? 'selected' : (allocation.previous_workflow_phase || 'selected'),
-          allocated ? 'ctv_assigned' : allocation.previous_workflow_result, allocation.cadet_id],
-      );
-    }
-    const activityLabel = await allocationActivityLabel(connection, allocation.id);
-    const assignments = slots.map((slot) =>
-      `${slot.label}: ${vesselsById.get(slot.vesselId)?.name || 'No vessel'} / ${typesById.get(slot.typeId)?.name || 'No type'} (${slot.status})`,
-    ).join('; ');
-    await logAction(req, 'UPDATE_CTV_VESSEL_ALLOCATION', `Updated vessel assignments for ${activityLabel}; ${assignments}`, connection);
-    await connection.commit(); res.json({ success: true, message: 'Vessel allocation updated' });
-  } catch (error) { await connection.rollback(); errorResponse(res, error); }
-  finally { connection.release(); }
-};
+const updateVesselAllocation = (req,res) => require('./joiningWorkflowController').legacySave(req,res);
 
 const moveRank = async (req, res) => {
   const connection = await db.getConnection();
@@ -594,18 +515,6 @@ const finalizeRankList = async (req, res) => {
     for (const allocation of allocations) {
       const [incomplete] = await connection.query(`SELECT COUNT(*) AS count FROM allocation_score_entries WHERE allocation_id=? AND score IS NULL`, [allocation.id]);
       if (allocation.final_score === null || incomplete[0].count || !allocation.current_rank) throw httpError(400, 'All candidates need complete scores and ranks');
-      await connection.query(
-        `UPDATE allocations SET previous_cadet_status=COALESCE(previous_cadet_status,?),previous_workflow_phase=COALESCE(previous_workflow_phase,?),previous_workflow_result=COALESCE(previous_workflow_result,?) WHERE id=?`,
-        [allocation.cadet_status, allocation.workflow_phase, allocation.workflow_result, allocation.id],
-      );
-      if (hasAllocatedVessel({ primaryVesselId: allocation.vessel_id, primaryStatus: allocation.allocation_status,
-        secondaryVesselId: allocation.secondary_vessel_id, secondaryStatus: allocation.secondary_allocation_status })) {
-        await connection.query(`UPDATE cadets SET status='CTV Assigned',workflow_phase='selected',workflow_result='ctv_assigned',workflow_updated_at=NOW() WHERE id=?`, [allocation.cadet_id]);
-      }
-      await connection.query(
-        `INSERT INTO onboarding (id,cadet_id,allocation_id,status) SELECT ?,?,?, 'Pending'
-         WHERE NOT EXISTS (SELECT 1 FROM onboarding WHERE allocation_id=?)`, [uuidv4(), allocation.cadet_id, allocation.id, allocation.id],
-      );
     }
     await connection.query(`UPDATE allocation_rank_lists SET status='Finalized',finalized_by=?,finalized_at=NOW() WHERE id=?`, [req.user.id, list.id]);
     await connection.query(`INSERT INTO allocation_rank_history (id,rank_list_id,action,remarks,changed_by) VALUES (?,?,'Finalize',?,?)`, [uuidv4(), list.id, req.body.remarks || 'Rank list finalized', req.user.id]);
@@ -622,18 +531,6 @@ const unlockRankList = async (req, res) => {
     if (!req.body.remarks?.trim()) throw httpError(400, 'Unlock remarks are required');
     await connection.beginTransaction(); const list = await getRankList(connection, req.params.rankListId, true);
     if (list.status !== 'Finalized') throw httpError(409, 'Only a finalized rank list can be unlocked');
-    const [completed] = await connection.query(
-      `SELECT COUNT(*) AS count FROM onboarding o JOIN allocations a ON a.id=o.allocation_id WHERE a.rank_list_id=? AND o.status='Onboarded' FOR UPDATE`, [list.id],
-    );
-    if (completed[0].count) throw httpError(409, 'This list cannot be unlocked because onboarding is complete for one or more candidates');
-    await connection.query(
-      `UPDATE cadets c JOIN allocations a ON a.cadet_id=c.id
-       SET c.status=COALESCE(a.previous_cadet_status,'Selected'),
-           c.workflow_phase=COALESCE(a.previous_workflow_phase,'selected'),
-           c.workflow_result=COALESCE(a.previous_workflow_result,'medical_passed'),c.workflow_updated_at=NOW()
-       WHERE a.rank_list_id=? AND a.is_active=1`, [list.id],
-    );
-    await connection.query(`UPDATE joining_plans jp JOIN allocations a ON a.id=jp.allocation_id SET jp.status='Needs Review',jp.requires_refresh=1 WHERE a.rank_list_id=?`, [list.id]);
     await connection.query(`UPDATE allocation_rank_lists SET status='Draft',unlocked_by=?,unlocked_at=NOW(),unlock_remarks=? WHERE id=?`, [req.user.id, req.body.remarks.trim(), list.id]);
     await connection.query(`INSERT INTO allocation_rank_history (id,rank_list_id,action,remarks,changed_by) VALUES (?,?,'Unlock',?,?)`, [uuidv4(), list.id, req.body.remarks.trim(), req.user.id]);
     await logAction(req, 'UNLOCK_CTV_RANK_LIST', `Unlocked ${list.department} list for ${list.allocation_number}: ${req.body.remarks.trim()}`, connection);
@@ -643,141 +540,9 @@ const unlockRankList = async (req, res) => {
   finally { connection.release(); }
 };
 
-const createJoiningPlan = async (req, res) => {
-  const connection = await db.getConnection();
-  try {
-    await connection.beginTransaction();
-    const vesselRole = req.body.vessel_role || 'Primary';
-    if (!['Primary','Secondary'].includes(vesselRole)) throw httpError(400, 'Vessel role must be Primary or Secondary');
-    const [rows] = await connection.query(
-      `SELECT a.id AS allocation_id,rl.status AS list_status,ac.deleted_at AS cycle_deleted_at,
-              a.allocation_status,a.secondary_allocation_status,
-              pv.id AS primary_id,pv.name AS primary_name,pv.vessel_type AS primary_type_text,
-              pv.location AS primary_location,pv.joining_date AS primary_joining_date,pv.total_seats AS primary_total_seats,
-              pv.voyage_ref AS primary_voyage_ref,pv.reporting_port AS primary_reporting_port,
-              pv.contact_person_name AS primary_contact_name,pv.contact_person_email AS primary_contact_email,
-              pv.contact_person_phone AS primary_contact_phone,
-              pv.required_documents AS primary_documents,pvt.name AS primary_type_name,
-              sv.id AS secondary_id,sv.name AS secondary_name,sv.vessel_type AS secondary_type_text,
-              sv.location AS secondary_location,sv.joining_date AS secondary_joining_date,sv.total_seats AS secondary_total_seats,
-              sv.voyage_ref AS secondary_voyage_ref,sv.reporting_port AS secondary_reporting_port,
-              sv.contact_person_name AS secondary_contact_name,sv.contact_person_email AS secondary_contact_email,
-              sv.contact_person_phone AS secondary_contact_phone,
-              sv.required_documents AS secondary_documents,svt.name AS secondary_type_name
-       FROM allocations a JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
-       JOIN allocation_cycles ac ON ac.id=rl.cycle_id
-       LEFT JOIN vessels pv ON pv.id=a.vessel_id LEFT JOIN vessel_types pvt ON pvt.id=pv.vessel_type_id
-       LEFT JOIN vessels sv ON sv.id=a.secondary_vessel_id LEFT JOIN vessel_types svt ON svt.id=sv.vessel_type_id
-       WHERE a.id=? AND a.is_active=1 FOR UPDATE`, [req.params.allocationId],
-    );
-    const allocation = rows[0];
-    if (!allocation) throw httpError(404, 'Candidate allocation not found');
-    ensureAllocationEnabled(allocation);
-    const prefix = vesselRole.toLowerCase();
-    if (allocation[`${prefix}_id`] === null || allocation[vesselRole === 'Primary' ? 'allocation_status' : 'secondary_allocation_status'] !== 'Allocated') {
-      throw httpError(400, `${vesselRole} vessel must be Allocated before creating its Joining Plan`);
-    }
-    const requestedDocuments = Array.isArray(req.body.required_documents)
-      ? req.body.required_documents
-      : String(req.body.required_documents || '').split(/[\n,]/);
-    const item = {
-      allocation_id: allocation.allocation_id,
-      name: allocation[`${prefix}_name`],
-      type_name: allocation[`${prefix}_type_name`],
-      vessel_type: allocation[`${prefix}_type_text`],
-      location: String(req.body.location ?? allocation[`${prefix}_location`] ?? '').trim() || null,
-      joining_date: String(req.body.joining_date ?? allocation[`${prefix}_joining_date`] ?? '').trim(),
-      total_seats: allocation[`${prefix}_total_seats`],
-      voyage_ref: String(req.body.voyage_ref ?? allocation[`${prefix}_voyage_ref`] ?? '').trim() || null,
-      reporting_port: String(req.body.reporting_port ?? allocation[`${prefix}_reporting_port`] ?? '').trim(),
-      contact_person_name: String(req.body.contact_person_name ?? allocation[`${prefix}_contact_name`] ?? '').trim(),
-      contact_person_email: String(req.body.contact_person_email ?? allocation[`${prefix}_contact_email`] ?? '').trim() || null,
-      contact_person_phone: String(req.body.contact_person_phone ?? allocation[`${prefix}_contact_phone`] ?? '').trim() || null,
-      communication_details: String(req.body.communication_details ?? '').trim() || null,
-      required_documents: requestedDocuments.map((document) => String(document).trim()).filter(Boolean),
-    };
-    if (allocation.list_status !== 'Finalized') throw httpError(409, 'Finalize the department rank list before creating a Joining Plan');
-    if (!isValidIsoDate(item.joining_date)) {
-      throw httpError(400, 'A valid Joining Date is required');
-    }
-    if (!item.reporting_port) throw httpError(400, 'Reporting Port is required');
-    if (!item.contact_person_name) throw httpError(400, 'Contact Person is required');
-    if (item.contact_person_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.contact_person_email)) throw httpError(400, 'Contact Person email is invalid');
-    const activityLabel = await allocationActivityLabel(connection, item.allocation_id);
-    const id = uuidv4();
-    const [existingPlans] = await connection.query('SELECT * FROM joining_plans WHERE allocation_id=? AND vessel_role=? FOR UPDATE', [item.allocation_id, vesselRole]);
-    const existingPlan = existingPlans[0];
-    if (existingPlan?.requires_refresh) {
-      await connection.query(
-        `UPDATE joining_plans SET status='Draft',requires_refresh=0,revision=revision+1,
-         vessel_name=?,vessel_type=?,location=?,joining_date=?,total_seats=?,voyage_ref=?,reporting_port=?,
-         contact_person_name=?,contact_person_email=?,contact_person_phone=?,communication_details=?,required_documents=? WHERE id=?`,
-        [item.name,item.type_name || item.vessel_type,item.location,item.joining_date,item.total_seats,item.voyage_ref,item.reporting_port,
-          item.contact_person_name,item.contact_person_email,item.contact_person_phone,item.communication_details,JSON.stringify(item.required_documents),existingPlan.id],
-      );
-      await logAction(req, 'UPDATE_CTV_JOINING_PLAN',
-        `Updated ${vesselRole} Joining Plan for ${activityLabel}; vessel: ${existingPlan.vessel_name} to ${item.name}; joining date: ${item.joining_date}; previous contact history retained`, connection);
-    } else if (!existingPlan) {
-      await connection.query(
-      `INSERT INTO joining_plans (id,allocation_id,vessel_role,status,vessel_name,vessel_type,location,joining_date,total_seats,voyage_ref,reporting_port,contact_person_name,contact_person_email,contact_person_phone,communication_details,required_documents,created_by)
-       VALUES (?,?,?, 'Draft',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [id, item.allocation_id, vesselRole, item.name, item.type_name || item.vessel_type, item.location, item.joining_date, item.total_seats, item.voyage_ref, item.reporting_port, item.contact_person_name, item.contact_person_email, item.contact_person_phone, item.communication_details, JSON.stringify(item.required_documents), req.user.id],
-      );
-      await logAction(req, 'CREATE_CTV_JOINING_PLAN',
-        `Created ${vesselRole} Joining Plan for ${activityLabel}; vessel: ${item.name}; joining date: ${item.joining_date}; reporting port: ${item.reporting_port}`, connection);
-    }
-    const [plans] = await connection.query(`SELECT * FROM joining_plans WHERE allocation_id=? AND vessel_role=?`, [item.allocation_id, vesselRole]);
-    await connection.commit();
-    res.status(201).json({ success: true, data: plans[0] });
-  } catch (error) { await connection.rollback(); errorResponse(res, error); }
-  finally { connection.release(); }
-};
+const createJoiningPlan = (req,res) => require('./joiningWorkflowController').legacySave(req,res);
 
-const isValidIsoDate = (value) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-};
-
-const recordCommunication = async (req, res) => {
-  const connection = await db.getConnection();
-  try {
-    await connection.beginTransaction();
-    const { mode, informed_by, date_of_informing, confirmation_received, candidate_remarks, admin_remarks } = req.body;
-    if (!['Email','Phone','WhatsApp'].includes(mode)) throw httpError(400, 'Select Email, Phone, or WhatsApp');
-    if (!date_of_informing || !isValidIsoDate(String(date_of_informing))) throw httpError(400, 'Select a valid Date of Informing');
-    if (String(date_of_informing) > new Date().toISOString().slice(0, 10)) throw httpError(400, 'Date of Informing cannot be in the future');
-    if (![undefined, null, true, false, 0, 1, '0', '1'].includes(confirmation_received)) throw httpError(400, 'Confirmation Received must be Yes or No');
-    const confirmed = Boolean(Number(confirmation_received));
-    const informedBy = informed_by || req.user.id;
-    const [users] = await connection.query(`SELECT id FROM users WHERE id=? AND status='active' AND LOWER(role) IN ('admin','superadmin')`, [informedBy]);
-    if (!users[0]) throw httpError(400, 'Informed By must be an active Admin or Super Admin');
-    const [rows] = await connection.query(
-      `SELECT jp.*,a.cadet_id,c.name_as_in_indos_cert,c.email_id,c.cadet_unique_id,rl.department,ac.allocation_number,ac.deleted_at AS cycle_deleted_at
-       FROM joining_plans jp JOIN allocations a ON a.id=jp.allocation_id JOIN cadets c ON c.id=a.cadet_id
-       JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
-       JOIN allocation_cycles ac ON ac.id=rl.cycle_id
-       WHERE jp.id=? AND rl.status='Finalized' FOR UPDATE`, [req.params.joiningPlanId],
-    );
-    const plan = rows[0]; if (!plan) throw httpError(404, 'Finalized Joining Plan not found');
-    ensureAllocationEnabled(plan);
-    if (Number(plan.requires_refresh)) throw httpError(409, 'Update this Joining Plan before recording communication');
-    // All modes record contact handled by the administrator outside the portal.
-    // NULL delivery status distinguishes a recorded Email from a sent or failed email.
-    const communicationId = uuidv4();
-    await connection.query(
-      `INSERT INTO allocation_communications (id,joining_plan_id,plan_revision,informed_by,date_of_informing,mode,confirmation_received,candidate_remarks,admin_remarks,delivery_status,email_message_id,failure_reason)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [communicationId, plan.id, plan.revision, informedBy, date_of_informing, mode, confirmed ? 1 : 0, candidate_remarks || null, admin_remarks || null, null, null, null],
-    );
-    await connection.query(`UPDATE joining_plans SET status=? WHERE id=? AND revision=? AND requires_refresh=0`, [confirmed ? 'Confirmed' : 'Informed', plan.id, plan.revision]);
-    await logAction(req, 'RECORD_CTV_COMMUNICATION',
-      `Recorded ${mode} communication for ${plan.name_as_in_indos_cert} (${plan.cadet_unique_id}) in ${plan.department} allocation ${plan.allocation_number}; ${plan.vessel_role} vessel: ${plan.vessel_name}; informed by: ${informedBy}; date: ${date_of_informing}; confirmed: ${confirmed ? 'Yes' : 'No'}; delivery: Recorded`, connection);
-    await connection.commit();
-    res.status(201).json({ success: true, message: confirmed ? 'Confirmation recorded' : 'Communication recorded', data: { id: communicationId, delivery_status: null, failure_reason: null } });
-  } catch (error) { await connection.rollback(); errorResponse(res, error); }
-  finally { connection.release(); }
-};
+const recordCommunication = (req,res) => require('./joiningWorkflowController').record(req,res);
 
 const listJoiningPlans = async (req, res) => {
   try {
@@ -787,7 +552,7 @@ const listJoiningPlans = async (req, res) => {
               (SELECT mode FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0 ORDER BY cm.created_at DESC LIMIT 1) AS last_mode,
               (SELECT delivery_status FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0 ORDER BY cm.created_at DESC LIMIT 1) AS email_delivery_status,
               (SELECT informed_at FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0 ORDER BY cm.created_at DESC LIMIT 1) AS last_informed_at,
-              (SELECT confirmation_received FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0 ORDER BY cm.created_at DESC LIMIT 1) AS confirmation_received,
+              (SELECT confirmation_received FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0 AND cm.delivery_status IS NULL ORDER BY COALESCE(cm.recorded_at,cm.created_at) DESC,cm.id DESC LIMIT 1) AS confirmation_received,
               (SELECT admin_remarks FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0 ORDER BY cm.created_at DESC LIMIT 1) AS last_admin_remarks,
               (SELECT candidate_remarks FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0 ORDER BY cm.created_at DESC LIMIT 1) AS last_candidate_remarks,
               (SELECT date_of_informing FROM allocation_communications cm WHERE cm.joining_plan_id=jp.id AND cm.plan_revision=jp.revision AND jp.requires_refresh=0 ORDER BY cm.created_at DESC LIMIT 1) AS last_date_of_informing,

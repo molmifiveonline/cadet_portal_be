@@ -2,6 +2,11 @@ const nodemailer = require("nodemailer");
 const { formatDateForDisplay } = require("../utils/dateUtils");
 const { normalizeEmailRecipients } = require("../utils/emailUtils");
 
+// Gmail displays app passwords in groups separated by spaces.
+// Preserve whitespace for other providers where it can be part of the password.
+const normalizeSmtpPassword = (password, isGmail) =>
+  isGmail && typeof password === "string" ? password.replace(/\s/g, "") : password;
+
 // Create email transporter
 const createTransporter = () => {
   // Check if using a service like Gmail
@@ -10,29 +15,25 @@ const createTransporter = () => {
       service: process.env.EMAIL_SERVICE,
       auth: {
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASSWORD,
+        pass: normalizeSmtpPassword(
+          process.env.EMAIL_PASSWORD,
+          process.env.EMAIL_SERVICE.trim().toLowerCase() === "gmail",
+        ),
       },
     });
   }
 
   // Custom SMTP configuration
-  console.log("  SMTP Configuration Debug:");
-  console.log("  SMTP_HOST:", process.env.SMTP_HOST);
-  console.log("  SMTP_PORT:", process.env.SMTP_PORT);
-  console.log("  SMTP_USER:", process.env.SMTP_USER);
-  console.log(
-    "  SMTP_PASS:",
-    process.env.SMTP_PASS ? "***" + process.env.SMTP_PASS.slice(-4) : "MISSING",
-  );
-  console.log("  EMAIL_SERVICE:", process.env.EMAIL_SERVICE);
-
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: process.env.SMTP_PORT || 587,
     secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
     auth: {
       user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+      pass: normalizeSmtpPassword(
+        process.env.SMTP_PASS,
+        (process.env.SMTP_HOST || "").trim().toLowerCase() === "smtp.gmail.com",
+      ),
     },
     tls: {
       rejectUnauthorized: false, // For development; set to true in production
@@ -70,7 +71,7 @@ const sendEmail = async (options) => {
     const info = await transporter.sendMail(mailOptions);
 
     console.log(`✉️  Email sent to ${options.to}: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
+    return { success: true, messageId: info.messageId, accepted: info.accepted, rejected: info.rejected };
   } catch (error) {
     console.error("❌ Email sending failed:", error);
     throw error;

@@ -11,10 +11,7 @@ const sendError = (res, error) => {
 const listOnboarding = async (req, res) => {
   try {
     const params = [];
-    let where = `WHERE ac.deleted_at IS NULL AND a.is_active=1 AND (
-      (o.status='Pending' AND c.status='CTV Assigned')
-      OR (o.status='Onboarded' AND c.status='Onboarded')
-    )`;
+    let where = `WHERE ac.deleted_at IS NULL AND a.is_active=1 AND o.admission_source IS NOT NULL`;
     if (req.query.status) {
       if (!['Pending', 'Onboarded'].includes(req.query.status)) {
         throw Object.assign(new Error('Status must be Pending or Onboarded'), { status: 400 });
@@ -34,23 +31,25 @@ const listOnboarding = async (req, res) => {
       `SELECT o.*,c.cadet_unique_id,c.name_as_in_indos_cert,c.email_id,c.course,i.institute_name,
               ac.allocation_number,rl.department,
               a.current_rank,a.allocation_status,a.secondary_allocation_status,
-              v.name AS primary_vessel_name,v.joining_date AS primary_joining_date,
-              v.reporting_port AS primary_reporting_port,pvt.name AS primary_vessel_type,
-              sv.name AS secondary_vessel_name,sv.joining_date AS secondary_joining_date,
-              sv.reporting_port AS secondary_reporting_port,svt.name AS secondary_vessel_type,
+              CASE WHEN pjp.id IS NOT NULL THEN pjp.vessel_name ELSE v.name END AS primary_vessel_name,DATE_FORMAT(CASE WHEN pjp.id IS NOT NULL THEN pjp.joining_date ELSE v.joining_date END,'%Y-%m-%d') AS primary_joining_date,
+              CASE WHEN pjp.id IS NOT NULL THEN pjp.reporting_port ELSE v.reporting_port END AS primary_reporting_port,pvt.name AS primary_vessel_type,
+              CASE WHEN sjp.id IS NOT NULL THEN sjp.vessel_name ELSE sv.name END AS secondary_vessel_name,DATE_FORMAT(CASE WHEN sjp.id IS NOT NULL THEN sjp.joining_date ELSE sv.joining_date END,'%Y-%m-%d') AS secondary_joining_date,
+              CASE WHEN sjp.id IS NOT NULL THEN sjp.reporting_port ELSE sv.reporting_port END AS secondary_reporting_port,svt.name AS secondary_vessel_type,
               COALESCE(NULLIF(TRIM(CONCAT_WS(' ',updated_user.first_name,updated_user.last_name)),''),updated_user.email) AS updated_by_name,
               COALESCE(NULLIF(TRIM(CONCAT_WS(' ',completed_user.first_name,completed_user.last_name)),''),completed_user.email) AS completed_by_name
        FROM onboarding o JOIN cadets c ON c.id=o.cadet_id
        JOIN allocations a ON a.id=o.allocation_id JOIN allocation_rank_lists rl ON rl.id=a.rank_list_id
        JOIN allocation_cycles ac ON ac.id=rl.cycle_id LEFT JOIN institutes i ON i.id=c.institute_id
        LEFT JOIN vessels v ON v.id=a.vessel_id
+       LEFT JOIN joining_plans pjp ON pjp.allocation_id=a.id AND pjp.vessel_role='Primary'
+       LEFT JOIN joining_plans sjp ON sjp.allocation_id=a.id AND sjp.vessel_role='Secondary'
        LEFT JOIN vessel_types pvt ON pvt.id=a.vessel_type_id
        LEFT JOIN vessels sv ON sv.id=a.secondary_vessel_id
        LEFT JOIN vessel_types svt ON svt.id=a.secondary_vessel_type_id
        LEFT JOIN users updated_user ON updated_user.id=o.updated_by
        LEFT JOIN users completed_user ON completed_user.id=o.completed_by
        ${where}
-       ORDER BY o.status='Pending' DESC,COALESCE(v.joining_date,sv.joining_date),c.name_as_in_indos_cert`, params,
+       ORDER BY o.status='Pending' DESC,COALESCE(primary_joining_date,secondary_joining_date),c.name_as_in_indos_cert`, params,
     );
     rows.forEach((row) => {
       row.completed_checks = CHECKS.reduce((total, key) => total + Number(row[key] || 0), 0);
@@ -66,7 +65,8 @@ const updateChecklist = async (req, res) => {
     await connection.beginTransaction();
     const [rows] = await connection.query(
       `SELECT o.*,c.name_as_in_indos_cert,c.cadet_unique_id,c.status AS cadet_status,rl.status AS rank_list_status,
-              rl.department,ac.allocation_number,ac.deleted_at AS cycle_deleted_at
+              rl.department,ac.allocation_number,ac.deleted_at AS cycle_deleted_at,a.is_active,
+              a.vessel_id,a.allocation_status,a.secondary_vessel_id,a.secondary_allocation_status
        FROM onboarding o
        JOIN cadets c ON c.id=o.cadet_id
        JOIN allocations a ON a.id=o.allocation_id
@@ -77,8 +77,8 @@ const updateChecklist = async (req, res) => {
     if (!rows[0]) throw Object.assign(new Error('Onboarding record not found'), { status: 404 });
     ensureAllocationEnabled(rows[0]);
     if (rows[0].status === 'Onboarded') throw Object.assign(new Error('Completed onboarding records are locked'), { status: 409 });
-    if (rows[0].cadet_status !== 'CTV Assigned' || rows[0].rank_list_status !== 'Finalized') {
-      throw Object.assign(new Error('Only CTV Assigned candidates from a finalized rank list can be onboarded'), { status: 409 });
+    if (!rows[0].admission_source || !Number(rows[0].is_active)) {
+      throw Object.assign(new Error('Save an Allocated vessel before starting onboarding'), { status: 409 });
     }
     let checklist;
     try {
@@ -87,6 +87,10 @@ const updateChecklist = async (req, res) => {
       throw Object.assign(error, { status: 400 });
     }
     const { next, complete, completedChecks, totalChecks } = checklist;
+    if (complete && !((rows[0].vessel_id && rows[0].allocation_status === 'Allocated') ||
+      (rows[0].secondary_vessel_id && rows[0].secondary_allocation_status === 'Allocated'))) {
+      throw Object.assign(new Error('An Allocated vessel is required to complete onboarding'), { status: 409 });
+    }
     const completedAt = complete ? new Date() : null;
     await connection.query(
       `UPDATE onboarding SET passport_verified=?,medical_cert_verified=?,bank_details_verified=?,agreement_signed=?,final_clearance=?,status=?,updated_by=?,completed_by=?,completed_at=? WHERE id=?`,

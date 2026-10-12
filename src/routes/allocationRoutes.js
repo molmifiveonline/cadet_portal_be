@@ -4,9 +4,19 @@ const { requirePermission, requireAnyPermission, requireSuperAdmin } = require('
 const controller = require('../controllers/allocationController');
 const masters = require('../controllers/allocationMasterController');
 const vesselController = require('../controllers/vesselController');
+const workflow = require('../controllers/joiningWorkflowController');
 
 const router = express.Router();
 router.use(authMiddleware);
+router.get('/follow-up-users', workflow.staff);
+router.get('/follow-ups', workflow.list);
+router.get('/follow-ups/:allocationId', workflow.get);
+router.get('/follow-ups/:allocationId/lookups', workflow.lookups);
+router.get('/candidate-allocations/:allocationId/history', workflow.history);
+router.patch('/candidate-allocations/:allocationId/vessel-plan', workflow.save);
+router.put('/candidate-allocations/:allocationId/follow-up-owner', workflow.assign);
+router.get('/joining-plans/:joiningPlanId/email-preview', workflow.preview);
+router.post('/joining-plans/:joiningPlanId/send-intimation', workflow.send);
 
 const readAllocationLookup = requireAnyPermission([['allocations', 'view'], ['allocation-masters', 'view']]);
 router.get('/masters/courses', readAllocationLookup, masters.listCourses);
@@ -23,11 +33,11 @@ router.put('/masters/vessel-types/:id', requireSuperAdmin, vesselController.upda
 router.get('/vessels', requirePermission('allocations', 'view'), vesselController.getAllVessels);
 router.get('/admins', requirePermission('allocations', 'communicate'), controller.listAdmins);
 router.get('/joining-plans', requirePermission('allocations', 'view'), controller.listJoiningPlans);
-router.get('/joining-plans/:joiningPlanId/communications', requirePermission('allocations', 'view'), controller.listJoiningPlanCommunications);
-router.post('/joining-plans/:joiningPlanId/communications', requirePermission('allocations', 'communicate'), controller.recordCommunication);
-router.post('/candidate-allocations/:allocationId/joining-plan', requirePermission('allocations', 'edit'), controller.createJoiningPlan);
+router.get('/joining-plans/:joiningPlanId/communications', workflow.communications);
+router.post('/joining-plans/:joiningPlanId/communications', workflow.record);
+router.post('/candidate-allocations/:allocationId/joining-plan', workflow.legacySave);
 router.put('/candidate-allocations/:allocationId/scores', requirePermission('allocations', 'edit'), controller.updateScores);
-router.put('/candidate-allocations/:allocationId/vessel', requirePermission('allocations', 'edit'), controller.updateVesselAllocation);
+router.put('/candidate-allocations/:allocationId/vessel', workflow.legacySave);
 router.post('/candidate-allocations/:allocationId/move-rank', requirePermission('allocations', 'edit'), controller.moveRank);
 router.delete('/candidate-allocations/:allocationId', requirePermission('allocations', 'edit'), controller.removeCandidate);
 router.get('/rank-lists/:rankListId/eligible-candidates', requirePermission('allocations', 'view'), controller.listEligibleCandidates);
