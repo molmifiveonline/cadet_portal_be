@@ -397,6 +397,7 @@ const ensureAllocationSupport = async () => {
   await addConstraint('onboarding', 'fk_onboarding_completed_user', 'FOREIGN KEY (completed_by) REFERENCES users(id) ON DELETE SET NULL');
 
   await migrateLegacyVesselTypes();
+  await require('./joiningWorkflowSchema').ensureJoiningWorkflow(db, addColumn);
   await seedPermissions();
 };
 

@@ -38,6 +38,8 @@ const permissionCatalog = [
     'Manage candidates, scores, ranks, vessel assignments and joining plans.',
   ],
   ['allocations', 'finalize', 'Finalize Rank Lists'],
+  ['allocations', 'send-intimation', 'Send Joining Intimation'],
+  ['allocations', 'assign-followup', 'Assign Follow-up User'],
   [
     'allocations',
     'communicate',
@@ -79,6 +81,11 @@ const ensureRolePermissionCatalog = () => {
               action,
             ],
           );
+          if (module === 'allocations' && ['send-intimation', 'assign-followup'].includes(action) && result.affectedRows > 0) {
+            await connection.query(`INSERT INTO role_permissions (id,role_id,permission_id,granted)
+              SELECT UUID(),r.id,p.id,1 FROM roles r JOIN permissions p ON p.module=? AND p.action=?
+              WHERE LOWER(r.name) IN ('admin','superadmin')`, [module, action]);
+          }
           if (
             module === 'allocation-masters' &&
             action === 'create' &&

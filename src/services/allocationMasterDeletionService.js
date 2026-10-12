@@ -18,6 +18,12 @@ const dependencies = {
   ],
   vessel: [
     [
+      'history',
+      'vessel allocation history',
+      'allocation_workflow_history',
+      'd.vessel_id = m.id OR d.previous_vessel_id = m.id',
+    ],
+    [
       'allocations',
       'primary or secondary vessel allocations',
       'allocations',

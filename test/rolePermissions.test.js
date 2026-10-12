@@ -398,7 +398,7 @@ test('cache invalidation prevents an in-flight old grant from restoring revoked 
 test('allocation lookup access does not grant master writes or communication access', async () => {
   const routes = [];
   const router = Object.fromEntries(
-    ['get', 'post', 'put', 'delete', 'use'].map((method) => [
+    ['get', 'post', 'put', 'patch', 'delete', 'use'].map((method) => [
       method,
       (...args) => routes.push({ method, args }),
     ]),
@@ -417,6 +417,7 @@ test('allocation lookup access does not grant master writes or communication acc
     '../controllers/allocationController': {},
     '../controllers/allocationMasterController': {},
     '../controllers/vesselController': {},
+    '../controllers/joiningWorkflowController': {},
   });
   for (const [method, url, allowed] of [
     ['get', '/masters/courses', true],
@@ -424,8 +425,8 @@ test('allocation lookup access does not grant master writes or communication acc
     ['get', '/vessels', true],
     ['post', '/masters/courses', false],
     ['get', '/admins', false],
-    ['post', '/joining-plans/:joiningPlanId/communications', false],
-    ['post', '/candidate-allocations/:allocationId/joining-plan', false],
+    // Workflow handlers enforce permissions plus per-cadet assignment access;
+    // those cases are covered by joiningWorkflow tests rather than a route guard.
   ]) {
     const guard = routes.find(
       (route) => route.method === method && route.args[0] === url,

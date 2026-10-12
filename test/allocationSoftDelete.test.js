@@ -103,9 +103,10 @@ test('an audit failure rolls back disabling', async () => {
 
 for (const [name, body] of [
   ['addCandidates', { cadet_ids: ['cadet'] }], ['removeCandidate', {}], ['updateScores', { scores: [] }],
-  ['updateVesselAllocation', {}], ['moveRank', { direction: 'up', remarks: 'Review' }],
+  ['moveRank', { direction: 'up', remarks: 'Review' }],
   ['resetRanks', { remarks: 'Review' }], ['finalizeRankList', {}], ['unlockRankList', { remarks: 'Review' }],
-  ['createJoiningPlan', {}], ['recordCommunication', { mode: 'Phone', date_of_informing: '2026-01-01' }], ['updateChecklist', {}],
+  // Vessel-plan and contact guards now live in joiningWorkflow.test.js.
+  ['updateChecklist', {}],
 ]) {
   test(`disabled allocations reject ${name}, including direct API calls`, async () => {
     const harness = setup({ disabled: true });

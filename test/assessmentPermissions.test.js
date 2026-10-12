@@ -139,7 +139,7 @@ test('a failed migration rolls back the new permission and can be retried safely
 test('assessment routes enforce creation independently from edit and delete', async () => {
   const routes = [];
   const router = Object.fromEntries(
-    ['get', 'post', 'put', 'delete', 'use'].map((method) => [
+    ['get', 'post', 'put', 'patch', 'delete', 'use'].map((method) => [
       method,
       (...args) => routes.push({ method, args }),
     ]),
@@ -160,6 +160,7 @@ test('assessment routes enforce creation independently from edit and delete', as
     '../controllers/allocationController': {},
     '../controllers/allocationMasterController': {},
     '../controllers/vesselController': {},
+    '../controllers/joiningWorkflowController': {},
   });
   for (const [role, createAllowed, editAllowed] of [
     ['Creator', true, false],
