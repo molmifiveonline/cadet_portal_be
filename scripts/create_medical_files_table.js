@@ -46,13 +46,13 @@ async function run() {
       // Insert into new table
       await db.query(
         `INSERT INTO cadet_medical_result_files (id, medical_result_id, file_name, file_path, mime_type) VALUES (?, ?, ?, ?, ?)`,
-        [fileId, row.id, filename, newPathUrl, row.report_mime_type]
+        [fileId, row.id, originalName, newPathUrl, row.report_mime_type]
       );
 
       // Clear blob
       await db.query(
         `UPDATE cadet_medical_results SET report_data = NULL, report_name = ? WHERE id = ?`,
-        [filename, row.id]
+        [originalName, row.id]
       );
 
       console.log(`Migrated medical report for result ID ${row.id} to ${filename}`);

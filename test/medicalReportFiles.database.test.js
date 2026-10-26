@@ -26,11 +26,15 @@ test('medical files survive disk loss and delete across mixed table collations',
   ), params);
   try {
     await connection.query(`CREATE TEMPORARY TABLE ${tables.cadet_medical_results} (
-      id VARCHAR(36) PRIMARY KEY, cadet_id VARCHAR(36)
+      id VARCHAR(36) PRIMARY KEY, cadet_id VARCHAR(36),
+      appointment_date DATE, appointment_time TIME, status VARCHAR(20),
+      medical_center_id VARCHAR(36), remarks TEXT, report_name VARCHAR(255),
+      report_mime_type VARCHAR(100), created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
     await connection.query(`CREATE TEMPORARY TABLE ${tables.cadet_medical_result_files} (
       id VARCHAR(255) PRIMARY KEY, medical_result_id VARCHAR(255),
-      file_name VARCHAR(255), file_path VARCHAR(255), mime_type VARCHAR(100), file_data LONGBLOB
+      file_name VARCHAR(255), file_path VARCHAR(255), mime_type VARCHAR(100), file_data LONGBLOB,
+      created_at TIMESTAMP NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
     const cadetId = randomUUID();
     const resultId = randomUUID();
@@ -44,7 +48,8 @@ test('medical files survive disk loss and delete across mixed table collations',
       uuid: { v4: randomUUID },
       fs: { promises: { readFile: async () => bytes } },
       '../services/schemaCompatibilityService': {
-        filterExistingColumns: async () => ({}), hasColumn: async () => true,
+        filterExistingColumns: async () => ({}),
+        hasColumn: async (table, column) => table === 'cadet_medical_result_files' && column === 'file_data',
       },
       '../services/schemaUpgradeService': { ensureMedicalReportFilesSupport: async () => {} },
     };
@@ -60,6 +65,9 @@ test('medical files survive disk loss and delete across mixed table collations',
     const stored = await dao.getMedicalReportFile(cadetId, file.id, true);
     assert.deepEqual(stored.file_data, bytes);
     assert.equal(stored.file_name, 'Original.pdf');
+    const reloaded = await dao.getMedicalResultByCadetId(cadetId);
+    assert.equal(reloaded.files[0].file_name, 'Original.pdf');
+    assert.equal(reloaded.files[0].file_path, '/uploads/stored.pdf');
     assert.equal(await dao.getMedicalReportFile(otherCadetId, file.id, true), null);
     assert.equal(await dao.deleteMedicalReportFile(otherCadetId, file.id), null);
     assert.equal((await dao.deleteMedicalReportFile(cadetId, file.id)).id, file.id);
