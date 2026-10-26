@@ -22,7 +22,9 @@ const errorHandler = (err, req, res, next) => {
   // Multer errors (file upload)
   if (err.code === 'LIMIT_FILE_SIZE') {
     statusCode = 400;
-    message = 'File too large. Please upload a smaller file.';
+    message = err.field === 'reports'
+      ? 'Each medical report must be 10MB or smaller.'
+      : 'File too large. Please upload a smaller file.';
   } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
     statusCode = 400;
     message = 'Unexpected file field.';

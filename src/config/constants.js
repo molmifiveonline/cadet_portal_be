@@ -29,6 +29,7 @@ module.exports = {
     DOCUMENT: 5 * 1024 * 1024, // 5MB
     IMAGE: 5 * 1024 * 1024, // 5MB
     INTERVIEW_DOCUMENT: 10 * 1024 * 1024, // 10MB
+    MEDICAL_REPORT: 10 * 1024 * 1024, // 10MB per report
   },
 
   // Allowed File Types
