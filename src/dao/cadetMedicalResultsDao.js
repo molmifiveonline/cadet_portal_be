@@ -1,6 +1,22 @@
 const db = require('../config/database');
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { filterExistingColumns, hasColumn } = require('../services/schemaCompatibilityService');
+const { ensureMedicalReportFilesSupport } = require('../services/schemaUpgradeService');
+
+const insertMedicalReportFiles = async (resultId, files) => {
+  if (!files.length) return;
+  await ensureMedicalReportFilesSupport();
+  for (const file of files) {
+    const data = await fs.promises.readFile(file.path);
+    await db.query(
+      `INSERT INTO cadet_medical_result_files
+       (id, medical_result_id, file_name, file_path, mime_type, file_data)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [uuidv4(), resultId, file.originalname || file.filename, `/uploads/${file.filename}`, file.mimetype, data],
+    );
+  }
+};
 
 const createOrUpdateMedicalResult = async (medicalData) => {
   const {
@@ -77,13 +93,7 @@ const createOrUpdateMedicalResult = async (medicalData) => {
       );
     }
     
-    // Insert new files
-    for (const file of files) {
-      await db.query(
-        `INSERT INTO cadet_medical_result_files (id, medical_result_id, file_name, file_path, mime_type) VALUES (?, ?, ?, ?, ?)`,
-        [uuidv4(), existing[0].id, file.filename, `/uploads/${file.filename}`, file.mimetype]
-      );
-    }
+    await insertMedicalReportFiles(existing[0].id, files);
     
     return existing[0].id;
   } else {
@@ -115,13 +125,7 @@ const createOrUpdateMedicalResult = async (medicalData) => {
       values,
     );
     
-    // Insert new files
-    for (const file of files) {
-      await db.query(
-        `INSERT INTO cadet_medical_result_files (id, medical_result_id, file_name, file_path, mime_type) VALUES (?, ?, ?, ?, ?)`,
-        [uuidv4(), id, file.filename, `/uploads/${file.filename}`, file.mimetype]
-      );
-    }
+    await insertMedicalReportFiles(id, files);
     
     return id;
   }
@@ -176,29 +180,38 @@ const deleteMedicalResult = async (cadetId) => {
   await db.query('DELETE FROM cadet_medical_results WHERE cadet_id = ?', [cadetId]);
 };
 
-const deleteMedicalReportFile = async (cadetId, fileId) => {
+const getMedicalReportFile = async (cadetId, fileId, includeData = false) => {
+  // Compare IDs with bound values: the legacy files and results tables may
+  // use different collations, so joining their ID columns fails in production.
+  const [results] = await db.query(
+    'SELECT id FROM cadet_medical_results WHERE cadet_id = ?',
+    [cadetId],
+  );
+  if (!results.length) return null;
+  const withData = includeData && await hasColumn('cadet_medical_result_files', 'file_data');
   const [files] = await db.query(
-    `SELECT f.id, f.file_name, f.file_path
-     FROM cadet_medical_result_files f
-     INNER JOIN cadet_medical_results r ON r.id = f.medical_result_id
-     WHERE f.id = ? AND r.cadet_id = ?`,
-    [fileId, cadetId],
+    `SELECT id, medical_result_id, file_name, file_path, mime_type${withData ? ', file_data' : ''}
+     FROM cadet_medical_result_files WHERE id = ? AND medical_result_id = ?`,
+    [fileId, results[0].id],
   );
-  if (!files.length) return null;
+  return files[0] || null;
+};
 
+const deleteMedicalReportFile = async (cadetId, fileId) => {
+  const file = await getMedicalReportFile(cadetId, fileId);
+  if (!file) return null;
   const [result] = await db.query(
-    `DELETE f FROM cadet_medical_result_files f
-     INNER JOIN cadet_medical_results r ON r.id = f.medical_result_id
-     WHERE f.id = ? AND r.cadet_id = ?`,
-    [fileId, cadetId],
+    'DELETE FROM cadet_medical_result_files WHERE id = ? AND medical_result_id = ?',
+    [fileId, file.medical_result_id],
   );
-  return result.affectedRows ? files[0] : null;
+  return result.affectedRows ? file : null;
 };
 
 module.exports = {
   createOrUpdateMedicalResult,
   getMedicalResultByCadetId,
   deleteMedicalResult,
+  getMedicalReportFile,
   deleteMedicalReportFile,
 };
 

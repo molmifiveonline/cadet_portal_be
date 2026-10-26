@@ -54,6 +54,36 @@ const runSchemaChange = async (query, duplicateCodes = []) => {
   }
 };
 
+let medicalReportFilesSchemaPromise;
+const ensureMedicalReportFilesSupport = () => {
+  if (!medicalReportFilesSchemaPromise) {
+    medicalReportFilesSchemaPromise = (async () => {
+      await db.query(
+        `CREATE TABLE IF NOT EXISTS cadet_medical_result_files (
+          id VARCHAR(255) PRIMARY KEY,
+          medical_result_id VARCHAR(255) NOT NULL,
+          file_name VARCHAR(255),
+          file_path VARCHAR(255),
+          mime_type VARCHAR(100),
+          file_data LONGBLOB NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+      );
+      if (!(await columnExists('cadet_medical_result_files', 'file_data'))) {
+        await runSchemaChange(
+          'ALTER TABLE cadet_medical_result_files ADD COLUMN file_data LONGBLOB NULL',
+          ['ER_DUP_FIELDNAME'],
+        );
+      }
+      clearSchemaCache();
+    })().catch((error) => {
+      medicalReportFilesSchemaPromise = undefined;
+      throw error;
+    });
+  }
+  return medicalReportFilesSchemaPromise;
+};
+
 let passwordResetSchemaPromise;
 const ensurePasswordResetSupport = () => {
   if (!passwordResetSchemaPromise) {
@@ -534,6 +564,7 @@ const ensureInstituteUploadFormatSupport = async () => {
 };
 
 module.exports = {
+  ensureMedicalReportFilesSupport,
   ensurePasswordResetSupport,
   ensureSubmissionDriveContext,
   ensurePerformanceIndexes,

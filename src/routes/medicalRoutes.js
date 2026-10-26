@@ -8,6 +8,13 @@ const {
 } = require('../middleware/instituteOwnershipMiddleware');
 const upload = require('../middleware/uploadMiddleware');
 
+router.get(
+  '/:cadet_id/files/:file_id',
+  authMiddleware,
+  requireInstituteCadetOwnership('cadet_id'),
+  medicalController.getMedicalReportFile,
+);
+
 router.delete(
   '/:cadet_id/files/:file_id',
   authMiddleware,
