@@ -153,6 +153,42 @@ const saveMedicalResult = async (req, res) => {
   }
 };
 
+const getMedicalReportFile = async (req, res) => {
+  try {
+    const { cadet_id, file_id } = req.params;
+    const file = await medicalDao.getMedicalReportFile(cadet_id, file_id, true);
+    if (!file) {
+      return res.status(404).json({ success: false, message: 'Medical report file not found' });
+    }
+
+    let data = file.file_data;
+    if (!data) {
+      const filename = path.basename(file.file_path || '');
+      if (filename && file.file_path === `/uploads/${filename}`) {
+        try {
+          data = await fs.promises.readFile(path.join(__dirname, '../../uploads', filename));
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
+      }
+    }
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        message: 'This report file is no longer available. Please upload it again.',
+      });
+    }
+    const filename = path.basename(file.file_name || 'medical-report').replace(/["\r\n]/g, '_');
+    res.set('Content-Type', file.mime_type || 'application/octet-stream');
+    res.set('Content-Disposition', `inline; filename="${filename.replace(/[^\x20-\x7E]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.set('Cache-Control', 'private, no-store');
+    return res.send(data);
+  } catch (error) {
+    console.error('Error viewing medical report:', error);
+    return res.status(500).json({ success: false, message: 'Failed to open medical report' });
+  }
+};
+
 const deleteMedicalReportFile = async (req, res) => {
   try {
     const { cadet_id, file_id } = req.params;
@@ -569,6 +605,7 @@ const sendRetestInvite = async (req, res) => {
 };
 
 module.exports = {
+  getMedicalReportFile,
   deleteMedicalReportFile,
   saveMedicalResult,
   getMedicalResult,

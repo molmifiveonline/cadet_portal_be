@@ -25,18 +25,22 @@ for (const found of [true, false]) {
       '../config/database': {
         query: async (sql, params) => {
           calls.push(sql);
-          assert.deepEqual(Array.from(params), ['file-1', 'cadet-1']);
-          assert.match(sql, /r\.cadet_id = \?/);
-          assert.match(sql, /f\.id = \?/);
+          assert.doesNotMatch(sql, /JOIN/);
+          if (sql.includes('WHERE cadet_id')) {
+            assert.deepEqual(Array.from(params), ['cadet-1']);
+            return [[{ id: 'result-1' }]];
+          }
+          assert.deepEqual(Array.from(params), ['file-1', 'result-1']);
+          assert.match(sql, /id = \? AND medical_result_id = \?/);
           return sql.trim().startsWith('SELECT')
-            ? [found ? [{ id: 'file-1', file_path: '/uploads/report.pdf' }] : []]
+            ? [found ? [{ id: 'file-1', medical_result_id: 'result-1', file_path: '/uploads/report.pdf' }] : []]
             : [{ affectedRows: 1 }];
         },
       },
     });
     const result = await dao.deleteMedicalReportFile('cadet-1', 'file-1');
     assert.equal(result?.id || null, found ? 'file-1' : null);
-    assert.equal(calls.length, found ? 2 : 1);
+    assert.equal(calls.length, found ? 3 : 2);
   });
 }
 

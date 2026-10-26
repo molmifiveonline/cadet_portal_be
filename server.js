@@ -21,6 +21,7 @@ const {
   ensureInterviewDocumentSupport,
   ensureInterviewAttachmentsSupport,
   ensureMedicalReportsSupport,
+  ensureMedicalReportFilesSupport,
   ensureMultipleMedicalAppointmentsSupport,
   ensurePasswordResetSupport,
 } = require("./src/services/schemaUpgradeService");
@@ -108,6 +109,7 @@ app.listen(PORT, () => {
     .then(() => ensureInterviewDocumentSupport())
     .then(() => ensureInterviewAttachmentsSupport())
     .then(() => ensureMedicalReportsSupport())
+    .then(() => ensureMedicalReportFilesSupport())
     .then(() => ensureMultipleMedicalAppointmentsSupport())
     .then(() => ensureAllocationSupport())
     .then(() => ensurePasswordResetSupport())
