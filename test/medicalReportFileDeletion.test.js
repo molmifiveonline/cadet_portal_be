@@ -101,7 +101,7 @@ test('report deletion route authenticates and blocks institute users', () => {
     '../middleware/instituteOwnershipMiddleware': {
       blockInstitute, requireInstituteCadetOwnership: () => () => {},
     },
-    '../middleware/uploadMiddleware': { array: () => () => {} },
+    '../middleware/uploadMiddleware': { medicalReports: { array: () => () => {} } },
   });
   const [url, authenticate, authorize, remove] = routes[0];
   assert.equal(url, '/:cadet_id/files/:file_id');

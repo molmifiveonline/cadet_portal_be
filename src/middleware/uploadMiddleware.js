@@ -36,6 +36,13 @@ const upload = multer({
   limits: uploadLimits,
 });
 
+upload.medicalReports = multer({
+  storage,
+  limits: {
+    fileSize: MAX_FILE_SIZE.MEDICAL_REPORT || 10 * 1024 * 1024,
+  },
+});
+
 const createFileTypeError = (message) => {
   const error = new Error(message);
   error.statusCode = 400;
