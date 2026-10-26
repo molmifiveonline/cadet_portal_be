@@ -176,10 +176,30 @@ const deleteMedicalResult = async (cadetId) => {
   await db.query('DELETE FROM cadet_medical_results WHERE cadet_id = ?', [cadetId]);
 };
 
+const deleteMedicalReportFile = async (cadetId, fileId) => {
+  const [files] = await db.query(
+    `SELECT f.id, f.file_name, f.file_path
+     FROM cadet_medical_result_files f
+     INNER JOIN cadet_medical_results r ON r.id = f.medical_result_id
+     WHERE f.id = ? AND r.cadet_id = ?`,
+    [fileId, cadetId],
+  );
+  if (!files.length) return null;
+
+  const [result] = await db.query(
+    `DELETE f FROM cadet_medical_result_files f
+     INNER JOIN cadet_medical_results r ON r.id = f.medical_result_id
+     WHERE f.id = ? AND r.cadet_id = ?`,
+    [fileId, cadetId],
+  );
+  return result.affectedRows ? files[0] : null;
+};
+
 module.exports = {
   createOrUpdateMedicalResult,
   getMedicalResultByCadetId,
   deleteMedicalResult,
+  deleteMedicalReportFile,
 };
 
 

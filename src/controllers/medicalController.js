@@ -1,4 +1,6 @@
 const medicalDao = require('../dao/cadetMedicalResultsDao');
+const fs = require('fs');
+const path = require('path');
 const activityLogDao = require('../dao/activityLogDao');
 const cadetDao = require('../dao/cadetDao');
 const instituteDao = require('../dao/instituteDao');
@@ -147,6 +149,52 @@ const saveMedicalResult = async (req, res) => {
       success: false,
       message: 'Internal server error',
       error: error.message,
+    });
+  }
+};
+
+const deleteMedicalReportFile = async (req, res) => {
+  try {
+    const { cadet_id, file_id } = req.params;
+    const file = await medicalDao.deleteMedicalReportFile(cadet_id, file_id);
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: 'Medical report file not found',
+      });
+    }
+
+    const filename = path.basename(file.file_path || '');
+    if (filename && file.file_path === `/uploads/${filename}`) {
+      try {
+        await fs.promises.unlink(path.join(__dirname, '../../uploads', filename));
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          console.error('Failed to remove medical report file:', error);
+        }
+      }
+    }
+
+    try {
+      await activityLogDao.createLog(
+        req.user.id,
+        'Medical Report Deleted',
+        `Deleted medical report ${file.file_name} for cadet ${cadet_id}.`,
+        req.ip || req.connection?.remoteAddress,
+      );
+    } catch (error) {
+      console.error('Failed to log medical report deletion:', error);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Medical report deleted successfully',
+    });
+  } catch (error) {
+    console.error('Error deleting medical report:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete medical report',
     });
   }
 };
@@ -521,6 +569,7 @@ const sendRetestInvite = async (req, res) => {
 };
 
 module.exports = {
+  deleteMedicalReportFile,
   saveMedicalResult,
   getMedicalResult,
   bulkConfirmCandidates,
