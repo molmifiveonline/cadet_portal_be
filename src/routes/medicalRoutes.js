@@ -8,6 +8,13 @@ const {
 } = require('../middleware/instituteOwnershipMiddleware');
 const upload = require('../middleware/uploadMiddleware');
 
+router.delete(
+  '/:cadet_id/files/:file_id',
+  authMiddleware,
+  blockInstitute('Institute users are not allowed to delete medical reports'),
+  medicalController.deleteMedicalReportFile,
+);
+
 router.post(
   '/:cadet_id',
   authMiddleware,
