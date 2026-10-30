@@ -1,6 +1,8 @@
 const assessmentDao = require('../dao/assessmentDao');
 const activityLogDao = require('../dao/activityLogDao');
 const cadetDao = require('../dao/cadetDao');
+const fs = require('fs');
+const path = require('path');
 const {
   WORKFLOW_PHASES,
   DISPLAY_STATUS,
@@ -146,11 +148,27 @@ const downloadEssay = async (req, res) => {
       });
     }
 
+    let data = essay.essay_data;
+    if (!data) {
+      const filename = essay.essay_name;
+      if (!filename || filename === '.' || filename === '..' || /[/\\]/.test(filename)) {
+        return res.status(404).json({ success: false, message: 'Essay not found' });
+      }
+      try {
+        data = await fs.promises.readFile(path.join(__dirname, '../../uploads', filename));
+      } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+        return res.status(404).json({ success: false, message: 'Essay not found' });
+      }
+    }
+
+    const filename = path.basename(essay.essay_name || 'essay').replace(/["\\\r\n\x00-\x1F\x7F-\uFFFF]/g, '_');
     res.set({
-      'Content-Type': essay.essay_mime_type,
-      'Content-Disposition': `attachment; filename="${essay.essay_name}"`,
+      'Content-Type': essay.essay_mime_type || 'application/octet-stream',
+      'Content-Disposition': `inline; filename="${filename}"`,
+      'Cache-Control': 'private, no-store',
     });
-    res.send(essay.essay_data);
+    res.send(data);
   } catch (error) {
     console.error('Error in downloadEssay:', error);
     res.status(500).json({

@@ -133,7 +133,7 @@ const getAssessmentByCadetId = async (cadetId) => {
 
   if (assessment) {
     // Add a flag to indicate if an essay is present
-    assessment.has_essay = !!assessment.essay_data;
+    assessment.has_essay = !!(assessment.essay_data || assessment.essay_name);
 
     // Remove only the large binary data to keep JSON responses small
     // but keep metadata so the frontend knows a file exists.
@@ -147,7 +147,7 @@ const getAssessmentEssay = async (cadetId) => {
     'SELECT essay_data, essay_mime_type, essay_name FROM assessments WHERE cadet_id = ?',
     [cadetId],
   );
-  if (rows.length === 0 || !rows[0].essay_data) return null;
+  if (rows.length === 0 || (!rows[0].essay_data && !rows[0].essay_name)) return null;
   return rows[0];
 };
 

@@ -1,6 +1,8 @@
 # cadet_portal_be
 Cadet Portal BE
 
+Production uploads use the Dokploy bind mount `/srv/molmi-cadet/uploads` → `/app/uploads`. Keep the existing Nixpacks configuration and mount on redeployment. See [docs/persistent-uploads.md](docs/persistent-uploads.md) for verified recovery details, backups, and maintenance instructions.
+
 Medical report files are opened through the authenticated `/api/medical-results/:cadet_id/files/:file_id` endpoint. New uploads keep their original filename and a database binary copy, with disk fallback for older uploads. `ensureMedicalReportFilesSupport` creates the file table or adds its nullable `file_data` LONGBLOB column on startup and before the first upload. Deploy the backend and frontend together. Older reports whose disk files have already been lost need to be restored from backup or uploaded again; a database path alone cannot recover their contents. File lookup and deletion use bound result IDs rather than joining ID columns, so legacy tables with different collations remain compatible.
 
 Set the backend `FRONTEND_URL` to the public portal URL, for example `https://cadet.molminavis.com`. If it contains a comma-separated list, put the public portal URL first; additional URLs are allowed CORS origins. Institute email links use this first URL with `/institute-login` and redirect to `/drives` after login. Set `INSTITUTE_LOGIN_URL` only when a separate institute login URL is required. Restart the backend after changing these environment settings.
