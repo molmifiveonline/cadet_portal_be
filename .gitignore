@@ -10,3 +10,8 @@ package-lock.json
 postman_collection.json
 
 .agent/
+
+# Uploaded customer documents are runtime data, not deployable application code.
+uploads/*
+.recovery/
+uploads-backup*.tar.gz
